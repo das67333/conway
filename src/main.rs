@@ -90,11 +90,11 @@ mod benchmarks {
     fn bench_update(b: &mut test::Bencher) {
         // cpu: 1.4 GHz fixed
         // 0    13.1    ms      simple
-        // 1    1.54    ms      addition of 8 byte arrays
-        // 2    690     mcs     bit magic
-        // 2+   380     mcs     +avx2
+        // 1    1.39    ms      addition of 8 byte arrays
+        // 2    688     mcs     bit magic
+        // 2+   377     mcs     +avx2
         // 3+   280     mcs     single vector
-        // 4    225     mcs     portable simd
+        // 4    223     mcs     portable simd
         let mut life = ConwayGrid::<1600, 900>::random();
         b.iter(|| {
             life.update();
