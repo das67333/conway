@@ -1,43 +1,89 @@
-#![feature(portable_simd)]
-#![feature(test)]
-#[warn(clippy::all)]
-extern crate test;
+#![warn(clippy::all)]
 
-pub mod grid4;
-pub mod grid_common;
-use grid4::*;
+// Escape   => quit
+// Space    => frame step
+// P        => pause
+// R        => randomize
+// F (held) => 100 updates per frame
 
-use pixels::{Pixels, SurfaceTexture};
-use winit::{
-    dpi::LogicalSize,
-    event::{Event, VirtualKeyCode},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-};
+mod life_fast;
+mod life_hash;
+mod life_naive;
+mod trait_grid;
+use trait_grid::Grid;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_correctness() {
+        let n = 128;
+        let mut life0 = life_naive::ConwayField::random(n, n, Some(42), 0.3);
+        let mut life1 = life_fast::ConwayField::random(n, n, Some(42), 0.3);
+        let mut life2 = life_hash::ConwayField::random(n, n, Some(42), 0.3);
+
+        life0.update(n);
+        life1.update(n);
+        life2.update(n);
+
+        for y in 0..n {
+            for x in 0..n {
+                assert_eq!(life0.get(x, y), life1.get(x, y), "x={x} y={y}");
+                assert_eq!(life1.get(x, y), life2.get(x, y), "x={x} y={y}");
+            }
+        }
+    }
+}
+
+// fn main() {
+//     // Approximate duration, N=1024, sec
+//     // update(N)            3.67        0.057       6.7
+//     // update(N*10)         36.9        0.58        10.9
+//     // update(N*100)        372         5.7         11.0
+//     let (w, h) = (1024, 1024);
+//     let iters_num = 1_000_000_000 / (w * h) + 1;
+//     let mut life = life_fast::ConwayField::random(w, h, None, 0.3);
+//     let timer = std::time::Instant::now();
+//     life.update(iters_num);
+//     println!("{:?}", timer.elapsed());
+// }
+
 
 fn main() {
-    const WIDTH: usize = 1600;
-    const HEIGHT: usize = 900;
+    use life_fast::ConwayField;
+    use pixels::{Pixels, SurfaceTexture};
+    use winit::{
+        dpi::LogicalSize,
+        event::{Event, VirtualKeyCode},
+        event_loop::{ControlFlow, EventLoop},
+        window::WindowBuilder,
+    };
+    let (width, height) = (1600, 900);
+    let mut life = ConwayField::random(width, height, Some(52), 0.1);
 
     let event_loop = EventLoop::new();
     let mut input = winit_input_helper::WinitInputHelper::new();
-
     let window = {
         WindowBuilder::new()
             .with_title("Conway's Game of Life")
-            .with_inner_size(LogicalSize::new(WIDTH as f64, HEIGHT as f64))
+            .with_inner_size(LogicalSize::new(width as f64, height as f64))
+            .with_decorations(false)
             .with_resizable(false)
             .build(&event_loop)
             .unwrap()
     };
+    // window.focus_window();
 
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH as u32, HEIGHT as u32, surface_texture).unwrap()
+        let mut pixels = Pixels::new(width as u32, height as u32, surface_texture).unwrap();
+        life.draw(pixels.get_frame_mut());
+        pixels.render().unwrap();
+        pixels
     };
 
-    let mut life = ConwayGrid::<WIDTH, HEIGHT>::random();
     let mut paused = false;
 
     event_loop.run(move |event, _, control_flow| {
@@ -48,97 +94,26 @@ fn main() {
                 return;
             }
         }
-
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
                 return;
             }
+            if input.key_pressed(VirtualKeyCode::Space) {
+                paused = true;
+            }
             if input.key_pressed(VirtualKeyCode::P) {
                 paused = !paused;
             }
-            if input.key_held(VirtualKeyCode::F) {
-                for _ in 0..100 {
-                    life.update();
-                }
-            }
-            if input.key_pressed_os(VirtualKeyCode::Space) {
-                paused = true;
-            }
             if input.key_pressed(VirtualKeyCode::R) {
-                life.randomize(None, None);
+                life = ConwayField::random(width, height, None, 0.3);
             }
-            if !paused || input.key_pressed_os(VirtualKeyCode::Space) {
-                life.update();
+            if input.key_held(VirtualKeyCode::F) {
+                life.update(100);
+            } else if !paused || input.key_pressed(VirtualKeyCode::Space) {
+                life.update(1);
             }
             window.request_redraw();
         }
     });
-}
-
-#[cfg(test)]
-mod benchmarks {
-    use super::*;
-
-    #[bench]
-    fn bench_randomize(b: &mut test::Bencher) {
-        let mut life = ConwayGrid::<1600, 900>::random();
-        b.iter(|| life.randomize(None, None));
-    }
-
-    #[bench]
-    fn bench_update(b: &mut test::Bencher) {
-        // cpu: 1.4 GHz fixed
-        // 0    13.1    ms      simple
-        // 1    1.39    ms      addition of 8 byte arrays
-        // 2    688     mcs     bit magic
-        // 2+   377     mcs     +avx2
-        // 3+   280     mcs     single vector
-        // 4    223     mcs     portable simd
-        let mut life = ConwayGrid::<1600, 900>::random();
-        b.iter(|| {
-            life.update();
-        });
-    }
-
-    #[bench]
-    fn bench_for_comparison(b: &mut test::Bencher) {
-        let mut arr1 = vec![1u8; 1600 * 900 + 2];
-        b.iter(|| arr1.fill(1));
-    }
-
-    #[test]
-    fn test_correctness() {
-        use sha2::{Digest, Sha256};
-
-        const WIDTH: usize = 1600;
-        const HEIGHT: usize = 900;
-
-        let mut life = ConwayGrid::<WIDTH, HEIGHT>::random();
-        {
-            let mut hasher = Sha256::new();
-            for y in 0..HEIGHT {
-                for x in 0..WIDTH {
-                    hasher.update(&[life.get(x, y) as u8]);
-                }
-            }
-            assert_eq!(
-                hex::encode(hasher.finalize()),
-                "ec1860faadd0b3d5579e1b1d45f44b1a273b348385db0546cb713921016dd16e"
-            );
-        }
-        life.update();
-        {
-            let mut hasher = Sha256::new();
-            for y in 0..HEIGHT {
-                for x in 0..WIDTH {
-                    hasher.update(&[life.get(x, y) as u8]);
-                }
-            }
-            assert_eq!(
-                hex::encode(hasher.finalize()),
-                "f973b5956357d8a540a288a42549fa799b6244c74c060bc339957cfd03779951"
-            );
-        }
-    }
 }
