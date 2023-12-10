@@ -36,24 +36,6 @@ impl Grid for ConwayField {
         }
     }
 
-    fn random(width: usize, height: usize, seed: Option<u64>, fill_rate: f64) -> Self {
-        use rand::{Rng, SeedableRng};
-        use rand_chacha::ChaCha8Rng;
-
-        let mut rng = if let Some(x) = seed {
-            ChaCha8Rng::seed_from_u64(x)
-        } else {
-            ChaCha8Rng::from_entropy()
-        };
-        let mut result = Self::blank(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                result.set(x, y, rng.gen_bool(fill_rate));
-            }
-        }
-        result
-    }
-
     fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
@@ -71,31 +53,15 @@ impl Grid for ConwayField {
             for y in 0..self.height {
                 for x in 0..self.width {
                     let neibs = self.count_neibs(x, y);
-                    let next = if self.get(x, y) {
+                    let next = if self.cells_curr[x + y * self.width] {
                         neibs == 2 || neibs == 3
                     } else {
                         neibs == 3
                     };
-                    self.set(x, y, next);
+                    self.cells_next[x + y * self.width] = next;
                 }
             }
             std::mem::swap(&mut self.cells_next, &mut self.cells_curr);
-        }
-    }
-
-    fn draw(&self, screen: &mut [u8]) {
-        const BYTES_IN_PIXEL: usize = 4;
-
-        assert_eq!(screen.len(), BYTES_IN_PIXEL * self.width * self.height);
-        for (pixel, &value) in screen
-            .chunks_exact_mut(BYTES_IN_PIXEL)
-            .zip(self.cells_curr.iter())
-        {
-            pixel.copy_from_slice(&if value {
-                [0, 0xff, 0xff, 0xff]
-            } else {
-                [0, 0, 0, 0xff]
-            });
         }
     }
 }

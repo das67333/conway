@@ -301,14 +301,7 @@ impl Grid for ConwayField {
             }
         }
 
-        self.top_field = set_inner(
-            &self.base_fields,
-            &self.top_field,
-            self.size,
-            x,
-            y,
-            value,
-        );
+        self.top_field = set_inner(&self.base_fields, &self.top_field, self.size, x, y, value);
     }
 
     fn update(&mut self, n: usize) {

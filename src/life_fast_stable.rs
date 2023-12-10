@@ -15,14 +15,7 @@ impl ConwayField {
     /// 0xE -> 0xEEEEE...
     const fn repeat_hex(x: u8) -> Chunk {
         assert!(x < 0x10);
-        let mut ans = 0;
-        let mask = x as Chunk;
-        let mut i = 0;
-        while i != Self::CELLS_IN_CHUNK {
-            ans |= mask << (i * 4);
-            i += 1;
-        }
-        ans
+        Chunk::from_ne_bytes([x * 17; std::mem::size_of::<Chunk>()])
     }
 
     #[inline(always)]
@@ -125,24 +118,6 @@ impl Grid for ConwayField {
         }
     }
 
-    fn random(width: usize, height: usize, seed: Option<u64>, fill_rate: f64) -> Self {
-        use rand::{Rng, SeedableRng};
-        use rand_chacha::ChaCha8Rng;
-
-        let mut rng = if let Some(x) = seed {
-            ChaCha8Rng::seed_from_u64(x)
-        } else {
-            ChaCha8Rng::from_entropy()
-        };
-        let mut result = Self::blank(width, height);
-        for y in 0..height {
-            for x in 0..width {
-                result.set(x, y, rng.gen_bool(fill_rate));
-            }
-        }
-        result
-    }
-
     fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
@@ -165,26 +140,8 @@ impl Grid for ConwayField {
     }
 
     fn update(&mut self, n: usize) {
-        unsafe {
-            for _ in 0..n {
-                self.update_inner()
-            }
-        }
-    }
-
-    fn draw(&self, screen: &mut [u8]) {
-        const BYTES_IN_PIXEL: usize = 4;
-
-        assert_eq!(screen.len(), BYTES_IN_PIXEL * self.width * self.height);
-        for (i, pixel) in screen.chunks_exact_mut(BYTES_IN_PIXEL).enumerate() {
-            let value =
-                (self.field[i / Self::CELLS_IN_CHUNK] >> (i % Self::CELLS_IN_CHUNK * 4)) & 1 != 0;
-            let color = if value {
-                [0, 0xff, 0xff, 0xff]
-            } else {
-                [0, 0, 0, 0xff]
-            };
-            pixel.copy_from_slice(&color);
+        for _ in 0..n {
+            unsafe { self.update_inner() }
         }
     }
 }
