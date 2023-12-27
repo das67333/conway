@@ -14,8 +14,17 @@ cargo run --release
 - <kbd>F</kbd>: Do 100 updates per frame
 - <kbd>escape</kbd>: Quit
 
-## Benchmark
+## Benchmarks
 
 ```bash
 cargo bench
+```
+
+Reports are in `target/criterion/`
+
+
+## Tests
+
+```bash
+cargo test
 ```

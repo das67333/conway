@@ -1,26 +1,28 @@
-#![feature(portable_simd)]
-
+use conway::CellularAutomaton;
 use criterion::{criterion_group, criterion_main, Criterion};
 
-fn bench_life_fast_stable(c: &mut Criterion) {
-    use conway::trait_grid::Grid;
+// TODO: optimal size
+const N: usize = 128;
 
-    let (w, h) = (1600, 900);
-    eprintln!("Frame size: {w} x {h}");
-
-    let mut life = conway::life_fast_stable::ConwayField::random(w, h, Some(42), 0.3);
-    c.bench_function("life_fast_stable", |b| b.iter(|| life.update(1)));
+fn bench_life_naive(c: &mut Criterion) {
+    let mut life = conway::life_naive::ConwayField::blank(N, N);
+    life.randomize(Some(42), 0.3);
+    c.bench_function("life_naive", |b| b.iter(|| life.update(N)));
 }
 
-fn bench_life_fast_unstable(c: &mut Criterion) {
-    use conway::trait_grid::Grid;
+// bench_life_hash is meaningless because it quickly reaches stable configuration and memorizes it
 
-    let (w, h) = (1600, 900);
-    eprintln!("Frame size: {w} x {h}");
-
-    let mut life = conway::life_fast_unstable::ConwayField::random(w, h, Some(42), 0.3);
-    c.bench_function("life_fast_unstable", |b| b.iter(|| life.update(1)));
+fn bench_life_simd(c: &mut Criterion) {
+    let mut life = conway::life_simd::ConwayField::blank(N, N);
+    life.randomize(Some(42), 0.3);
+    c.bench_function("life_simd", |b| b.iter(|| life.update(N)));
 }
 
-criterion_group!(benches, bench_life_fast_stable, bench_life_fast_unstable);
+fn bench_life_shader(c: &mut Criterion) {
+    let mut life = conway::life_shader::ConwayField::blank(N, N);
+    life.randomize(Some(42), 0.3);
+    c.bench_function("life_shader", |b| b.iter(|| life.update(N)));
+}
+
+criterion_group!(benches, bench_life_naive, bench_life_simd, bench_life_shader);
 criterion_main!(benches);
