@@ -128,8 +128,8 @@ impl crate::CellularAutomaton for ConwayField {
 
     fn get_cell(&self, x: usize, y: usize) -> bool {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
-        let offset = (x % Self::CELLS_IN_CHUNK) * Self::BITS_PER_CELL;
-        (self.data[pos] >> offset) & 1 != 0
+        let offset = x % Self::CELLS_IN_CHUNK * Self::BITS_PER_CELL;
+        self.data[pos] >> offset & 1 != 0
     }
 
     fn get_cells(&self) -> Vec<bool> {
@@ -142,8 +142,7 @@ impl crate::CellularAutomaton for ConwayField {
 
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
-        let offset = (x % Self::CELLS_IN_CHUNK) * Self::BITS_PER_CELL;
-        let mask = 1 << offset;
+        let mask = 1 << x % Self::CELLS_IN_CHUNK * Self::BITS_PER_CELL;
         if state {
             self.data[pos] |= mask;
         } else {
@@ -155,8 +154,8 @@ impl crate::CellularAutomaton for ConwayField {
         assert_eq!(states.len(), self.width * self.height);
         let data: &mut [u8] = bytemuck::cast_slice_mut(&mut self.data);
         let states = states.iter().map(|x| *x as u8).collect::<Vec<_>>();
-        for (x, y) in data.iter_mut().zip(states.chunks_exact(2)) {
-            *x = y[0] + (y[1] << Self::BITS_PER_CELL);
+        for (dst, src) in data.iter_mut().zip(states.chunks_exact(2)) {
+            *dst = src[0] + (src[1] << Self::BITS_PER_CELL);
         }
     }
 

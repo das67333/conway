@@ -107,7 +107,7 @@ impl ConwayField {
 
     fn insert_base_nodes(hashmap: &mut HashMap) -> [Rc<QuadTreeNode>; 16] {
         let data2x2 = (0..16)
-            .map(|i: u8| [i & 1, (i >> 1) & 1, (i >> 2) & 1, (i >> 3) & 1])
+            .map(|i: u8| [i & 1, i >> 1 & 1, i >> 2 & 1, i >> 3 & 1])
             .collect::<Vec<_>>();
         let fields2x2 = (0..16)
             .map(|i| {
@@ -191,7 +191,7 @@ impl crate::CellularAutomaton for ConwayField {
             if let Some(fields) = &field.data {
                 get_inner(&fields[idx], half, x, y)
             } else {
-                (field.hash >> idx) & 1 != 0
+                field.hash >> idx & 1 != 0
             }
         }
 
@@ -213,10 +213,10 @@ impl crate::CellularAutomaton for ConwayField {
                 get_inner(&fields[2], half, x, y + half, states);
                 get_inner(&fields[3], half, x + half, y + half, states);
             } else {
-                states[y][x] = (field.hash >> 0) & 1 != 0;
-                states[y][x + 1] = (field.hash >> 1) & 1 != 0;
-                states[y + 1][x] = (field.hash >> 2) & 1 != 0;
-                states[y + 1][x + 1] = (field.hash >> 3) & 1 != 0;
+                states[y][x] = field.hash >> 0 & 1 != 0;
+                states[y][x + 1] = field.hash >> 1 & 1 != 0;
+                states[y + 1][x] = field.hash >> 2 & 1 != 0;
+                states[y + 1][x + 1] = field.hash >> 3 & 1 != 0;
             }
         }
 
@@ -316,7 +316,8 @@ impl crate::CellularAutomaton for ConwayField {
             iters_cnt,
             m
         );
-        for _ in 0..iters_cnt / m { // TODO: recursive anyway
+        for _ in 0..iters_cnt / m {
+            // TODO: recursive anyway
             self.update_inner();
         }
     }
