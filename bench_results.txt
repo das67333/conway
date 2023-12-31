@@ -9,34 +9,24 @@ running 0 tests
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 life_naive_update_1024_16
-                        time:   [21.604 ms 21.616 ms 21.633 ms]
-                        change: [-0.5619% -0.4855% -0.4024%] (p = 0.00 < 0.05)
-                        Change within noise threshold.
-Found 7 outliers among 100 measurements (7.00%)
+                        time:   [21.901 ms 22.064 ms 22.262 ms]
+Found 10 outliers among 100 measurements (10.00%)
   2 (2.00%) high mild
-  5 (5.00%) high severe
+  8 (8.00%) high severe
 
 life_simd1_update_4096_16
-                        time:   [17.872 ms 17.897 ms 17.930 ms]
-                        change: [+5.5738% +5.9373% +6.2655%] (p = 0.00 < 0.05)
-                        Performance has regressed.
-Found 12 outliers among 100 measurements (12.00%)
+                        time:   [17.807 ms 17.837 ms 17.886 ms]
+Found 11 outliers among 100 measurements (11.00%)
   6 (6.00%) high mild
-  6 (6.00%) high severe
+  5 (5.00%) high severe
 
 life_simd2_update_4096_16
-                        time:   [9.7893 ms 9.7950 ms 9.8011 ms]
-                        change: [+0.7985% +0.8733% +0.9476%] (p = 0.00 < 0.05)
-                        Change within noise threshold.
-Found 8 outliers among 100 measurements (8.00%)
-  2 (2.00%) low mild
-  3 (3.00%) high mild
-  3 (3.00%) high severe
+                        time:   [8.3134 ms 8.3175 ms 8.3222 ms]
+Found 15 outliers among 100 measurements (15.00%)
+  11 (11.00%) high mild
+  4 (4.00%) high severe
 
 life_shader_update_4096_16
-                        time:   [7.2708 ms 7.2931 ms 7.3143 ms]
-                        change: [-1.2027% -0.7440% -0.2592%] (p = 0.00 < 0.05)
-                        Change within noise threshold.
-Found 2 outliers among 100 measurements (2.00%)
-  2 (2.00%) low mild
-
+                        time:   [7.3033 ms 7.3312 ms 7.3587 ms]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) low mild

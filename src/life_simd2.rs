@@ -1,8 +1,7 @@
 type Chunk = u64;
 
 pub struct ConwayField {
-    data_curr: Vec<Chunk>,
-    data_next: Vec<Chunk>,
+    data: Vec<Chunk>,
     width: usize,
     height: usize,
     width_effective: usize,
@@ -12,94 +11,101 @@ impl ConwayField {
     const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
 
     #[target_feature(enable = "avx2")]
-    unsafe fn update_row(&mut self, y: usize, y1: usize, y2: usize) {
-        let shift = Self::CELLS_IN_CHUNK - 1;
+    unsafe fn update_row(
+        row_prev: &[Chunk],
+        row_curr: &[Chunk],
+        row_next: &[Chunk],
+        dst: &mut [Chunk],
+    ) {
+        // TODO: double word technique
+        let (w, shift) = (row_prev.len(), Self::CELLS_IN_CHUNK - 1);
+        let (x, x1, x2) = (0, w - 1, 1);
 
-        let (x, x1, x2) = (0, self.width_effective - 1, 1);
-
-        let b = self.data_curr[x + y1 * self.width_effective];
-        let a = (b << 1) | (self.data_curr[x1 + y1 * self.width_effective] >> shift);
-        let c = (b >> 1) | (self.data_curr[x2 + y1 * self.width_effective] << shift);
-        let i = self.data_curr[x + y * self.width_effective];
-        let h = (i << 1) | (self.data_curr[x1 + y * self.width_effective] >> shift);
-        let d = (i >> 1) | (self.data_curr[x2 + y * self.width_effective] << shift);
-        let f = self.data_curr[x + y2 * self.width_effective];
-        let g = (f << 1) | (self.data_curr[x1 + y2 * self.width_effective] >> shift);
-        let e = (f >> 1) | (self.data_curr[x2 + y2 * self.width_effective] << shift);
-
+        let b = row_prev[x];
+        let a = (b << 1) | (row_prev[x1] >> shift);
+        let c = (b >> 1) | (row_prev[x2] << shift);
+        let i = row_curr[x];
+        let h = (i << 1) | (row_curr[x1] >> shift);
+        let d = (i >> 1) | (row_curr[x2] << shift);
+        let f = row_next[x];
+        let g = (f << 1) | (row_next[x1] >> shift);
+        let e = (f >> 1) | (row_next[x2] << shift);
         let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
         let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-
         let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
         let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-
         let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
         let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
         let z = !ah23 & ah1;
         let (i2, i3) = (!ah0 & z, ah0 & z);
+        dst[x] = (i & i2) | i3;
 
-        self.data_next[x + y * self.width_effective] = (i & i2) | i3;
-
-        for x in 1..self.width_effective - 1 {
+        for x in 1..w - 1 {
             let (x, x1, x2) = (x, x - 1, x + 1);
 
-            let b = self.data_curr[x + y1 * self.width_effective];
-            let a = (b << 1) | (self.data_curr[x1 + y1 * self.width_effective] >> shift);
-            let c = (b >> 1) | (self.data_curr[x2 + y1 * self.width_effective] << shift);
-            let i = self.data_curr[x + y * self.width_effective];
-            let h = (i << 1) | (self.data_curr[x1 + y * self.width_effective] >> shift);
-            let d = (i >> 1) | (self.data_curr[x2 + y * self.width_effective] << shift);
-            let f = self.data_curr[x + y2 * self.width_effective];
-            let g = (f << 1) | (self.data_curr[x1 + y2 * self.width_effective] >> shift);
-            let e = (f >> 1) | (self.data_curr[x2 + y2 * self.width_effective] << shift);
-
+            let b = row_prev[x];
+            let a = (b << 1) | (row_prev[x1] >> shift);
+            let c = (b >> 1) | (row_prev[x2] << shift);
+            let i = row_curr[x];
+            let h = (i << 1) | (row_curr[x1] >> shift);
+            let d = (i >> 1) | (row_curr[x2] << shift);
+            let f = row_next[x];
+            let g = (f << 1) | (row_next[x1] >> shift);
+            let e = (f >> 1) | (row_next[x2] << shift);
             let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
             let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-
             let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
             let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-
             let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
             let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
             let z = !ah23 & ah1;
             let (i2, i3) = (!ah0 & z, ah0 & z);
-
-            self.data_next[x + y * self.width_effective] = (i & i2) | i3;
+            dst[x] = (i & i2) | i3;
         }
-        let (x, x1, x2) = (self.width_effective - 1, self.width_effective - 2, 0);
+        let (x, x1, x2) = (w - 1, w - 2, 0);
 
-        let b = self.data_curr[x + y1 * self.width_effective];
-        let a = (b << 1) | (self.data_curr[x1 + y1 * self.width_effective] >> shift);
-        let c = (b >> 1) | (self.data_curr[x2 + y1 * self.width_effective] << shift);
-        let i = self.data_curr[x + y * self.width_effective];
-        let h = (i << 1) | (self.data_curr[x1 + y * self.width_effective] >> shift);
-        let d = (i >> 1) | (self.data_curr[x2 + y * self.width_effective] << shift);
-        let f = self.data_curr[x + y2 * self.width_effective];
-        let g = (f << 1) | (self.data_curr[x1 + y2 * self.width_effective] >> shift);
-        let e = (f >> 1) | (self.data_curr[x2 + y2 * self.width_effective] << shift);
-
+        let b = row_prev[x];
+        let a = (b << 1) | (row_prev[x1] >> shift);
+        let c = (b >> 1) | (row_prev[x2] << shift);
+        let i = row_curr[x];
+        let h = (i << 1) | (row_curr[x1] >> shift);
+        let d = (i >> 1) | (row_curr[x2] << shift);
+        let f = row_next[x];
+        let g = (f << 1) | (row_next[x1] >> shift);
+        let e = (f >> 1) | (row_next[x2] << shift);
         let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
         let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-
         let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
         let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-
         let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
         let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
         let z = !ah23 & ah1;
         let (i2, i3) = (!ah0 & z, ah0 & z);
-
-        self.data_next[x + y * self.width_effective] = (i & i2) | i3;
+        dst[x] = (i & i2) | i3;
     }
 
     #[target_feature(enable = "avx2")]
     unsafe fn update_inner(&mut self) {
-        for y in 0..self.height {
-            let y1 = self.height * (y == 0) as usize + y - 1;
-            let y2 = y + 1 - self.height * (y == self.height - 1) as usize;
-            self.update_row(y, y1, y2);
+        let (w, h) = (self.width_effective, self.height);
+        let mut row_prev = self.data[(h - 1) * w..].to_vec();
+        let mut row_curr = self.data[..w].to_vec();
+        let row_preserved = row_curr.to_vec();
+        let mut row_next = self.data[w..2 * w].to_vec();
+        let dst = &mut self.data[..w];
+        Self::update_row(&row_prev, &row_curr, &row_next, dst);
+
+        for y in 1..self.height - 1 {
+            std::mem::swap(&mut row_prev, &mut row_curr);
+            std::mem::swap(&mut row_curr, &mut row_next);
+            row_next.copy_from_slice(&self.data[(y + 1) * w..(y + 2) * w]);
+            let dst = &mut self.data[y * w..(y + 1) * w];
+            Self::update_row(&row_prev, &row_curr, &row_next, dst);
         }
-        std::mem::swap(&mut self.data_curr, &mut self.data_next);
+
+        std::mem::swap(&mut row_prev, &mut row_curr);
+        std::mem::swap(&mut row_curr, &mut row_next);
+        let dst = &mut self.data[(h - 1) * w..];
+        Self::update_row(&row_prev, &row_curr, &row_preserved, dst);
     }
 }
 
@@ -107,11 +113,9 @@ impl crate::CellularAutomaton for ConwayField {
     fn blank(width: usize, height: usize) -> Self {
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;
-        // assert!(width_effective >= 2 && height >= 2); todo
-        let size = width_effective * height;
+        assert!(width_effective >= 2 && height >= 2);
         Self {
-            data_curr: vec![0; size],
-            data_next: vec![0; size],
+            data: vec![0; width_effective * height],
             width,
             height,
             width_effective,
@@ -125,11 +129,11 @@ impl crate::CellularAutomaton for ConwayField {
     fn get_cell(&self, x: usize, y: usize) -> bool {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
         let offset = x % Self::CELLS_IN_CHUNK;
-        self.data_curr[pos] >> offset & 1 != 0
+        self.data[pos] >> offset & 1 != 0
     }
 
     fn get_cells(&self) -> Vec<bool> {
-        self.data_curr
+        self.data
             .iter()
             .flat_map(|x| (0..Self::CELLS_IN_CHUNK).map(|i| (*x >> i & 1 != 0)))
             .collect()
@@ -137,18 +141,18 @@ impl crate::CellularAutomaton for ConwayField {
 
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
-        let mask = 1 << x % Self::CELLS_IN_CHUNK;
+        let mask = 1 << (x % Self::CELLS_IN_CHUNK);
         if state {
-            self.data_curr[pos] |= mask;
+            self.data[pos] |= mask;
         } else {
-            self.data_curr[pos] &= !mask;
+            self.data[pos] &= !mask;
         }
     }
 
     fn set_cells(&mut self, states: &[bool]) {
         assert_eq!(states.len(), self.width * self.height);
         for (dst, src) in self
-            .data_curr
+            .data
             .iter_mut()
             .zip(states.chunks_exact(Self::CELLS_IN_CHUNK))
         {

@@ -213,7 +213,7 @@ impl crate::CellularAutomaton for ConwayField {
                 get_inner(&fields[2], half, x, y + half, states);
                 get_inner(&fields[3], half, x + half, y + half, states);
             } else {
-                states[y][x] = field.hash >> 0 & 1 != 0;
+                states[y][x] = field.hash & 1 != 0;
                 states[y][x + 1] = field.hash >> 1 & 1 != 0;
                 states[y + 1][x] = field.hash >> 2 & 1 != 0;
                 states[y + 1][x + 1] = field.hash >> 3 & 1 != 0;

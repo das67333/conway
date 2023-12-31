@@ -91,7 +91,7 @@ impl ConwayField {
         );
         self.calc_sums(&mut sums_prev, self.height - 1);
         self.calc_sums(&mut sums_curr, 0);
-        let mut preserved = sums_curr.clone();
+        let sums_preserved = sums_curr.clone();
         self.calc_sums(&mut sums_next, 1);
         self.update_row(&sums_prev, &sums_curr, &sums_next, 0);
 
@@ -103,8 +103,7 @@ impl ConwayField {
         }
         std::mem::swap(&mut sums_prev, &mut sums_curr);
         std::mem::swap(&mut sums_curr, &mut sums_next);
-        std::mem::swap(&mut sums_next, &mut preserved);
-        self.update_row(&sums_prev, &sums_curr, &sums_next, self.height - 1);
+        self.update_row(&sums_prev, &sums_curr, &sums_preserved, self.height - 1);
     }
 }
 
@@ -142,7 +141,7 @@ impl crate::CellularAutomaton for ConwayField {
 
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
-        let mask = 1 << x % Self::CELLS_IN_CHUNK * Self::BITS_PER_CELL;
+        let mask = 1 << (x % Self::CELLS_IN_CHUNK * Self::BITS_PER_CELL);
         if state {
             self.data[pos] |= mask;
         } else {

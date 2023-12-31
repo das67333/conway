@@ -68,11 +68,12 @@ impl crate::CellularAutomaton for ConwayField {
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;
         let instance = wgpu::Instance::default();
-        let request_adapter_options: wgpu::RequestAdapterOptionsBase<&wgpu::Surface> = wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        };
+        let request_adapter_options: wgpu::RequestAdapterOptionsBase<&wgpu::Surface> =
+            wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            };
         let adapter = pollster::block_on(instance.request_adapter(&request_adapter_options))
             .expect("No adapters found");
         let (device, queue) = pollster::block_on(adapter.request_device(
@@ -87,7 +88,7 @@ impl crate::CellularAutomaton for ConwayField {
         let buffer_desc = wgpu::BufferDescriptor {
             label: None,
             size: (width_effective * height * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE // TODO
+            usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
@@ -193,7 +194,7 @@ impl crate::CellularAutomaton for ConwayField {
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         self.data_is_synced = false;
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
-        let mask = 1 << x % Self::CELLS_IN_CHUNK;
+        let mask = 1 << (x % Self::CELLS_IN_CHUNK);
         if state {
             self.data[pos] |= mask;
         } else {
