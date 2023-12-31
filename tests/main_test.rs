@@ -3,7 +3,7 @@ use rand::{Rng, SeedableRng};
 
 const N: usize = 128;
 const SEED: u64 = 42;
-const FILL_RATE: f64 = 0.3;
+const FILL_RATE: f64 = 0.6;
 
 #[test]
 fn test_consistency() {

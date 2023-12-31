@@ -19,17 +19,12 @@ impl ConwayField {
     const CELLS_IN_CHUNK: usize = 32;
 
     fn update_inner(&mut self, iters_cnt: usize) {
-        // ...bind_group
-        log::info!("Entering update, iter_cnt={iters_cnt}");
-
         if !self.data_is_synced {
-            log::info!("Started syncing the field with gpu");
             self.queue.write_buffer(
                 &self.storage_buffers[self.idx_active],
                 0,
                 bytemuck::cast_slice(self.data.as_slice()),
             );
-            log::info!("Synced the field");
         }
 
         let mut encoder = self
@@ -41,10 +36,7 @@ impl ConwayField {
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, &self.bind_groups[self.idx_active], &[]);
-            log::info!("Start dispatch");
             compute_pass.dispatch_workgroups(self.height as u32, 1, 1);
-            log::info!("Finish dispatch");
-            drop(compute_pass);
             self.idx_active = 1 - self.idx_active;
         }
 
@@ -57,20 +49,17 @@ impl ConwayField {
         );
 
         self.queue.submit(Some(encoder.finish()));
-        log::info!("Submitted commands.");
         let buffer_slice = self.staging_buffer.slice(..);
         let (sender, receiver) = flume::bounded(1);
         buffer_slice.map_async(wgpu::MapMode::Read, move |r| sender.send(r).unwrap());
         self.device.poll(wgpu::Maintain::Wait);
-        log::info!("Device polled.");
         pollster::block_on(receiver.recv_async()).unwrap().unwrap();
-        log::info!("Result received.");
 
         let view = buffer_slice.get_mapped_range();
         self.data.copy_from_slice(bytemuck::cast_slice(&view));
         drop(view);
-        log::info!("Results written to local buffer.");
         self.staging_buffer.unmap();
+        self.data_is_synced = true;
     }
 }
 
@@ -80,7 +69,7 @@ impl crate::CellularAutomaton for ConwayField {
         let width_effective = width / Self::CELLS_IN_CHUNK;
         // TODO: assert width_effective >= 2?
         let instance = wgpu::Instance::default();
-        let request_adapter_options = wgpu::RequestAdapterOptions {
+        let request_adapter_options: wgpu::RequestAdapterOptionsBase<&wgpu::Surface> = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
@@ -106,7 +95,7 @@ impl crate::CellularAutomaton for ConwayField {
         };
         let uniform_size = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&[width as i32, height as i32]), // TODO
+            contents: bytemuck::cast_slice(&[width_effective as u32, height as u32]), // TODO
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let storage_buffers = [0; 2].map(|_| device.create_buffer(&buffer_desc));

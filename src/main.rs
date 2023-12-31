@@ -23,17 +23,16 @@ use conway::CellularAutomaton;
 // };
 
 fn main() {
-        env_logger::builder()
-            .filter_level(log::LevelFilter::Info)
-            .format_timestamp_nanos()
-            .init();
+        // env_logger::builder()
+        //     .filter_level(log::LevelFilter::Info)
+        //     .format_timestamp_nanos()
+        //     .init();
 
-    let (w, h) = (1024, 1024);
-    // let iters_num = 100_000_000_000 / (w * h) + 1;
-    let mut life = life_shader::ConwayField::blank(w, h);
-    life.randomize(None, 0.3);
+    let (w, h) = (1 << 15, 1 << 15);
+    let mut life = life_simd::ConwayField::blank(w, h);
+    life.randomize(None, 0.6);
     let timer = std::time::Instant::now();
-    life.update(1);
+    life.update(100);
     println!("{:?}", timer.elapsed());
 }
 
