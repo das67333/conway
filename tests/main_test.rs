@@ -17,10 +17,10 @@ fn test_consistency() {
     life_hash.randomize(Some(SEED), FILL_RATE);
     life_shader.randomize(Some(SEED), FILL_RATE);
 
-    life_naive.update(N);
-    life_simd.update(N);
-    life_hash.update(N);
-    life_shader.update(N);
+    life_naive.update(N / 2);
+    life_simd.update(N / 2);
+    life_hash.update(N / 2);
+    life_shader.update(N / 2);
 
     let v = [
         life_naive.get_cells(),

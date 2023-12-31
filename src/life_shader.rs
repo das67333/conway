@@ -67,7 +67,6 @@ impl crate::CellularAutomaton for ConwayField {
     fn blank(width: usize, height: usize) -> ConwayField {
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;
-        // TODO: assert width_effective >= 2?
         let instance = wgpu::Instance::default();
         let request_adapter_options: wgpu::RequestAdapterOptionsBase<&wgpu::Surface> = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -87,7 +86,7 @@ impl crate::CellularAutomaton for ConwayField {
         .unwrap();
         let buffer_desc = wgpu::BufferDescriptor {
             label: None,
-            size: (width * height / 8) as u64,
+            size: (width_effective * height * 4) as u64,
             usage: wgpu::BufferUsages::STORAGE // TODO
                 | wgpu::BufferUsages::COPY_DST
                 | wgpu::BufferUsages::COPY_SRC,
@@ -95,14 +94,14 @@ impl crate::CellularAutomaton for ConwayField {
         };
         let uniform_size = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            contents: bytemuck::cast_slice(&[width_effective as u32, height as u32]), // TODO
+            contents: bytemuck::cast_slice(&[width_effective as u32, height as u32]),
             usage: wgpu::BufferUsages::UNIFORM,
         });
         let storage_buffers = [0; 2].map(|_| device.create_buffer(&buffer_desc));
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
-                (0, wgpu::BufferBindingType::Uniform), // TODO: to separate group for performance
+                (0, wgpu::BufferBindingType::Uniform),
                 (1, wgpu::BufferBindingType::Storage { read_only: true }),
                 (2, wgpu::BufferBindingType::Storage { read_only: false }),
             ]
@@ -139,7 +138,7 @@ impl crate::CellularAutomaton for ConwayField {
         });
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: (width * height / 8) as u64,
+            size: (width_effective * height * 4) as u64,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

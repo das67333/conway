@@ -3,11 +3,13 @@
 @group(0) @binding(2) var<storage, read_write> field_next: array<u32>;
 
 @compute @workgroup_size(1)
-fn main(@builtin(global_invocation_id) grid: vec3<u32>) {
-    let y = grid.x;
+fn main(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+) {
+    let y = global_id.x;
     let y1 = y - 1u + size.y * u32(y == 0u);
     let y2 = y + 1u - size.y * u32(y == size.y - 1u);
-    for (var x: u32 = 0u; x < size.x; x++) {
+    for (var x: u32 = 0u; x != size.x; x++) {
         let x1 = x - 1u + size.x * u32(x == 0u);
         let x2 = x + 1u - size.x * u32(x == size.x - 1u);
 
@@ -45,6 +47,7 @@ fn main(@builtin(global_invocation_id) grid: vec3<u32>) {
         let Z = ~AH23 & AH1;
         let I2 = ~AH0 & Z;
         let I3 = AH0 & Z;
+
         field_next[x + y * size.x] = (I & I2) | I3;
     }
 }

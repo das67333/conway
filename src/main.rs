@@ -29,7 +29,7 @@ fn main() {
         //     .init();
 
     let (w, h) = (1 << 15, 1 << 15);
-    let mut life = life_simd::ConwayField::blank(w, h);
+    let mut life = life_shader::ConwayField::blank(w, h);
     life.randomize(None, 0.6);
     let timer = std::time::Instant::now();
     life.update(100);
