@@ -1,7 +1,8 @@
-pub mod life_simd;
 pub mod life_hash;
 pub mod life_naive;
 pub mod life_shader;
+pub mod life_simd1;
+pub mod life_simd2;
 
 pub trait CellularAutomaton: Sized {
     /// Creates a field filled with dead cells

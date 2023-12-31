@@ -6,10 +6,11 @@
 // R        => randomize
 // F (held) => 100 updates per frame
 
-mod life_simd;
 mod life_hash;
 mod life_naive;
 mod life_shader;
+mod life_simd1;
+mod life_simd2;
 
 use conway::CellularAutomaton;
 // use wgpu::util::DeviceExt;
@@ -23,13 +24,13 @@ use conway::CellularAutomaton;
 // };
 
 fn main() {
-        // env_logger::builder()
-        //     .filter_level(log::LevelFilter::Info)
-        //     .format_timestamp_nanos()
-        //     .init();
+    // env_logger::builder()
+    //     .filter_level(log::LevelFilter::Info)
+    //     .format_timestamp_nanos()
+    //     .init();
 
     let (w, h) = (1 << 15, 1 << 15);
-    let mut life = life_shader::ConwayField::blank(w, h);
+    let mut life = life_simd2::ConwayField::blank(w, h);
     life.randomize(None, 0.6);
     let timer = std::time::Instant::now();
     life.update(100);
