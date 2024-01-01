@@ -6,13 +6,9 @@
 // R        => randomize
 // F (held) => 100 updates per frame
 
-mod life_hash;
-mod life_naive;
-mod life_shader;
-mod life_simd1;
-mod life_simd2;
+mod lifes;
+use conway::{CellularAutomaton, ConwayFieldSimd2};
 
-use conway::CellularAutomaton;
 // use wgpu::util::DeviceExt;
 // use winit::{
 //     dpi::{LogicalSize, PhysicalSize},
@@ -30,7 +26,7 @@ fn main() {
     //     .init();
 
     let (w, h) = (1 << 15, 1 << 15);
-    let mut life = life_simd2::ConwayField::blank(w, h);
+    let mut life = ConwayFieldSimd2::blank(w, h);
     life.randomize(None, 0.6);
     let timer = std::time::Instant::now();
     life.update(100);

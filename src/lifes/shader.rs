@@ -1,6 +1,7 @@
+use super::ca_trait::CellularAutomaton;
 use wgpu::util::DeviceExt;
 
-pub struct ConwayField {
+pub struct ConwayFieldShader {
     data: Vec<u32>,
     data_is_synced: bool,
     width: usize,
@@ -15,7 +16,7 @@ pub struct ConwayField {
     pipeline: wgpu::ComputePipeline,
 }
 
-impl ConwayField {
+impl ConwayFieldShader {
     const CELLS_IN_CHUNK: usize = 32;
 
     fn update_inner(&mut self, iters_cnt: usize) {
@@ -63,8 +64,12 @@ impl ConwayField {
     }
 }
 
-impl crate::CellularAutomaton for ConwayField {
-    fn blank(width: usize, height: usize) -> ConwayField {
+impl CellularAutomaton for ConwayFieldShader {
+    fn id<'a>() -> &'a str {
+        "shader"
+    }
+
+    fn blank(width: usize, height: usize) -> ConwayFieldShader {
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;
         let instance = wgpu::Instance::default();
@@ -150,7 +155,7 @@ impl crate::CellularAutomaton for ConwayField {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("compute.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader_compute.wgsl").into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,
@@ -158,7 +163,7 @@ impl crate::CellularAutomaton for ConwayField {
             module: &shader,
             entry_point: "main",
         });
-        ConwayField {
+        ConwayFieldShader {
             data: vec![0; width_effective * height],
             data_is_synced: false,
             width,

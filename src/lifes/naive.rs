@@ -1,13 +1,14 @@
-pub struct ConwayField {
+use super::ca_trait::CellularAutomaton;
+
+pub struct ConwayFieldNaive {
     data_curr: Vec<bool>,
     data_next: Vec<bool>,
     width: usize,
     height: usize,
 }
 
-impl ConwayField {
+impl ConwayFieldNaive {
     fn count_neibs(&self, x: usize, y: usize) -> u8 {
-        use crate::CellularAutomaton;
         let x1 = if x == 0 { self.width - 1 } else { x - 1 };
         let x2 = if x == self.width - 1 { 0 } else { x + 1 };
         let y1 = if y == 0 { self.height - 1 } else { y - 1 };
@@ -23,7 +24,11 @@ impl ConwayField {
     }
 }
 
-impl crate::CellularAutomaton for ConwayField {
+impl CellularAutomaton for ConwayFieldNaive {
+    fn id<'a>() -> &'a str {
+        "naive"
+    }
+
     fn blank(width: usize, height: usize) -> Self {
         assert!(width >= 1 && height >= 1);
         Self {

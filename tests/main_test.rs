@@ -1,4 +1,4 @@
-use conway::{life_hash, life_naive, life_shader, life_simd1, life_simd2, CellularAutomaton};
+use conway::*;
 use rand::{Rng, SeedableRng};
 
 const N: usize = 128;
@@ -7,11 +7,11 @@ const FILL_RATE: f64 = 0.6;
 
 #[test]
 fn test_consistency() {
-    let mut life_naive = life_naive::ConwayField::blank(N, N);
-    let mut life_simd1 = life_simd1::ConwayField::blank(N, N);
-    let mut life_simd2 = life_simd2::ConwayField::blank(N, N);
-    let mut life_hash = life_hash::ConwayField::blank(N, N);
-    let mut life_shader = life_shader::ConwayField::blank(N, N);
+    let mut life_naive = ConwayFieldNaive::blank(N, N);
+    let mut life_simd1 = ConwayFieldSimd1::blank(N, N);
+    let mut life_simd2 = ConwayFieldSimd2::blank(N, N);
+    let mut life_hash = ConwayFieldHash::blank(N, N);
+    let mut life_shader = ConwayFieldShader::blank(N, N);
 
     life_naive.randomize(Some(SEED), FILL_RATE);
     life_simd1.randomize(Some(SEED), FILL_RATE);
@@ -42,11 +42,11 @@ fn test_consistency() {
 
 #[test]
 fn test_get_single_and_multiple() {
-    let mut life_naive = life_naive::ConwayField::blank(N, N);
-    let mut life_simd1 = life_simd1::ConwayField::blank(N, N);
-    let mut life_simd2 = life_simd2::ConwayField::blank(N, N);
-    let mut life_hash = life_hash::ConwayField::blank(N, N);
-    let mut life_shader = life_shader::ConwayField::blank(N, N);
+    let mut life_naive = ConwayFieldNaive::blank(N, N);
+    let mut life_simd1 = ConwayFieldSimd1::blank(N, N);
+    let mut life_simd2 = ConwayFieldSimd2::blank(N, N);
+    let mut life_hash = ConwayFieldHash::blank(N, N);
+    let mut life_shader = ConwayFieldShader::blank(N, N);
 
     life_naive.randomize(Some(SEED), FILL_RATE);
     life_simd1.randomize(Some(SEED), FILL_RATE);
@@ -89,17 +89,17 @@ fn test_get_single_and_multiple() {
 
 #[test]
 fn test_set_single_and_multiple() {
-    let mut life_naive_single = life_naive::ConwayField::blank(N, N);
-    let mut life_simd1_single = life_simd1::ConwayField::blank(N, N);
-    let mut life_simd2_single = life_simd2::ConwayField::blank(N, N);
-    let mut life_hash_single = life_hash::ConwayField::blank(N, N);
-    let mut life_shader_single = life_shader::ConwayField::blank(N, N);
+    let mut life_naive_single = ConwayFieldNaive::blank(N, N);
+    let mut life_simd1_single = ConwayFieldSimd1::blank(N, N);
+    let mut life_simd2_single = ConwayFieldSimd2::blank(N, N);
+    let mut life_hash_single = ConwayFieldHash::blank(N, N);
+    let mut life_shader_single = ConwayFieldShader::blank(N, N);
 
-    let mut life_naive_multi = life_naive::ConwayField::blank(N, N);
-    let mut life_simd1_multi = life_simd1::ConwayField::blank(N, N);
-    let mut life_simd2_multi = life_simd2::ConwayField::blank(N, N);
-    let mut life_hash_multi = life_hash::ConwayField::blank(N, N);
-    let mut life_shader_multi = life_shader::ConwayField::blank(N, N);
+    let mut life_naive_multi = ConwayFieldNaive::blank(N, N);
+    let mut life_simd1_multi = ConwayFieldSimd1::blank(N, N);
+    let mut life_simd2_multi = ConwayFieldSimd2::blank(N, N);
+    let mut life_hash_multi = ConwayFieldHash::blank(N, N);
+    let mut life_shader_multi = ConwayFieldShader::blank(N, N);
 
     life_naive_single.randomize(Some(SEED), FILL_RATE);
     life_simd1_single.randomize(Some(SEED), FILL_RATE);

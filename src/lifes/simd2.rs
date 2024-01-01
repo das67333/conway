@@ -1,13 +1,15 @@
+use super::ca_trait::CellularAutomaton;
+
 type Chunk = u64;
 
-pub struct ConwayField {
+pub struct ConwayFieldSimd2 {
     data: Vec<Chunk>,
     width: usize,
     height: usize,
     width_effective: usize,
 }
 
-impl ConwayField {
+impl ConwayFieldSimd2 {
     const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
 
     #[target_feature(enable = "avx2")]
@@ -109,7 +111,11 @@ impl ConwayField {
     }
 }
 
-impl crate::CellularAutomaton for ConwayField {
+impl CellularAutomaton for ConwayFieldSimd2 {
+    fn id<'a>() -> &'a str {
+        "simd2"
+    }
+
     fn blank(width: usize, height: usize) -> Self {
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;

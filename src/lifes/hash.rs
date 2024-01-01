@@ -1,4 +1,6 @@
+use super::ca_trait::CellularAutomaton;
 use std::rc::Rc;
+
 type HashMap =
     std::collections::HashMap<u64, Rc<QuadTreeNode>, nohash_hasher::BuildNoHashHasher<u64>>;
 
@@ -8,14 +10,14 @@ struct QuadTreeNode {
     data: Option<[Rc<QuadTreeNode>; 4]>,
 }
 
-pub struct ConwayField {
+pub struct ConwayFieldHash {
     root: Rc<QuadTreeNode>,
     size: usize,
     node_updates: HashMap,
     base_nodes: [Rc<QuadTreeNode>; 16],
 }
 
-impl ConwayField {
+impl ConwayFieldHash {
     const fn rehash(nw: u64, ne: u64, sw: u64, se: u64) -> u64 {
         const fn xorshift64(mut x: u64) -> u64 {
             x ^= x << 13;
@@ -157,7 +159,11 @@ impl ConwayField {
     }
 }
 
-impl crate::CellularAutomaton for ConwayField {
+impl CellularAutomaton for ConwayFieldHash {
+    fn id<'a>() -> &'a str {
+        "hash"
+    }
+
     fn blank(width: usize, height: usize) -> Self {
         assert_eq!(width, height);
         assert!(width >= 4 && width.is_power_of_two());
@@ -251,7 +257,7 @@ impl crate::CellularAutomaton for ConwayField {
                 let new_field = set_inner(base_nodes, &fields[idx], half, x, y, state);
                 let mut fields = fields.clone();
                 fields[idx] = new_field;
-                let hash = ConwayField::rehash(
+                let hash = ConwayFieldHash::rehash(
                     fields[0].hash,
                     fields[1].hash,
                     fields[2].hash,
@@ -297,7 +303,7 @@ impl crate::CellularAutomaton for ConwayField {
                 let sw = set_inner(base_nodes, half, x, y + half, states);
                 let se = set_inner(base_nodes, half, x + half, y + half, states);
                 Rc::new(QuadTreeNode {
-                    hash: ConwayField::rehash(nw.hash, ne.hash, sw.hash, se.hash),
+                    hash: ConwayFieldHash::rehash(nw.hash, ne.hash, sw.hash, se.hash),
                     data: Some([nw, ne, sw, se]),
                 })
             }
