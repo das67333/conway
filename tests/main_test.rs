@@ -26,11 +26,11 @@ fn test_consistency() {
     life_shader.update(N / 2);
 
     let v = [
-        life_naive.get_cells(),
-        life_simd1.get_cells(),
-        life_simd2.get_cells(),
-        life_hash.get_cells(),
-        life_shader.get_cells(),
+        life_naive.get_cells(.., ..),
+        life_simd1.get_cells(.., ..),
+        life_simd2.get_cells(.., ..),
+        life_hash.get_cells(.., ..),
+        life_shader.get_cells(.., ..),
     ];
     let s = v
         .iter()
@@ -54,11 +54,11 @@ fn test_get_single_and_multiple() {
     life_hash.randomize(Some(SEED), FILL_RATE);
     life_shader.randomize(Some(SEED), FILL_RATE);
 
-    let cells_naive = life_naive.get_cells();
-    let cells_simd1 = life_simd1.get_cells();
-    let cells_simd2 = life_simd1.get_cells();
-    let cells_hash = life_hash.get_cells();
-    let cells_shader = life_shader.get_cells();
+    let cells_naive = life_naive.get_cells(.., ..);
+    let cells_simd1 = life_simd1.get_cells(.., ..);
+    let cells_simd2 = life_simd1.get_cells(.., ..);
+    let cells_hash = life_hash.get_cells(.., ..);
+    let cells_shader = life_shader.get_cells(.., ..);
 
     let mut iter_naive = cells_naive.iter();
     let mut iter_simd1 = cells_simd1.iter();
@@ -117,11 +117,11 @@ fn test_set_single_and_multiple() {
         .map(|_| rng.gen_bool(FILL_RATE))
         .collect::<Vec<_>>();
 
-    life_naive_multi.set_cells(&states);
-    life_simd1_multi.set_cells(&states);
-    life_simd2_multi.set_cells(&states);
-    life_hash_multi.set_cells(&states);
-    life_shader_multi.set_cells(&states);
+    life_naive_multi.set_cells(.., .., states.iter().map(|&x| x));
+    life_simd1_multi.set_cells(.., .., states.iter().map(|&x| x));
+    life_simd2_multi.set_cells(.., .., states.iter().map(|&x| x));
+    life_hash_multi.set_cells(.., .., states.iter().map(|&x| x));
+    life_shader_multi.set_cells(.., .., states.iter().map(|&x| x));
 
     for y in 0..N {
         for x in 0..N {
@@ -134,16 +134,16 @@ fn test_set_single_and_multiple() {
     }
 
     let v = [
-        life_naive_single.get_cells(),
-        life_simd1_single.get_cells(),
-        life_simd2_single.get_cells(),
-        life_hash_single.get_cells(),
-        life_shader_single.get_cells(),
-        life_naive_multi.get_cells(),
-        life_simd1_multi.get_cells(),
-        life_simd2_multi.get_cells(),
-        life_hash_multi.get_cells(),
-        life_shader_multi.get_cells(),
+        life_naive_single.get_cells(.., ..),
+        life_simd1_single.get_cells(.., ..),
+        life_simd2_single.get_cells(.., ..),
+        life_hash_single.get_cells(.., ..),
+        life_shader_single.get_cells(.., ..),
+        life_naive_multi.get_cells(.., ..),
+        life_simd1_multi.get_cells(.., ..),
+        life_simd2_multi.get_cells(.., ..),
+        life_hash_multi.get_cells(.., ..),
+        life_shader_multi.get_cells(.., ..),
     ];
     let s = v
         .iter()

@@ -6,234 +6,80 @@
 // R        => randomize
 // F (held) => 100 updates per frame
 
-mod lifes;
+use conway::InteractionManager;
 use conway::{CellularAutomaton, ConwayFieldSimd2};
+use macroquad::prelude::*;
 
-// use wgpu::util::DeviceExt;
-// use winit::{
-//     dpi::{LogicalSize, PhysicalSize},
-//     event::{ElementState, Event, WindowEvent},
-//     event_loop::EventLoop,
-//     keyboard::{Key, NamedKey},
-//     platform::modifier_supplement::KeyEventExtModifierSupplement,
-//     window::WindowBuilder,
-// };
+const WINDOW_SIZE: usize = 1 << 9;
+const FIELD_SIZE: usize = 1024 * 7;
 
-fn main() {
-    // env_logger::builder()
-    //     .filter_level(log::LevelFilter::Info)
-    //     .format_timestamp_nanos()
-    //     .init();
-
-    let (w, h) = (1 << 15, 1 << 15);
-    let mut life = ConwayFieldSimd2::blank(w, h);
-    life.randomize(None, 0.6);
-    let timer = std::time::Instant::now();
-    life.update(100);
-    println!("{:?}", timer.elapsed());
+fn window_conf() -> Conf {
+    Conf {
+        window_title: "Conway".to_owned(),
+        window_width: WINDOW_SIZE as i32,
+        window_height: WINDOW_SIZE as i32,
+        // window_resizable: false, // is broken
+        sample_count: 4,
+        ..Default::default()
+    }
 }
 
-// fn main() {
-//     env_logger::builder()
-//         .filter_level(log::LevelFilter::Info)
-//         .format_timestamp_nanos()
-//         .init();
+#[macroquad::main(window_conf)]
+async fn main() {
+    let mut life = ConwayFieldSimd2::blank(FIELD_SIZE, FIELD_SIZE);
 
-//     use life_simd::ConwayField;
-//     let (width, height) = (800, 600);
-//     let mut life = ConwayField::blank(width, height);
-//     life.randomize(None, 0.3);
+    let [otca_0, otca_1] = ["res/otca_0.rle", "res/otca_1.rle"].map(|path| {
+        use std::fs::File;
+        use std::io::Read;
+        let mut buf = vec![];
+        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
+        buf
+    });
+    // life.randomize(Some(42), 0.3);
+    life.paste_rle(2048 * 0 + 0, 0, &otca_0);
+    life.paste_rle(2048 * 1 + 5, 0, &otca_1);
+    life.paste_rle(2048 * 2 + 5, 0, &otca_1);
 
-//     let event_loop = EventLoop::new().unwrap();
-//     let window = {
-//         WindowBuilder::new()
-//             .with_title("Conway's Game of Life")
-//             .with_inner_size(PhysicalSize::new(width as f64, height as f64))
-//             // .with_decorations(false)
-//             .with_resizable(false)
-//             .build(&event_loop)
-//             .unwrap()
-//     };
-//     // window.focus_window();
+    let mut im = InteractionManager::new(1.5);
 
-//     // let mut pixels = {
-//     //     let window_size = window.inner_size();
-//     //     let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-//     //     let mut pixels = Pixels::new(width as u32, height as u32, surface_texture).unwrap();
-//     //     life.draw(pixels.frame_mut());
-//     //     pixels.render().unwrap();
-//     //     pixels
-//     // };
-//     /////////////////////////////////////////////////////////////////////
-//     // Create a wgpu instance and device
-//     let instance = wgpu::Instance::default();
-
-//     let surface = unsafe { instance.create_surface(&window).unwrap() };
-//     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-//         power_preference: wgpu::PowerPreference::default(),
-//         force_fallback_adapter: false,
-//         // Request an adapter which can render to our surface
-//         compatible_surface: Some(&surface),
-//     }))
-//     .expect("Failed to find an appropriate adapter");
-
-//     // Create the logical device and command queue
-//     let (device, queue) = pollster::block_on(adapter.request_device(
-//         &wgpu::DeviceDescriptor {
-//             label: None,
-//             features: wgpu::Features::empty(),
-//             limits: wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
-//         },
-//         None,
-//     ))
-//     .expect("Failed to create device");
-
-//     // Load the shaders from disk
-//     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-//         label: None,
-//         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-//     });
-
-//     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-//         label: None,
-//         bind_group_layouts: &[],
-//         push_constant_ranges: &[],
-//     });
-
-//     let swapchain_capabilities = surface.get_capabilities(&adapter);
-//     let swapchain_format = swapchain_capabilities.formats[0];
-
-//     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-//         label: None,
-//         layout: Some(&pipeline_layout),
-//         vertex: wgpu::VertexState {
-//             module: &shader,
-//             entry_point: "vs_main",
-//             buffers: &[],
-//         },
-//         fragment: Some(wgpu::FragmentState {
-//             module: &shader,
-//             entry_point: "fs_main",
-//             targets: &[Some(swapchain_format.into())],
-//         }),
-//         primitive: wgpu::PrimitiveState::default(),
-//         depth_stencil: None,
-//         multisample: wgpu::MultisampleState::default(),
-//         multiview: None,
-//     });
-
-//     let mut config = wgpu::SurfaceConfiguration {
-//         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-//         format: swapchain_format,
-//         width: width as u32,
-//         height: height as u32,
-//         present_mode: wgpu::PresentMode::Fifo,
-//         alpha_mode: swapchain_capabilities.alpha_modes[0],
-//         view_formats: vec![],
-//     };
-
-//     surface.configure(&device, &config);
-
-//     let window = &window;
-//     event_loop
-//         .run(move |event, target| {
-//             // Have the closure take ownership of the resources.
-//             // `event_loop.run` never returns, therefore we must do this to ensure
-//             // the resources are properly cleaned up.
-//             let _ = (&instance, &adapter, &shader, &pipeline_layout);
-
-//             if let Event::WindowEvent {
-//                 window_id: _,
-//                 event,
-//             } = event
-//             {
-//                 match event {
-//                     WindowEvent::Resized(new_size) => {
-//                         // Reconfigure the surface with the new size
-//                         config.width = new_size.width.max(1);
-//                         config.height = new_size.height.max(1);
-//                         surface.configure(&device, &config);
-//                         // On macos the window needs to be redrawn manually after resizing
-//                         window.request_redraw();
-//                     }
-//                     WindowEvent::RedrawRequested => {
-//                         let frame = surface
-//                             .get_current_texture()
-//                             .expect("Failed to acquire next swap chain texture");
-//                         let view = frame
-//                             .texture
-//                             .create_view(&wgpu::TextureViewDescriptor::default());
-//                         let mut encoder =
-//                             device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-//                                 label: None,
-//                             });
-//                         {
-//                             let mut rpass =
-//                                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-//                                     label: None,
-//                                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-//                                         view: &view,
-//                                         resolve_target: None,
-//                                         ops: wgpu::Operations {
-//                                             load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
-//                                             store: true,
-//                                         },
-//                                     })],
-//                                     depth_stencil_attachment: None,
-//                                 });
-//                             rpass.set_pipeline(&render_pipeline);
-//                             rpass.draw(0..3, 0..1);
-//                         }
-
-//                         queue.submit(Some(encoder.finish()));
-//                         frame.present();
-//                     }
-//                     WindowEvent::CloseRequested => target.exit(),
-//                     _ => {}
-//                 };
-//             }
-//         })
-//         .unwrap();
-//     /////////////////////////////////////////////////////////////////////////////////
-//     // let mut paused = false;
-
-//     // event_loop
-//     //     .run(move |event, elwt| {
-//     //         if let Event::WindowEvent { event, .. } = event {
-//     //             match event {
-//     //                 WindowEvent::CloseRequested => elwt.exit(),
-//     //                 WindowEvent::KeyboardInput { event, .. } => {
-//     //                     if event.state == ElementState::Pressed {
-//     //                         match event.key_without_modifiers().as_ref() {
-//     //                             Key::Named(NamedKey::Escape) => elwt.exit(),
-//     //                             Key::Character(" ") => paused = true,
-//     //                             Key::Character("P") => paused = !paused,
-//     //                             Key::Character("R") => life.randomize(None, 0.3),
-//     //                             Key::Character("F") => life.update(100),
-//     //                             _ => {
-//     //                                 if !paused {
-//     //                                     life.update(1);
-//     //                                     // window.request_redraw();
-//     //                                 }
-//     //                             }
-//     //                         }
-//     //                     }
-//     //                     if event.state == ElementState::Released {}
-//     //                 }
-//     //                 WindowEvent::RedrawRequested => {
-//     //                     log::info!("Redrawing");
-//     //                     // life.draw(pixels.frame_mut());
-//     //                     // match pixels.render() {
-//     //                     //     Ok(_) => (),
-//     //                     //     Err(err) => {
-//     //                     //         println!("{err}");
-//     //                     //         elwt.exit();
-//     //                     //     }
-//     //                     // }
-//     //                 }
-//     //                 _ => (),
-//     //             }
-//     //         }
-//     //     })
-//     //     .unwrap();
-// }
+    for _ in 0..30 {
+        clear_background(BLACK);
+        let texture = Texture2D::from_rgba8(
+            FIELD_SIZE as u16,
+            FIELD_SIZE as u16,
+            &life
+                .get_cells(.., ..)
+                .into_iter()
+                .flat_map(|x| {
+                    let c = x as u8 * 255;
+                    [c, c, c, 255]
+                })
+                .collect::<Vec<_>>(),
+        );
+        im.update();
+        let (x, y, zoom) = im.get_x_y_zoom();
+        println!("{:?}", im.get_x_y_zoom());
+        draw_texture_ex(
+            &texture,
+            x,
+            y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(Vec2::splat(WINDOW_SIZE as f32 * zoom)),
+                ..Default::default()
+            },
+        );
+        life.update(1);
+        println!(
+            "FPS: {:.3}    MOUSE_POS: {:?}    DEV: {:?}",
+            1. / get_frame_time(),
+            mouse_position(),
+            "todo"
+        );
+        if is_key_pressed(KeyCode::Escape) {
+            break;
+        } else {
+            next_frame().await
+        }
+    }
+}

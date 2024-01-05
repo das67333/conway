@@ -179,7 +179,7 @@ impl CellularAutomaton for ConwayFieldShader {
         }
     }
 
-    fn get_size(&self) -> (usize, usize) {
+    fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
@@ -187,13 +187,6 @@ impl CellularAutomaton for ConwayFieldShader {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
         let offset = x % Self::CELLS_IN_CHUNK;
         self.data[pos] >> offset & 1 != 0
-    }
-
-    fn get_cells(&self) -> Vec<bool> {
-        self.data
-            .iter()
-            .flat_map(|x| (0..Self::CELLS_IN_CHUNK).map(|i| (*x >> i & 1 != 0)))
-            .collect()
     }
 
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
@@ -204,22 +197,6 @@ impl CellularAutomaton for ConwayFieldShader {
             self.data[pos] |= mask;
         } else {
             self.data[pos] &= !mask;
-        }
-    }
-
-    fn set_cells(&mut self, states: &[bool]) {
-        assert_eq!(states.len(), self.width * self.height);
-        self.data_is_synced = false;
-        for (dst, src) in self
-            .data
-            .iter_mut()
-            .zip(states.chunks_exact(Self::CELLS_IN_CHUNK))
-        {
-            *dst = src
-                .iter()
-                .enumerate()
-                .map(|(i, &x)| (x as u32) << i)
-                .sum::<u32>();
         }
     }
 

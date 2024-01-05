@@ -127,7 +127,7 @@ impl CellularAutomaton for ConwayFieldSimd1 {
         }
     }
 
-    fn get_size(&self) -> (usize, usize) {
+    fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
@@ -137,14 +137,6 @@ impl CellularAutomaton for ConwayFieldSimd1 {
         self.data[pos] >> offset & 1 != 0
     }
 
-    fn get_cells(&self) -> Vec<bool> {
-        let states: &[u8] = bytemuck::cast_slice(&self.data);
-        states
-            .iter()
-            .flat_map(|x| [x & 0x01 != 0, x & 0x10 != 0])
-            .collect()
-    }
-
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         let pos = x / Self::CELLS_IN_CHUNK + y * self.width_effective;
         let mask = 1 << (x % Self::CELLS_IN_CHUNK * Self::BITS_PER_CELL);
@@ -152,15 +144,6 @@ impl CellularAutomaton for ConwayFieldSimd1 {
             self.data[pos] |= mask;
         } else {
             self.data[pos] &= !mask;
-        }
-    }
-
-    fn set_cells(&mut self, states: &[bool]) {
-        assert_eq!(states.len(), self.width * self.height);
-        let data: &mut [u8] = bytemuck::cast_slice_mut(&mut self.data);
-        let states = states.iter().map(|x| *x as u8).collect::<Vec<_>>();
-        for (dst, src) in data.iter_mut().zip(states.chunks_exact(2)) {
-            *dst = src[0] + (src[1] << Self::BITS_PER_CELL);
         }
     }
 

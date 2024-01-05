@@ -39,7 +39,7 @@ impl CellularAutomaton for ConwayFieldNaive {
         }
     }
 
-    fn get_size(&self) -> (usize, usize) {
+    fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
@@ -47,16 +47,8 @@ impl CellularAutomaton for ConwayFieldNaive {
         self.data_curr[x + y * self.width]
     }
 
-    fn get_cells(&self) -> Vec<bool> {
-        self.data_curr.clone()
-    }
-
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         self.data_curr[x + y * self.width] = state;
-    }
-
-    fn set_cells(&mut self, states: &[bool]) {
-        self.data_curr.copy_from_slice(states);
     }
 
     fn update(&mut self, iters_cnt: usize) {
