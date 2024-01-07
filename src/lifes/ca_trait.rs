@@ -129,7 +129,6 @@ pub trait CellularAutomaton: Sized {
         // run-length encoded pattern data
         let (mut dx, mut dy, mut cnt) = (0, 0, 1);
         while i < data.len() {
-            println!("{dx} {dy} {cnt}");
             let c = data[i];
             match c {
                 b'\n' => i += 1,

@@ -18,7 +18,7 @@ criterion_group!(
     bench_life_update::<ConwayFieldSimd1, 4096, 1>,
     bench_life_update::<ConwayFieldSimd2, 2048, 1>,
     bench_life_update::<ConwayFieldSimd2, 4096, 1>,
-    bench_life_update::<ConwayFieldShader, 4096, 1>,
-    bench_life_update::<ConwayFieldShader, 4096, 16>,
+    // bench_life_update::<ConwayFieldShader, 4096, 1>,
+    // bench_life_update::<ConwayFieldShader, 4096, 16>,
 );
 criterion_main!(benches);

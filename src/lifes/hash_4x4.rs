@@ -1,9 +1,8 @@
-use super::ca_trait::{convert_bounds, CellularAutomaton};
-use std::ops::RangeBounds;
+use super::ca_trait::CellularAutomaton;
 use std::rc::Rc;
 
-type HashMap =
-    std::collections::HashMap<u64, Rc<QuadTreeNode>, nohash_hasher::BuildNoHashHasher<u64>>;
+use xxhash_rust::xxh3::Xxh3Builder;
+type HashMap = std::collections::HashMap<u64, Rc<QuadTreeNode>, Xxh3Builder>;
 
 #[derive(Debug, Clone)]
 struct QuadTreeNode {
@@ -205,36 +204,6 @@ impl CellularAutomaton for ConwayFieldHash {
         get_inner(&self.root, self.size, x, y)
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn get_cells(
-        &self,
-        x_range: impl RangeBounds<usize>,
-        y_range: impl RangeBounds<usize>,
-    ) -> Vec<bool> {
-        // if let Some(fields) = &field.data {
-        //     let half = size / 2;
-        //     get_inner(&fields[0], half, x, y, states);
-        //     get_inner(&fields[1], half, x + half, y, states);
-        //     get_inner(&fields[2], half, x, y + half, states);
-        //     get_inner(&fields[3], half, x + half, y + half, states);
-        // } else {
-        //     states[y][x] = field.hash & 1 != 0;
-        //     states[y][x + 1] = field.hash >> 1 & 1 != 0;
-        //     states[y + 1][x] = field.hash >> 2 & 1 != 0;
-        //     states[y + 1][x + 1] = field.hash >> 3 & 1 != 0;
-        // }
-
-        // let mut states = vec![false; self.size * self.size];
-        // {
-        //     let mut states = states.chunks_exact_mut(self.size).collect::<Vec<_>>();
-        //     get_inner(&self.root, self.size, 0, 0, &mut states);
-        // }
-        // states
-        let (x_min, x_max) = convert_bounds(x_range, self.size().0);
-        let (y_min, y_max) = convert_bounds(y_range, self.size().1);
-        todo!()
-    }
-
     fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         fn set_inner(
             base_nodes: &[Rc<QuadTreeNode>; 16],
@@ -281,46 +250,6 @@ impl CellularAutomaton for ConwayFieldHash {
         }
 
         self.root = set_inner(&self.base_nodes, &self.root, self.size, x, y, state);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn set_cells(
-        &mut self,
-        x_range: impl RangeBounds<usize>,
-        y_range: impl RangeBounds<usize>,
-        data: impl Iterator<Item = bool>,
-    ) {
-        // fn set_inner(
-        //     base_nodes: &[Rc<QuadTreeNode>; 16],
-        //     size: usize,
-        //     x: usize,
-        //     y: usize,
-        //     states: &Vec<&[bool]>,
-        // ) -> Rc<QuadTreeNode> {
-        //     if size == 2 {
-        //         let i = (states[y][x] as usize)
-        //             + ((states[y][x + 1] as usize) << 1)
-        //             + ((states[y + 1][x] as usize) << 2)
-        //             + ((states[y + 1][x + 1] as usize) << 3);
-        //         base_nodes[i].clone()
-        //     } else {
-        //         let half = size / 2;
-        //         let nw = set_inner(base_nodes, half, x, y, states);
-        //         let ne = set_inner(base_nodes, half, x + half, y, states);
-        //         let sw = set_inner(base_nodes, half, x, y + half, states);
-        //         let se = set_inner(base_nodes, half, x + half, y + half, states);
-        //         Rc::new(QuadTreeNode {
-        //             hash: ConwayFieldHash::rehash(nw.hash, ne.hash, sw.hash, se.hash),
-        //             data: Some([nw, ne, sw, se]),
-        //         })
-        //     }
-        // }
-
-        // assert_eq!(states.len(), self.size * self.size);
-        // let states = states.chunks_exact(self.size).collect::<Vec<_>>();
-        // self.root = set_inner(&self.base_nodes, self.size, 0, 0, &states);
-        let (x_min, x_max) = convert_bounds(x_range, self.size().0);
-        let (y_min, y_max) = convert_bounds(y_range, self.size().1);
     }
 
     fn update(&mut self, iters_cnt: usize) {

@@ -1,9 +1,8 @@
-mod gui;
 mod lifes;
 
 pub use lifes::{
-    ca_trait::CellularAutomaton, hash::ConwayFieldHash, naive::ConwayFieldNaive,
-    shader::ConwayFieldShader, simd1::ConwayFieldSimd1, simd2::ConwayFieldSimd2,
+    ca_trait::CellularAutomaton, hash_4x4::ConwayFieldHash, naive::ConwayFieldNaive,
+    simd1::ConwayFieldSimd1, simd2::ConwayFieldSimd2,
 };
 
-pub use gui::navigation::InteractionManager;
+// pub use gui::navigation::InteractionManager;
