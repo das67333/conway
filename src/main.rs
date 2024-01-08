@@ -1,17 +1,18 @@
 #![warn(clippy::all)]
 
-use conway::CellularAutomaton;
+mod hash_256;
 use eframe::egui;
+use hash_256::ConwayFieldHash256;
 use std::time::{Duration, Instant};
 
-pub struct App<Life: CellularAutomaton> {
+pub struct App {
     life_size: usize,
     updates_per_frame: usize,
     control_panel_min_width: f32,
     zoom_step: f32,
     scroll_scale: f32,
     zoom: f32,
-    life: Life,
+    life: ConwayFieldHash256,
     life_rect: Option<egui::Rect>,
     texture: Option<egui::TextureHandle>,
     frame_pos: egui::Pos2,
@@ -20,7 +21,7 @@ pub struct App<Life: CellularAutomaton> {
     iter_idx: usize,
 }
 
-fn otca_transform<Life: CellularAutomaton, const N: usize>(life: &mut Life, data: [[u8; N]; N]) {
+fn otca_transform<const N: usize>(life: &mut ConwayFieldHash256, data: [[u8; N]; N]) {
     assert_eq!(N * 2048, life.size().0);
     assert_eq!(N * 2048, life.size().1);
 
@@ -36,23 +37,6 @@ fn otca_transform<Life: CellularAutomaton, const N: usize>(life: &mut Life, data
             life.paste_rle(j * 2048, i * 2048, &otca[state as usize])
         }
     }
-    // for i in 0..N {
-    //     for (x, y) in [
-    //         (i * 2048 + 3, 3),
-    //         (i * 2048 + 2044, 3),
-    //         (i * 2048 + 3, N * 2048 - 4),
-    //         (i * 2048 + 2044, N * 2048 - 4),
-    //         (3, i * 2048 + 3),
-    //         (3, i * 2048 + 2044),
-    //         (N * 2048 - 4, i * 2048 + 3),
-    //         (N * 2048 - 4, i * 2048 + 2044),
-    //     ] {
-    //         for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
-    //             let (sx, sy) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
-    //             life.set_cell(sx, sy, false);
-    //         }
-    //     }
-    // }
 }
 
 fn main() {
@@ -66,7 +50,7 @@ fn main() {
         "Conway's Game of Life",
         options,
         Box::new(move |_cc| {
-            let mut life = conway::ConwayFieldHash::blank(field_size, field_size);
+            let mut life = ConwayFieldHash256::blank(field_size, field_size);
             otca_transform(&mut life, [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]]);
             Box::new(App {
                 life_size: field_size,
@@ -88,7 +72,7 @@ fn main() {
     .unwrap();
 }
 
-impl<Life: CellularAutomaton> eframe::App for App<Life> {
+impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.iter_idx == 50 {
             std::process::exit(0);
@@ -136,7 +120,7 @@ impl<Life: CellularAutomaton> eframe::App for App<Life> {
                     if !self.paused || self.life_rect.is_none() {
                         let pixels = self
                             .life
-                            .get_cells(.., ..)
+                            .get_cells()
                             .into_iter()
                             .flat_map(|x| [x as u8 * u8::MAX; 3])
                             .collect::<Vec<_>>();
@@ -165,7 +149,7 @@ impl<Life: CellularAutomaton> eframe::App for App<Life> {
     }
 }
 
-impl<Life: CellularAutomaton> App<Life> {
+impl App {
     fn update_viewport(&mut self, ctx: &egui::Context, life_rect: egui::Rect) {
         // TODO: apply faster
         ctx.input(|input| {

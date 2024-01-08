@@ -29,10 +29,10 @@ pub trait CellularAutomaton: Sized {
 
     fn set_cell(&mut self, x: usize, y: usize, state: bool);
 
-    /// Updates the field `iters_cnt` times.
+    /// Updates the field `iters_cnt` times
     fn update(&mut self, iters_cnt: usize);
 
-    /// Gets cells in rectangle.
+    /// Gets cells in rectangle
     fn get_cells(
         &self,
         x_range: impl RangeBounds<usize>,
@@ -45,7 +45,7 @@ pub trait CellularAutomaton: Sized {
             .collect()
     }
 
-    /// Sets cells in rectangle.
+    /// Sets cells in rectangle
     fn set_cells(
         &mut self,
         x_range: impl RangeBounds<usize>,
@@ -164,4 +164,6 @@ pub trait CellularAutomaton: Sized {
         }
         assert!(dy <= height);
     }
+
+    
 }

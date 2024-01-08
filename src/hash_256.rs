@@ -1,5 +1,4 @@
-use super::ca_trait::CellularAutomaton;
-use std::{arch::x86_64::_mm256_loadu2_m128, rc::Rc};
+use std::rc::Rc;
 use xxhash_rust::xxh3::{xxh3_128, Xxh3Builder};
 
 type HashMap = std::collections::HashMap<u128, Rc<QuadTreeNode>, Xxh3Builder>;
@@ -226,21 +225,7 @@ impl ConwayFieldHash256 {
         result
     }
 
-    fn update(&mut self) {
-        let top = &Rc::new(self.root.clone());
-        let p = Self::unite_nodes(top, top, top, top);
-        let q = self.update_node(&p);
-        let [se, sw, ne, nw] = Self::split_node(&q);
-        self.root = Rc::new(Self::unite_nodes(&nw, &ne, &sw, &se));
-    }
-}
-
-impl CellularAutomaton for ConwayFieldHash256 {
-    fn id<'a>() -> &'a str {
-        "hash"
-    }
-
-    fn blank(width: usize, height: usize) -> Self {
+    pub fn blank(width: usize, height: usize) -> Self {
         assert!(is_x86_feature_detected!("avx2"));
         assert_eq!(width, height);
         assert!(width >= 2 * Self::BASE_SIZE && width.is_power_of_two());
@@ -267,11 +252,11 @@ impl CellularAutomaton for ConwayFieldHash256 {
         }
     }
 
-    fn size(&self) -> (usize, usize) {
+    pub fn size(&self) -> (usize, usize) {
         (self.size, self.size)
     }
 
-    fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
+    pub fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
         let mut node = &self.root;
         let mut size = self.size;
         while size >= Self::BASE_SIZE {
@@ -291,7 +276,7 @@ impl CellularAutomaton for ConwayFieldHash256 {
         unreachable!("Size is smaller than the base size, which is impossible")
     }
 
-    fn set_cell(&mut self, x: usize, y: usize, state: bool) {
+    pub fn set_cell(&mut self, x: usize, y: usize, state: bool) {
         fn inner(
             mut x: usize,
             mut y: usize,
@@ -335,7 +320,7 @@ impl CellularAutomaton for ConwayFieldHash256 {
         self.root = inner(x, y, self.size, &self.root, state);
     }
 
-    fn update(&mut self, iters_cnt: usize) {
+    pub fn update(&mut self, iters_cnt: usize) {
         let m = self.size / 2;
         assert!(
             iters_cnt % m == 0,
@@ -345,7 +330,93 @@ impl CellularAutomaton for ConwayFieldHash256 {
         );
         for _ in 0..iters_cnt / m {
             // TODO: recursive anyway
-            self.update();
+            let top = &Rc::new(self.root.clone());
+            let p = Self::unite_nodes(top, top, top, top);
+            let q = self.update_node(&p);
+            let [se, sw, ne, nw] = Self::split_node(&q);
+            self.root = Rc::new(Self::unite_nodes(&nw, &ne, &sw, &se));
         }
+    }
+
+    pub fn paste_rle(&mut self, x: usize, y: usize, data: &[u8]) {
+        let parse_next_number = |i: &mut usize| {
+            while !data[*i].is_ascii_digit() {
+                *i += 1;
+            }
+            let j = {
+                let mut j = *i;
+                while j < data.len() && data[j].is_ascii_digit() {
+                    j += 1;
+                }
+                j
+            };
+            let ans = String::from_utf8(data[*i..j].to_vec())
+                .unwrap()
+                .parse::<usize>()
+                .unwrap();
+            *i = j;
+            ans
+        };
+
+        let mut i = 0;
+        // skipping comment lines
+        while data[i] == b'#' {
+            while data[i] != b'\n' {
+                i += 1;
+            }
+            i += 1;
+        }
+        // next line must start with 'x'; parsing sizes
+        let width = parse_next_number(&mut i);
+        let height = parse_next_number(&mut i);
+        while data[i] != b'\n' {
+            i += 1;
+        }
+        i += 1;
+        // run-length encoded pattern data
+        let (mut dx, mut dy, mut cnt) = (0, 0, 1);
+        while i < data.len() {
+            let c = data[i];
+            match c {
+                b'\n' => i += 1,
+                b'0'..=b'9' => cnt = parse_next_number(&mut i),
+                b'o' => {
+                    for _ in 0..cnt {
+                        self.set_cell(x + dx, y + dy, true);
+                        dx += 1
+                    }
+                    (i, cnt) = (i + 1, 1);
+                    assert!(
+                        dx <= width,
+                        "i={} {:?}",
+                        i,
+                        String::from_utf8(data[i - 36..=i].to_vec())
+                    );
+                }
+                b'b' => {
+                    (dx, i, cnt) = (dx + cnt, i + 1, 1);
+                    assert!(dx <= width);
+                }
+                b'$' => {
+                    (dx, dy, i, cnt) = (0, dy + cnt, i + 1, 1);
+                    assert!(dy <= height);
+                }
+                b'!' => {
+                    dy += 1;
+                    assert!(dy <= height);
+                    break;
+                }
+                _ => panic!("Unexpected symbol"),
+            };
+        }
+        assert!(dy <= height);
+    }
+    
+    pub fn get_cells(
+        &self,
+    ) -> Vec<bool> {
+        (0..self.size)
+            .flat_map(|y| (0..self.size).map(move |x| self.get_cell(x, y)))
+            .collect()
     }
 }
