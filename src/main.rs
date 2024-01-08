@@ -63,7 +63,7 @@ fn main() {
         ..Default::default()
     };
     eframe::run_native(
-        "Image Viewer",
+        "Conway's Game of Life",
         options,
         Box::new(move |_cc| {
             let mut life = conway::ConwayFieldHash::blank(field_size, field_size);

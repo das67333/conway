@@ -117,6 +117,7 @@ impl CellularAutomaton for ConwayFieldSimd2 {
     }
 
     fn blank(width: usize, height: usize) -> Self {
+        assert!(is_x86_feature_detected!("avx2"));
         assert!(width % Self::CELLS_IN_CHUNK == 0);
         let width_effective = width / Self::CELLS_IN_CHUNK;
         assert!(width_effective >= 2 && height >= 2);
