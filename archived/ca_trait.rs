@@ -22,7 +22,7 @@ pub trait CellularAutomaton: Sized {
     /// Creates a field filled with dead cells
     fn blank(width: usize, height: usize) -> Self;
 
-    /// [`(width, height)`] of the field
+    /// `(width, height)` of the field
     fn size(&self) -> (usize, usize);
 
     fn get_cell(&self, x: usize, y: usize) -> bool;

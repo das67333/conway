@@ -4,16 +4,50 @@ use xxhash_rust::xxh3::{xxh3_128, Xxh3Builder};
 type HashMap = std::collections::HashMap<u128, Rc<QuadTreeNode>, Xxh3Builder>;
 type Chunk = u64;
 
-#[derive(Clone)]
+const BASE_SIDE: usize = 128;
+const BASE_SIDE_LOG2: u32 = BASE_SIDE.ilog2();
+const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
+
 enum Data {
-    Base(Vec<u64>),
+    Base(Vec<Chunk>),
     Composite([Rc<QuadTreeNode>; 4]),
 }
 
-#[derive(Clone)]
 struct QuadTreeNode {
+    side_log2: u32,
+    density: f32,
     hash: u128,
     data: Data,
+}
+
+impl QuadTreeNode {
+    fn new_base(data: Vec<Chunk>) -> Self {
+        QuadTreeNode {
+            side_log2: BASE_SIDE_LOG2,
+            density: data.iter().map(|x| x.count_ones()).sum::<u32>() as f32
+                / (BASE_SIDE * BASE_SIDE) as f32,
+            hash: xxh3_128(bytemuck::cast_slice(&data)),
+            data: Data::Base(data),
+        }
+    }
+
+    fn new_composite(
+        nw: Rc<QuadTreeNode>,
+        ne: Rc<QuadTreeNode>,
+        sw: Rc<QuadTreeNode>,
+        se: Rc<QuadTreeNode>,
+    ) -> Self {
+        debug_assert!([&nw, &ne, &sw, &se]
+            .iter()
+            .all(|node| node.side_log2 == nw.side_log2));
+        let density = (nw.density + ne.density + sw.density + se.density) / 4.;
+        QuadTreeNode {
+            side_log2: nw.side_log2 + 1,
+            density,
+            hash: xxh3_128(bytemuck::cast_slice(&[nw.hash, ne.hash, sw.hash, se.hash])),
+            data: Data::Composite([nw, ne, sw, se]),
+        }
+    }
 }
 
 pub struct ConwayFieldHash256 {
@@ -23,23 +57,13 @@ pub struct ConwayFieldHash256 {
 }
 
 impl ConwayFieldHash256 {
-    const BASE_SIZE: usize = 128;
-    const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
-
-    fn rehash(hashes: &[u128; 4]) -> u128 {
-        xxh3_128(bytemuck::cast_slice(hashes))
-    }
-
     fn unite_nodes(
         nw: &Rc<QuadTreeNode>,
         ne: &Rc<QuadTreeNode>,
         sw: &Rc<QuadTreeNode>,
         se: &Rc<QuadTreeNode>,
     ) -> QuadTreeNode {
-        QuadTreeNode {
-            hash: Self::rehash(&[nw.hash, ne.hash, sw.hash, se.hash]),
-            data: Data::Composite([nw.clone(), ne.clone(), sw.clone(), se.clone()]),
-        }
+        QuadTreeNode::new_composite(nw.clone(), ne.clone(), sw.clone(), se.clone())
     }
 
     fn split_node(node: &QuadTreeNode) -> [Rc<QuadTreeNode>; 4] {
@@ -49,13 +73,14 @@ impl ConwayFieldHash256 {
         }
     }
 
+    #[target_feature(enable = "avx2")]
     unsafe fn update_row(
         row_prev: &[Chunk],
         row_curr: &[Chunk],
         row_next: &[Chunk],
         dst: &mut [Chunk],
     ) {
-        let (w, shift) = (row_prev.len(), Self::CELLS_IN_CHUNK - 1);
+        let (w, shift) = (row_prev.len(), CELLS_IN_CHUNK - 1);
 
         let b = row_prev[0];
         let a = b << 1;
@@ -126,7 +151,7 @@ impl ConwayFieldHash256 {
         v2: &Vec<Chunk>,
         v3: &Vec<Chunk>,
     ) -> Rc<QuadTreeNode> {
-        let (w, h) = (Self::BASE_SIZE / Self::CELLS_IN_CHUNK, Self::BASE_SIZE);
+        let (w, h) = (BASE_SIDE / CELLS_IN_CHUNK, BASE_SIDE);
 
         let mut src = vec![0; 4 * w * h];
         for y in 0..h {
@@ -156,17 +181,7 @@ impl ConwayFieldHash256 {
                 result[x + y * w] = src[(x + w / 2) + (y + h / 2) * 2 * w];
             }
         }
-        Rc::new(QuadTreeNode {
-            hash: xxh3_128(bytemuck::cast_slice(&result)),
-            data: Data::Base(result),
-        })
-        // let w = Self::BASE_SIZE / Self::CELLS_IN_CHUNK;
-        // let shift = Self::CELLS_IN_CHUNK - 1;
-        // for t in 1..=Self::BASE_SIZE / 2 {
-        //     for y in 1 + t..Self::BASE_SIZE - t {
-        //     }
-        // }
-        // todo!()
+        Rc::new(QuadTreeNode::new_base(result))
     }
 
     fn update_composite(&mut self, nodes: &[Rc<QuadTreeNode>; 4]) -> Rc<QuadTreeNode> {
@@ -212,8 +227,9 @@ impl ConwayFieldHash256 {
         let result = match &node.data {
             Data::Base(_) => unreachable!(),
             Data::Composite(nodes) => {
-                if let [Data::Base(v0), Data::Base(v1), Data::Base(v2), Data::Base(v3)] =
-                    nodes.clone().map(|n| n.data.clone())
+                let [nw, ne, sw, se] = nodes;
+                if let (Data::Base(v0), Data::Base(v1), Data::Base(v2), Data::Base(v3)) =
+                    (&nw.data, &ne.data, &sw.data, &se.data)
                 {
                     unsafe { self.update_base(&v0, &v1, &v2, &v3) }
                 } else {
@@ -225,29 +241,128 @@ impl ConwayFieldHash256 {
         result
     }
 
-    pub fn blank(width: usize, height: usize) -> Self {
-        assert!(is_x86_feature_detected!("avx2"));
-        assert_eq!(width, height);
-        assert!(width >= 2 * Self::BASE_SIZE && width.is_power_of_two());
-        let root = {
-            let mut node = {
-                let data_vec = vec![0; Self::BASE_SIZE * Self::BASE_SIZE / 64];
-                let hash = xxh3_128(bytemuck::cast_slice(&data_vec));
-                let data = Data::Base(data_vec);
-                Rc::new(QuadTreeNode { hash, data })
-            };
-            let mut s = Self::BASE_SIZE;
-            while s != width {
-                let hash = Self::rehash(&[node.hash; 4]);
-                let data = Data::Composite([0; 4].map(|_| node.clone()));
-                node = Rc::new(QuadTreeNode { hash, data });
-                s *= 2;
+    /// Fills the texture of given resolution with a part of field.
+    ///
+    /// `viewport_x`, `viewport_y` are reduced to divide by `step`;
+    ///
+    /// `side` is increased to the next power of two;
+    ///
+    /// `resolution` is reduced to previous power of two (to fit the texture into `dst`),
+    /// doesn't exceed `side`;
+    ///
+    /// `dst` - buffer of texture.
+    pub fn fill_texture(
+        &self,
+        viewport_x: &mut usize,
+        viewport_y: &mut usize,
+        side: &mut usize,
+        resolution: &mut usize,
+        dst: &mut Vec<u8>,
+    ) {
+        fn inner(
+            node: &Rc<QuadTreeNode>,
+            x: usize,
+            y: usize,
+            viewport_x: usize,
+            viewport_y: usize,
+            resolution: usize,
+            viewport_side: usize,
+            step: usize,
+            dst: &mut Vec<u8>,
+        ) {
+            let half = 1 << (node.side_log2 - 1);
+            let step_log2 = step.ilog2();
+            if step_log2 == node.side_log2 {
+                let j = (x - viewport_x) >> step_log2;
+                let i = (y - viewport_y) >> step_log2;
+                dst[j + i * resolution] = (node.density * u8::MAX as f32) as u8;
+                return;
             }
-            node
+            match &node.data {
+                Data::Base(data) => {
+                    for sy in 0..BASE_SIDE >> step_log2 {
+                        for sx in 0..BASE_SIDE >> step_log2 {
+                            let mut sum = 0;
+                            for dy in 0..step {
+                                for dx in 0..step {
+                                    let x = (sx + dx) & (BASE_SIDE - 1);
+                                    let y = (sy + dy) & (BASE_SIDE - 1);
+                                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
+                                    let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
+                                    sum += data[pos] >> offset & 1;
+                                }
+                            }
+                            let j = sx + (x - viewport_x >> step_log2);
+                            let i = sy + (y - viewport_y >> step_log2);
+                            dst[j + i * resolution] = ((u8::MAX as Chunk * sum) >> 2 * step.ilog2()) as u8;
+                        }
+                    }
+                }
+                Data::Composite(nodes) => {
+                    for i in 0..4 {
+                        let x = x + half * (i & 1 != 0) as usize;
+                        let y = y + half * (i & 2 != 0) as usize;
+                        if x + half > viewport_x
+                            && x < viewport_x + viewport_side
+                            && y + half > viewport_y
+                            && y < viewport_y + viewport_side
+                        {
+                            inner(
+                                &nodes[i],
+                                x,
+                                y,
+                                viewport_x,
+                                viewport_y,
+                                resolution,
+                                viewport_side,
+                                step,
+                                dst,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let step = 1 << (*side / *resolution).max(1).ilog2();
+        let com_mul = step.max(BASE_SIDE);
+        *side = side.next_multiple_of(com_mul) + com_mul;
+        *viewport_x = (*viewport_x + 1).next_multiple_of(com_mul) - com_mul;
+        *viewport_y = (*viewport_y + 1).next_multiple_of(com_mul) - com_mul;
+        *resolution = *side / step;
+        dst.fill(0);
+        dst.resize(*resolution * *resolution, 0);
+        inner(
+            &self.root,
+            0,
+            0,
+            *viewport_x,
+            *viewport_y,
+            *resolution,
+            *side,
+            step,
+            dst,
+        );
+    }
+
+    pub fn blank(side_log2: u32) -> Self {
+        assert!(is_x86_feature_detected!("avx2"));
+        assert!(side_log2 > BASE_SIDE_LOG2);
+        let mut node = {
+            let data_vec = vec![0; BASE_SIDE * BASE_SIDE / 64];
+            Rc::new(QuadTreeNode::new_base(data_vec))
         };
+        for _ in BASE_SIDE_LOG2..side_log2 {
+            node = Rc::new(QuadTreeNode::new_composite(
+                node.clone(),
+                node.clone(),
+                node.clone(),
+                node,
+            ));
+        }
         Self {
-            root,
-            size: width,
+            root: node,
+            size: 1 << side_log2,
             node_updates: HashMap::default(),
         }
     }
@@ -259,13 +374,13 @@ impl ConwayFieldHash256 {
     pub fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
         let mut node = &self.root;
         let mut size = self.size;
-        while size >= Self::BASE_SIZE {
+        while size >= BASE_SIDE {
             size /= 2;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             match &node.data {
                 Data::Base(data) => {
-                    let pos = (x + y * Self::BASE_SIZE) / Self::CELLS_IN_CHUNK;
-                    let offset = (x + y * Self::BASE_SIZE) % Self::CELLS_IN_CHUNK;
+                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
+                    let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
                     return data[pos] >> offset & 1 != 0;
                 }
                 Data::Composite(nodes) => node = &nodes[idx],
@@ -288,21 +403,16 @@ impl ConwayFieldHash256 {
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             match &node.data {
                 Data::Base(data) => {
-                    let bs = ConwayFieldHash256::BASE_SIZE;
-                    let cc = ConwayFieldHash256::CELLS_IN_CHUNK;
                     let mut data_new = data.clone();
-                    let pos = (x + y * bs) / cc;
-                    let mask = 1 << ((x + y * bs) % cc);
+                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
+                    let mask = 1 << ((x + y * BASE_SIDE) % CELLS_IN_CHUNK);
                     if state {
                         data_new[pos] |= mask;
                     } else {
                         data_new[pos] &= !mask;
                     }
                     // TODO: check by hash !!!
-                    Rc::new(QuadTreeNode {
-                        hash: xxh3_128(&bytemuck::cast_slice(&data_new)),
-                        data: Data::Base(data_new),
-                    })
+                    Rc::new(QuadTreeNode::new_base(data_new))
                 }
                 Data::Composite(nodes) => {
                     // TODO: check by hash !!!
@@ -330,7 +440,7 @@ impl ConwayFieldHash256 {
         );
         for _ in 0..iters_cnt / m {
             // TODO: recursive anyway
-            let top = &Rc::new(self.root.clone());
+            let top = &self.root;
             let p = Self::unite_nodes(top, top, top, top);
             let q = self.update_node(&p);
             let [se, sw, ne, nw] = Self::split_node(&q);
@@ -338,83 +448,7 @@ impl ConwayFieldHash256 {
         }
     }
 
-    pub fn paste_rle(&mut self, x: usize, y: usize, data: &[u8]) {
-        let parse_next_number = |i: &mut usize| {
-            while !data[*i].is_ascii_digit() {
-                *i += 1;
-            }
-            let j = {
-                let mut j = *i;
-                while j < data.len() && data[j].is_ascii_digit() {
-                    j += 1;
-                }
-                j
-            };
-            let ans = String::from_utf8(data[*i..j].to_vec())
-                .unwrap()
-                .parse::<usize>()
-                .unwrap();
-            *i = j;
-            ans
-        };
-
-        let mut i = 0;
-        // skipping comment lines
-        while data[i] == b'#' {
-            while data[i] != b'\n' {
-                i += 1;
-            }
-            i += 1;
-        }
-        // next line must start with 'x'; parsing sizes
-        let width = parse_next_number(&mut i);
-        let height = parse_next_number(&mut i);
-        while data[i] != b'\n' {
-            i += 1;
-        }
-        i += 1;
-        // run-length encoded pattern data
-        let (mut dx, mut dy, mut cnt) = (0, 0, 1);
-        while i < data.len() {
-            let c = data[i];
-            match c {
-                b'\n' => i += 1,
-                b'0'..=b'9' => cnt = parse_next_number(&mut i),
-                b'o' => {
-                    for _ in 0..cnt {
-                        self.set_cell(x + dx, y + dy, true);
-                        dx += 1
-                    }
-                    (i, cnt) = (i + 1, 1);
-                    assert!(
-                        dx <= width,
-                        "i={} {:?}",
-                        i,
-                        String::from_utf8(data[i - 36..=i].to_vec())
-                    );
-                }
-                b'b' => {
-                    (dx, i, cnt) = (dx + cnt, i + 1, 1);
-                    assert!(dx <= width);
-                }
-                b'$' => {
-                    (dx, dy, i, cnt) = (0, dy + cnt, i + 1, 1);
-                    assert!(dy <= height);
-                }
-                b'!' => {
-                    dy += 1;
-                    assert!(dy <= height);
-                    break;
-                }
-                _ => panic!("Unexpected symbol"),
-            };
-        }
-        assert!(dy <= height);
-    }
-    
-    pub fn get_cells(
-        &self,
-    ) -> Vec<bool> {
+    pub fn get_cells(&self) -> Vec<bool> {
         (0..self.size)
             .flat_map(|y| (0..self.size).map(move |x| self.get_cell(x, y)))
             .collect()
