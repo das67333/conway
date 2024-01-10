@@ -1,3 +1,4 @@
+use std::arch::x86_64::*;
 use std::rc::Rc;
 use xxhash_rust::xxh3::{xxh3_128, Xxh3Builder};
 
@@ -74,73 +75,68 @@ impl ConwayFieldHash256 {
     }
 
     #[target_feature(enable = "avx2")]
-    unsafe fn update_row(
-        row_prev: &[Chunk],
-        row_curr: &[Chunk],
-        row_next: &[Chunk],
-        dst: &mut [Chunk],
-    ) {
-        let (w, shift) = (row_prev.len(), CELLS_IN_CHUNK - 1);
+    unsafe fn shift_left(v: __m256i) -> __m256i {
+        _mm256_or_si256(
+            _mm256_slli_epi64(v, 1),
+            _mm256_and_si256(
+                _mm256_permute4x64_epi64::<0b10010011>(_mm256_srli_epi64(v, 63)),
+                _mm256_set_epi64x(-1, -1, -1, 0),
+            ),
+        )
+    }
 
-        let b = row_prev[0];
-        let a = b << 1;
-        let c = (b >> 1) | (row_prev[1] << shift);
-        let i = row_curr[0];
-        let h = i << 1;
-        let d = (i >> 1) | (row_curr[1] << shift);
-        let f = row_next[0];
-        let g = f << 1;
-        let e = (f >> 1) | (row_next[1] << shift);
-        let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
-        let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-        let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
-        let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-        let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
-        let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
-        let z = !ah23 & ah1;
-        let (i2, i3) = (!ah0 & z, ah0 & z);
-        dst[0] = (i & i2) | i3;
+    unsafe fn shift_right(v: __m256i) -> __m256i {
+        _mm256_or_si256(
+            _mm256_srli_epi64(v, 1),
+            _mm256_and_si256(
+                _mm256_permute4x64_epi64::<0b00111001>(_mm256_slli_epi64(v, 63)),
+                _mm256_set_epi64x(0, -1, -1, -1),
+            ),
+        )
+    }
 
-        for x in 1..w - 1 {
-            let (x, x1, x2) = (x, x - 1, x + 1);
+    #[target_feature(enable = "avx2")]
+    unsafe fn update_row(row_prev: __m256i, row_curr: __m256i, row_next: __m256i) -> __m256i {
+        let b = row_prev;
+        let a = Self::shift_left(b);
+        let c = Self::shift_right(b);
+        let i = row_curr;
+        let h = Self::shift_left(i);
+        let d = Self::shift_right(i);
+        let f = row_next;
+        let g = Self::shift_left(f);
+        let e = Self::shift_right(f);
 
-            let b = row_prev[x];
-            let a = (b << 1) | (row_prev[x1] >> shift);
-            let c = (b >> 1) | (row_prev[x2] << shift);
-            let i = row_curr[x];
-            let h = (i << 1) | (row_curr[x1] >> shift);
-            let d = (i >> 1) | (row_curr[x2] << shift);
-            let f = row_next[x];
-            let g = (f << 1) | (row_next[x1] >> shift);
-            let e = (f >> 1) | (row_next[x2] << shift);
-            let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
-            let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-            let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
-            let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-            let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
-            let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
-            let z = !ah23 & ah1;
-            let (i2, i3) = (!ah0 & z, ah0 & z);
-            dst[x] = (i & i2) | i3;
-        }
-        let b = row_prev[w - 1];
-        let a = (b << 1) | (row_prev[w - 2] >> shift);
-        let c = b >> 1;
-        let i = row_curr[w - 1];
-        let h = (i << 1) | (row_curr[w - 2] >> shift);
-        let d = i >> 1;
-        let f = row_next[w - 1];
-        let g = (f << 1) | (row_next[w - 2] >> shift);
-        let e = f >> 1;
-        let (ab0, ab1, cd0, cd1) = (a ^ b, a & b, c ^ d, c & d);
-        let (ef0, ef1, gh0, gh1) = (e ^ f, e & f, g ^ h, g & h);
-        let (ad0, ad1, ad2) = (ab0 ^ cd0, ab1 ^ cd1 ^ (ab0 & cd0), ab1 & cd1);
-        let (eh0, eh1, eh2) = (ef0 ^ gh0, ef1 ^ gh1 ^ (ef0 & gh0), ef1 & gh1);
-        let (ah0, xx, yy) = (ad0 ^ eh0, ad0 & eh0, ad1 ^ eh1);
-        let (ah1, ah23) = (xx ^ yy, ad2 | eh2 | (ad1 & eh1) | (xx & yy));
-        let z = !ah23 & ah1;
-        let (i2, i3) = (!ah0 & z, ah0 & z);
-        dst[w - 1] = (i & i2) | i3;
+        let ab0 = _mm256_xor_si256(a, b);
+        let ab1 = _mm256_and_si256(a, b);
+        let cd0 = _mm256_xor_si256(c, d);
+        let cd1 = _mm256_and_si256(c, d);
+
+        let ef0 = _mm256_xor_si256(e, f);
+        let ef1 = _mm256_and_si256(e, f);
+        let gh0 = _mm256_xor_si256(g, h);
+        let gh1 = _mm256_and_si256(g, h);
+
+        let ad0 = _mm256_xor_si256(ab0, cd0);
+        let ad1 = _mm256_xor_si256(_mm256_xor_si256(ab1, cd1), _mm256_and_si256(ab0, cd0));
+        let ad2 = _mm256_and_si256(ab1, cd1);
+
+        let eh0 = _mm256_xor_si256(ef0, gh0);
+        let eh1 = _mm256_xor_si256(_mm256_xor_si256(ef1, gh1), _mm256_and_si256(ef0, gh0));
+        let eh2 = _mm256_and_si256(ef1, gh1);
+
+        let ah0 = _mm256_xor_si256(ad0, eh0);
+        let xx = _mm256_and_si256(ad0, eh0);
+        let yy = _mm256_xor_si256(ad1, eh1);
+        let ah1 = _mm256_xor_si256(xx, yy);
+        let ah23 = _mm256_or_si256(
+            _mm256_or_si256(ad2, eh2),
+            _mm256_or_si256(_mm256_and_si256(ad1, eh1), _mm256_and_si256(xx, yy)),
+        );
+        let z = _mm256_andnot_si256(ah23, ah1);
+        let i2 = _mm256_andnot_si256(ah0, z);
+        let i3 = _mm256_and_si256(ah0, z);
+        _mm256_or_si256(_mm256_and_si256(i, i2), i3)
     }
 
     #[target_feature(enable = "avx2")]
@@ -167,10 +163,14 @@ impl ConwayFieldHash256 {
         for t in 1..=h / 2 {
             for y in t..2 * h - t {
                 let row_prev = &src[(y - 1) * 2 * w..y * 2 * w];
+                let row_prev = _mm256_loadu_si256(row_prev.as_ptr() as *const __m256i);
                 let row_curr = &src[y * 2 * w..(y + 1) * 2 * w];
+                let row_curr = _mm256_loadu_si256(row_curr.as_ptr() as *const __m256i);
                 let row_next = &src[(y + 1) * 2 * w..(y + 2) * 2 * w];
+                let row_next = _mm256_loadu_si256(row_next.as_ptr() as *const __m256i);
                 let dst = &mut dst[y * 2 * w..(y + 1) * 2 * w];
-                Self::update_row(&row_prev, &row_curr, &row_next, dst);
+                let dst = dst.as_mut_ptr() as *mut __m256i;
+                _mm256_storeu_si256(dst, Self::update_row(row_prev, row_curr, row_next));
             }
             std::mem::swap(&mut src, &mut dst);
         }
@@ -294,7 +294,8 @@ impl ConwayFieldHash256 {
                             }
                             let j = sx + (x - viewport_x >> step_log2);
                             let i = sy + (y - viewport_y >> step_log2);
-                            dst[j + i * resolution] = ((u8::MAX as Chunk * sum) >> 2 * step.ilog2()) as u8;
+                            dst[j + i * resolution] =
+                                ((u8::MAX as Chunk * sum) >> 2 * step.ilog2()) as u8;
                         }
                     }
                 }

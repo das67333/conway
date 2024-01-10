@@ -47,7 +47,7 @@ fn main() {
     let field_size: usize = 1024 * 8;
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(600., 400.)),
+        viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1200., 1000.)),
         ..Default::default()
     };
     eframe::run_native(
@@ -85,7 +85,7 @@ fn main() {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == usize::MAX {
+        if self.iter_idx == 1000 {
             std::process::exit(0);
         }
         self.iter_idx += 1;
