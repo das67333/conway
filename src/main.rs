@@ -63,7 +63,7 @@ fn main() {
                 control_panel_min_width: 60.,
                 zoom_step: 1.1,
                 scroll_scale: -50.,
-                supersampling: 2.,
+                supersampling: 1.,
                 zoom: 1.,
                 life,
                 life_rect: None,
@@ -141,7 +141,12 @@ impl eframe::App for App {
 
                     let ci = egui::ColorImage::from_gray([resolution; 2], &self.viewport_buf);
                     // TODO: NEAREST when close, LINEAR when far away
-                    self.texture.set(ci, egui::TextureOptions::LINEAR);
+                    let texture_options = if side > resolution {
+                        egui::TextureOptions::LINEAR
+                    } else {
+                        egui::TextureOptions::NEAREST
+                    };
+                    self.texture.set(ci, texture_options);
                     if !self.paused {
                         self.life.update(self.updates_per_frame);
                     }
