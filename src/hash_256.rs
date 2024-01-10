@@ -315,8 +315,8 @@ impl ConwayFieldHash256 {
                             let mut sum = 0;
                             for dy in 0..step {
                                 for dx in 0..step {
-                                    let x = (sx + dx) & (BASE_SIDE - 1);
-                                    let y = (sy + dy) & (BASE_SIDE - 1);
+                                    let x = (sx * step + dx) & (BASE_SIDE - 1);
+                                    let y = (sy * step + dy) & (BASE_SIDE - 1);
                                     let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
                                     let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
                                     sum += data[pos] >> offset & 1;
