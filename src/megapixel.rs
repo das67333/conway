@@ -1,6 +1,5 @@
-use super::hash_256::ConwayFieldHash256;
-
-pub fn paste_rle(life: &mut ConwayFieldHash256, x: usize, y: usize, data: &[u8]) {
+/// Returns width, height and row-major vector filled with cells of the parsed RLE pattern
+pub fn parse_rle(data: &[u8]) -> (usize, usize, Vec<bool>) {
     let parse_next_number = |i: &mut usize| {
         while !data[*i].is_ascii_digit() {
             *i += 1;
@@ -31,12 +30,13 @@ pub fn paste_rle(life: &mut ConwayFieldHash256, x: usize, y: usize, data: &[u8])
     // next line must start with 'x'; parsing sizes
     let width = parse_next_number(&mut i);
     let height = parse_next_number(&mut i);
+    let mut result = vec![false; width * height];
     while data[i] != b'\n' {
         i += 1;
     }
     i += 1;
     // run-length encoded pattern data
-    let (mut dx, mut dy, mut cnt) = (0, 0, 1);
+    let (mut x, mut y, mut cnt) = (0, 0, 1);
     while i < data.len() {
         let c = data[i];
         match c {
@@ -44,32 +44,33 @@ pub fn paste_rle(life: &mut ConwayFieldHash256, x: usize, y: usize, data: &[u8])
             b'0'..=b'9' => cnt = parse_next_number(&mut i),
             b'o' => {
                 for _ in 0..cnt {
-                    life.set_cell(x + dx, y + dy, true);
-                    dx += 1
+                    result[x + y * width] = true;
+                    x += 1
                 }
                 (i, cnt) = (i + 1, 1);
                 assert!(
-                    dx <= width,
+                    x <= width,
                     "i={} {:?}",
                     i,
                     String::from_utf8(data[i - 36..=i].to_vec())
                 );
             }
             b'b' => {
-                (dx, i, cnt) = (dx + cnt, i + 1, 1);
-                assert!(dx <= width);
+                (x, i, cnt) = (x + cnt, i + 1, 1);
+                assert!(x <= width);
             }
             b'$' => {
-                (dx, dy, i, cnt) = (0, dy + cnt, i + 1, 1);
-                assert!(dy <= height);
+                (x, y, i, cnt) = (0, y + cnt, i + 1, 1);
+                assert!(y <= height);
             }
             b'!' => {
-                dy += 1;
-                assert!(dy <= height);
+                y += 1;
+                assert!(y <= height);
                 break;
             }
             _ => panic!("Unexpected symbol"),
         };
     }
-    assert!(dy <= height);
+    assert!(y <= height);
+    (width, height, result)
 }

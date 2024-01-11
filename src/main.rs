@@ -1,10 +1,11 @@
 #![warn(clippy::all)]
 
-pub mod hash_256;
-pub mod otca;
+mod empty_hasher;
+mod engine;
+mod megapixel;
 
 use eframe::egui;
-use hash_256::ConwayFieldHash256;
+use engine::ConwayFieldHash256;
 use std::time::{Duration, Instant};
 
 pub struct App {
@@ -18,34 +19,14 @@ pub struct App {
     life: ConwayFieldHash256, // Conway's GoL engine; updates are performed at 256x256 level using simd instructions.
     life_rect: Option<egui::Rect>, // Part of the window displaying Conway's GoL.
     texture: egui::TextureHandle, // Texture handle of Conway's GoL.
-    viewport_buf: Vec<u8>,
+    viewport_buf: Vec<f32>,
     viewport_pos: egui::Pos2, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     frame_timer: Option<Instant>, // Timer to track frame duration.
     paused: bool,             // Flag indicating if the simulation is paused.
     iter_idx: usize,          // Current iteration index.
 }
 
-fn otca_transform<const N: usize>(life: &mut ConwayFieldHash256, data: [[u8; N]; N]) {
-    assert_eq!(N * 2048, life.size().0);
-    assert_eq!(N * 2048, life.size().1);
-
-    let otca = (["res/otca_0.rle", "res/otca_1.rle"]).map(|path| {
-        use std::fs::File;
-        use std::io::Read;
-        let mut buf = vec![];
-        File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-        buf
-    });
-    for (i, &row) in data.iter().enumerate() {
-        for (j, &state) in row.iter().enumerate() {
-            otca::paste_rle(life, j * 2048, i * 2048, &otca[state as usize])
-        }
-    }
-}
-
 fn main() {
-    let field_size: usize = 1024 * 8;
-
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1200., 1000.)),
         ..Default::default()
@@ -54,12 +35,13 @@ fn main() {
         "Conway's Game of Life",
         options,
         Box::new(move |cc| {
-            let mut life = ConwayFieldHash256::blank(field_size.ilog2());
-            otca_transform(&mut life, [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]]);
+            // let mut life = ConwayFieldHash256::blank(field_size.ilog2());
+            // otca_transform(&mut life, [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]]);
             // otca_transform(&mut life, [[0]]);
+            let life = ConwayFieldHash256::from_recursive_otca_megapixel(2, [[1]]);
             Box::new(App {
-                life_size: field_size,
-                updates_per_frame: field_size / 2,
+                life_size: life.side_length(),
+                updates_per_frame: life.side_length() / 2,
                 control_panel_min_width: 60.,
                 zoom_step: 1.1,
                 scroll_scale: -50.,
@@ -83,9 +65,23 @@ fn main() {
     .unwrap();
 }
 
+#[inline(never)]
+fn normalize_brightness(v: &Vec<f32>) -> Vec<u8> {
+    // TODO: slow!!!
+    let (mut low, mut high) = (0., 0.);
+    for &x in v {
+        if high < x {
+            high = x;
+        }
+    }
+    v.iter()
+        .map(|x| ((x - low) / (high - low) * u8::MAX as f32) as u8)
+        .collect()
+}
+
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == 1000 {
+        if self.iter_idx == 1 {
             std::process::exit(0);
         }
         self.iter_idx += 1;
@@ -139,7 +135,8 @@ impl eframe::App for App {
                         &mut self.viewport_buf,
                     );
 
-                    let ci = egui::ColorImage::from_gray([resolution; 2], &self.viewport_buf);
+                    let gray = normalize_brightness(&self.viewport_buf);
+                    let ci = egui::ColorImage::from_gray([resolution; 2], &gray);
                     // TODO: NEAREST when close, LINEAR when far away
                     let texture_options = if side > resolution {
                         egui::TextureOptions::LINEAR
