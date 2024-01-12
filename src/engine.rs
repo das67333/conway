@@ -11,6 +11,9 @@ const BASE_SIDE: usize = 128;
 const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
 const CHUNKS_IN_LEAF: usize = BASE_SIDE * BASE_SIDE / CELLS_IN_CHUNK;
 
+pub static mut LEAF_NODES_CNT: u64 = 0;
+pub static mut COMPOSITE_NODES_CNT: u64 = 0;
+
 #[derive(Default)]
 struct LeafCache {
     step: usize, // zero when the cache is empty
@@ -47,6 +50,9 @@ impl ConwayFieldHash256 {
         if let Some(node) = nodes_all.get(&hash) {
             node.clone()
         } else {
+            unsafe {
+                LEAF_NODES_CNT += 1;
+            }
             #[target_feature(enable = "popcnt")]
             unsafe fn count_ones(data: &[Chunk; CHUNKS_IN_LEAF]) -> u32 {
                 data.iter().map(|x| x.count_ones()).sum::<u32>()
@@ -78,6 +84,9 @@ impl ConwayFieldHash256 {
         if let Some(node) = nodes_all.get(&hash) {
             node.clone()
         } else {
+            unsafe {
+                COMPOSITE_NODES_CNT += 1;
+            }
             let result = Rc::new(QuadTreeNode {
                 hash,
                 side_log2: nw.side_log2 + 1,
@@ -210,63 +219,64 @@ impl ConwayFieldHash256 {
         Self::get_leaf_node(result, &mut self.nodes_all)
     }
 
-    fn update_composite(&mut self, nodes: &[Rc<QuadTreeNode>; 4]) -> Rc<QuadTreeNode> {
-        let [nw, ne, sw, se] = nodes;
-        let [_, ne0, sw0, se0] = Self::split_node(&nw);
-        let [nw1, _, sw1, se1] = Self::split_node(&ne);
-        let [nw2, ne2, _, se2] = Self::split_node(&sw);
-        let [nw3, ne3, sw3, _] = Self::split_node(&se);
+    fn update_composite(
+        &mut self,
+        nw: &Rc<QuadTreeNode>,
+        ne: &Rc<QuadTreeNode>,
+        sw: &Rc<QuadTreeNode>,
+        se: &Rc<QuadTreeNode>,
+    ) -> Rc<QuadTreeNode> {
+        let [nw0, ne0, sw0, se0] = Self::split_node(&nw);
+        let [nw1, ne1, sw1, se1] = Self::split_node(&ne);
+        let [nw2, ne2, sw2, se2] = Self::split_node(&sw);
+        let [nw3, ne3, sw3, se3] = Self::split_node(&se);
 
-        let u1 = Self::get_composite_node(&ne0, &nw1, &se0, &sw1, &mut self.nodes_all);
-        let u3 = Self::get_composite_node(&sw0, &se0, &nw2, &ne2, &mut self.nodes_all);
-        let u4 = Self::get_composite_node(&se0, &sw1, &ne2, &nw3, &mut self.nodes_all);
-        let u5 = Self::get_composite_node(&sw1, &se1, &nw3, &ne3, &mut self.nodes_all);
-        let u7 = Self::get_composite_node(&ne2, &nw3, &se2, &sw3, &mut self.nodes_all);
+        let p0 = self.update_node(Some(nw.hash), &nw0, &ne0, &sw0, &se0);
+        let p1 = self.update_node(None, &ne0, &nw1, &se0, &sw1);
+        let p2 = self.update_node(Some(ne.hash), &nw1, &ne1, &sw1, &se1);
+        let p3 = self.update_node(None, &sw0, &se0, &nw2, &ne2);
+        let p4 = self.update_node(None, &se0, &sw1, &ne2, &nw3);
+        let p5 = self.update_node(None, &sw1, &se1, &nw3, &ne3);
+        let p6 = self.update_node(Some(sw.hash), &nw2, &ne2, &sw2, &se2);
+        let p7 = self.update_node(None, &ne2, &nw3, &se2, &sw3);
+        let p8 = self.update_node(Some(se.hash), &nw3, &ne3, &sw3, &se3);
 
-        let p0 = self.update_node(&nw);
-        let p1 = self.update_node(&u1);
-        let p2 = self.update_node(&ne);
-        let p3 = self.update_node(&u3);
-        let p4 = self.update_node(&u4);
-        let p5 = self.update_node(&u5);
-        let p6 = self.update_node(&sw);
-        let p7 = self.update_node(&u7);
-        let p8 = self.update_node(&se);
-
-        let w0 = Self::get_composite_node(&p0, &p1, &p3, &p4, &mut self.nodes_all);
-        let w1 = Self::get_composite_node(&p1, &p2, &p4, &p5, &mut self.nodes_all);
-        let w2 = Self::get_composite_node(&p3, &p4, &p6, &p7, &mut self.nodes_all);
-        let w3 = Self::get_composite_node(&p4, &p5, &p7, &p8, &mut self.nodes_all);
-
-        let q0 = self.update_node(&w0);
-        let q1 = self.update_node(&w1);
-        let q2 = self.update_node(&w2);
-        let q3 = self.update_node(&w3);
+        let q0 = self.update_node(None, &p0, &p1, &p3, &p4);
+        let q1 = self.update_node(None, &p1, &p2, &p4, &p5);
+        let q2 = self.update_node(None, &p3, &p4, &p6, &p7);
+        let q3 = self.update_node(None, &p4, &p5, &p7, &p8);
         Self::get_composite_node(&q0, &q1, &q2, &q3, &mut self.nodes_all)
     }
 
-    fn update_node(&mut self, node: &Rc<QuadTreeNode>) -> Rc<QuadTreeNode> {
-        if let Some(x) = self.node_updates.get(&node.hash) {
-            return x.clone();
-        }
-        let result = match &node.data {
-            NodeData::Composite(nodes) => {
-                let [nw, ne, sw, se] = nodes;
-                if let (
-                    NodeData::Leaf(v0),
-                    NodeData::Leaf(v1),
-                    NodeData::Leaf(v2),
-                    NodeData::Leaf(v3),
-                ) = (&nw.data, &ne.data, &sw.data, &se.data)
-                {
-                    unsafe { self.base_update(&v0.cells, &v1.cells, &v2.cells, &v3.cells) }
-                } else {
-                    self.update_composite(nodes)
-                }
-            }
-            NodeData::Leaf(_) => unreachable!(),
+    #[inline(never)]
+    fn update_node(
+        &mut self,
+        hash: Option<u128>,
+        nw: &Rc<QuadTreeNode>,
+        ne: &Rc<QuadTreeNode>,
+        sw: &Rc<QuadTreeNode>,
+        se: &Rc<QuadTreeNode>,
+    ) -> Rc<QuadTreeNode> {
+        let hash = if let Some(value) = hash {
+            value
+        } else {
+            xxh3_128(bytemuck::bytes_of(&[nw.hash, ne.hash, sw.hash, se.hash]))
         };
-        self.node_updates.insert(node.hash, result.clone());
+        if let Some(node) = self.node_updates.get(&hash) {
+            return node.clone();
+        }
+        let result = if let (
+            NodeData::Leaf(v0),
+            NodeData::Leaf(v1),
+            NodeData::Leaf(v2),
+            NodeData::Leaf(v3),
+        ) = (&nw.data, &ne.data, &sw.data, &se.data)
+        {
+            unsafe { self.base_update(&v0.cells, &v1.cells, &v2.cells, &v3.cells) }
+        } else {
+            self.update_composite(nw, ne, sw, se)
+        };
+        self.node_updates.insert(hash, result.clone());
         result
     }
 
@@ -477,8 +487,7 @@ impl ConwayFieldHash256 {
         for _ in 0..iters_cnt / m {
             // TODO: recursive anyway
             let top = &self.root;
-            let p = Self::get_composite_node(top, top, top, top, &mut self.nodes_all);
-            let q = self.update_node(&p);
+            let q = self.update_node(None, &top.clone(), &top.clone(), &top.clone(), &top.clone());
             let [se, sw, ne, nw] = Self::split_node(&q);
             self.root = Self::get_composite_node(&nw, &ne, &sw, &se, &mut self.nodes_all);
         }

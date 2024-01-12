@@ -3,6 +3,7 @@
 mod empty_hasher;
 mod engine;
 mod megapixel;
+mod test_hash_256;
 
 use eframe::egui;
 use engine::ConwayFieldHash256;
@@ -82,6 +83,9 @@ fn normalize_brightness(v: &Vec<f32>) -> Vec<u8> {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.iter_idx == 1 {
+            unsafe {
+                println!("{} {}", engine::LEAF_NODES_CNT, engine::COMPOSITE_NODES_CNT);
+            }
             std::process::exit(0);
         }
         self.iter_idx += 1;
@@ -96,7 +100,12 @@ impl eframe::App for App {
                 ctx.request_repaint();
                 // updating frame counter
                 if let Some(timer) = self.frame_timer {
-                    println!("FPS: {:.1}  ", 1. / timer.elapsed().as_secs_f64());
+                    let dur = timer.elapsed();
+                    println!(
+                        "FRAMETIME: {:>5}\t\tFPS: {:.3}",
+                        dur.as_millis(),
+                        1. / dur.as_secs_f64()
+                    );
                 }
                 self.frame_timer = Some(Instant::now());
 
