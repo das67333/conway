@@ -1,6 +1,5 @@
 use crate::empty_hasher::EmptyHasherBuilder;
 use std::arch::x86_64::*;
-use std::cell::RefCell;
 use std::rc::Rc;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -14,26 +13,15 @@ const CHUNKS_IN_LEAF: usize = BASE_SIDE * BASE_SIDE / CELLS_IN_CHUNK;
 pub static mut LEAF_NODES_CNT: u64 = 0;
 pub static mut COMPOSITE_NODES_CNT: u64 = 0;
 
-#[derive(Default)]
-struct LeafCache {
-    step: usize, // zero when the cache is empty
-    population_densities: Vec<u8>,
-}
-
-struct LeafData {
-    cells: Box<[Chunk; CHUNKS_IN_LEAF]>,
-    cache: RefCell<LeafCache>,
-}
-
 enum NodeData {
     Composite([Rc<QuadTreeNode>; 4]),
-    Leaf(LeafData),
+    Leaf(Box<[Chunk; CHUNKS_IN_LEAF]>),
 }
 
 struct QuadTreeNode {
     hash: u128,
     side_log2: u32,
-    population_density: f32,
+    population: f64,
     data: NodeData,
 }
 
@@ -61,12 +49,8 @@ impl ConwayFieldHash256 {
             let result = Rc::new(QuadTreeNode {
                 hash,
                 side_log2: BASE_SIDE.ilog2(),
-                population_density: unsafe { count_ones(&data) } as f32
-                    / (BASE_SIDE * BASE_SIDE) as f32,
-                data: NodeData::Leaf(LeafData {
-                    cells: Box::new(data),
-                    cache: RefCell::new(LeafCache::default()),
-                }),
+                population: unsafe { count_ones(&data) } as f64,
+                data: NodeData::Leaf(Box::new(data)),
             });
             nodes_all.insert(hash, result.clone());
             result
@@ -90,11 +74,7 @@ impl ConwayFieldHash256 {
             let result = Rc::new(QuadTreeNode {
                 hash,
                 side_log2: nw.side_log2 + 1,
-                population_density: (nw.population_density
-                    + ne.population_density
-                    + sw.population_density
-                    + se.population_density)
-                    / 4.,
+                population: nw.population + ne.population + sw.population + se.population,
                 data: NodeData::Composite([nw.clone(), ne.clone(), sw.clone(), se.clone()]),
             });
             nodes_all.insert(hash, result.clone());
@@ -272,7 +252,7 @@ impl ConwayFieldHash256 {
             NodeData::Leaf(v3),
         ) = (&nw.data, &ne.data, &sw.data, &se.data)
         {
-            unsafe { self.base_update(&v0.cells, &v1.cells, &v2.cells, &v3.cells) }
+            unsafe { self.base_update(v0, v1, v2, v3) }
         } else {
             self.update_composite(nw, ne, sw, se)
         };
@@ -296,7 +276,7 @@ impl ConwayFieldHash256 {
         viewport_y: &mut usize,
         side: &mut usize,
         resolution: &mut usize,
-        dst: &mut Vec<f32>,
+        dst: &mut Vec<f64>,
     ) {
         fn inner(
             node: &Rc<QuadTreeNode>,
@@ -307,14 +287,14 @@ impl ConwayFieldHash256 {
             resolution: usize,
             viewport_side: usize,
             step: usize,
-            dst: &mut Vec<f32>,
+            dst: &mut Vec<f64>,
         ) {
             let half = 1 << (node.side_log2 - 1);
             let step_log2 = step.ilog2();
             if step_log2 == node.side_log2 {
                 let j = (x - viewport_x) >> step_log2;
                 let i = (y - viewport_y) >> step_log2;
-                dst[j + i * resolution] = node.population_density * u8::MAX as f32;
+                dst[j + i * resolution] = node.population;
                 return;
             }
             match &node.data {
@@ -342,35 +322,22 @@ impl ConwayFieldHash256 {
                     }
                 }
                 NodeData::Leaf(data) => {
-                    let mut cache = data.cache.borrow_mut();
                     let k = BASE_SIDE >> step_log2;
-                    if cache.step != step {
-                        let mut dens = Vec::with_capacity(k * k);
-                        for sy in 0..k {
-                            for sx in 0..k {
-                                let mut sum = 0;
-                                for dy in 0..step {
-                                    for dx in 0..step {
-                                        let x = (sx * step + dx) & (BASE_SIDE - 1);
-                                        let y = (sy * step + dy) & (BASE_SIDE - 1);
-                                        let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
-                                        let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
-                                        sum += data.cells[pos] >> offset & 1;
-                                    }
-                                }
-                                dens.push(((u8::MAX as Chunk * sum) >> 2 * step.ilog2()) as u8);
-                            }
-                        }
-                        cache.step = step;
-                        cache.population_densities = dens;
-                    }
-
                     for sy in 0..k {
                         for sx in 0..k {
+                            let mut sum = 0;
+                            for dy in 0..step {
+                                for dx in 0..step {
+                                    let x = (sx * step + dx) & (BASE_SIDE - 1);
+                                    let y = (sy * step + dy) & (BASE_SIDE - 1);
+                                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
+                                    let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
+                                    sum += data[pos] >> offset & 1;
+                                }
+                            }
                             let j = sx + (x - viewport_x >> step_log2);
                             let i = sy + (y - viewport_y >> step_log2);
-                            dst[j + i * resolution] =
-                                cache.population_densities[sx + sy * k] as f32;
+                            dst[j + i * resolution] = sum as f64;
                         }
                     }
                 }
@@ -378,6 +345,7 @@ impl ConwayFieldHash256 {
         }
 
         let step = 1 << (*side / *resolution).max(1).ilog2();
+        println!("STEP={}", step);
         let com_mul = step.max(BASE_SIDE);
         *side = side.next_multiple_of(com_mul) + com_mul;
         *viewport_x = (*viewport_x + 1).next_multiple_of(com_mul) - com_mul;
@@ -430,7 +398,7 @@ impl ConwayFieldHash256 {
                 NodeData::Leaf(data) => {
                     let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
                     let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
-                    return data.cells[pos] >> offset & 1 != 0;
+                    return data[pos] >> offset & 1 != 0;
                 }
             }
             x -= (x >= size) as usize * size;
@@ -460,7 +428,7 @@ impl ConwayFieldHash256 {
                     ConwayFieldHash256::get_composite_node(&nw, &ne, &sw, &se, nodes_all)
                 }
                 NodeData::Leaf(data) => {
-                    let mut data_new: [Chunk; CHUNKS_IN_LEAF] = data.cells.as_ref().clone();
+                    let mut data_new: [Chunk; CHUNKS_IN_LEAF] = data.as_ref().clone();
                     let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
                     let mask = 1 << ((x + y * BASE_SIDE) % CELLS_IN_CHUNK);
                     if state {
@@ -497,6 +465,8 @@ impl ConwayFieldHash256 {
     ///
     /// If `depth` == 0, every cell is a regular cell, if 1 it is
     /// an OTCA build from regular cells and so on.
+    ///
+    /// `top_pattern` must consist of zeros and ones.
     pub fn from_recursive_otca_megapixel<const N: usize>(
         depth: u32,
         top_pattern: [[u8; N]; N],
@@ -520,8 +490,9 @@ impl ConwayFieldHash256 {
         }
 
         let mut nodes_all = HashMap::default();
+        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
+        // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
-            let mut nodes_curr = vec![];
             for y in 0..OTCA_SIDE / BASE_SIDE {
                 for x in 0..OTCA_SIDE / BASE_SIDE {
                     let mut data = [0; CHUNKS_IN_LEAF];
@@ -541,7 +512,6 @@ impl ConwayFieldHash256 {
             }
             let mut side = OTCA_SIDE / BASE_SIDE;
             while side != 1 {
-                let mut nodes_next = vec![];
                 for y in (0..side).step_by(2) {
                     for x in (0..side).step_by(2) {
                         let nw = &nodes_curr[x + y * side];
@@ -558,18 +528,17 @@ impl ConwayFieldHash256 {
             assert_eq!(nodes_curr.len(), 1);
             nodes_curr.pop().unwrap()
         });
+        // creating next-levels OTCA nodes
         for _ in 1..depth {
             let otca_nodes_next = [0, 1].map(|i| {
-                let mut nodes_curr = vec![];
                 for y in 0..OTCA_SIDE {
                     for x in 0..OTCA_SIDE {
-                        let j = otca_patterns[i][x + y * OTCA_SIDE] as usize;
-                        nodes_curr.push(otca_nodes[j].clone());
+                        let state = otca_patterns[i][x + y * OTCA_SIDE] as usize;
+                        nodes_curr.push(otca_nodes[state].clone());
                     }
                 }
                 let mut side = OTCA_SIDE;
                 while side != 1 {
-                    let mut nodes_next = vec![];
                     for y in (0..side).step_by(2) {
                         for x in (0..side).step_by(2) {
                             let nw = &nodes_curr[x + y * side];
@@ -594,8 +563,35 @@ impl ConwayFieldHash256 {
             });
             otca_nodes = otca_nodes_next;
         }
+        // creating field from `top_pattern` using top-level OTCA nodes
+        assert!(N.is_power_of_two());
+        for y in 0..N {
+            for x in 0..N {
+                let state = top_pattern[y][x] as usize;
+                assert!(state == 0 || state == 1);
+                nodes_curr.push(otca_nodes[state].clone());
+            }
+        }
+        let mut side = N;
+        while side != 1 {
+            for y in (0..side).step_by(2) {
+                for x in (0..side).step_by(2) {
+                    let nw = &nodes_curr[x + y * side];
+                    let ne = &nodes_curr[(x + 1) + y * side];
+                    let sw = &nodes_curr[x + (y + 1) * side];
+                    let se = &nodes_curr[(x + 1) + (y + 1) * side];
+                    nodes_next.push(Self::get_composite_node(nw, ne, sw, se, &mut nodes_all));
+                }
+            }
+            std::mem::swap(&mut nodes_curr, &mut nodes_next);
+            nodes_next.clear();
+            side /= 2;
+        }
+        assert_eq!(nodes_curr.len(), 1);
+        let root = nodes_curr.pop().unwrap();
+
         Self {
-            root: otca_nodes[1].clone(),
+            root,
             size: OTCA_SIDE.pow(depth) * N,
             node_updates: HashMap::default(),
             nodes_all,

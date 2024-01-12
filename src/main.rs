@@ -10,43 +10,44 @@ use engine::ConwayFieldHash256;
 use std::time::{Duration, Instant};
 
 pub struct App {
-    life_size: usize, // Side length of Conway's square field; edges are stitched together.
+    life_size: f64, // Side length of Conway's square field; edges are stitched together.
     updates_per_frame: usize, // Number of Conway's GoL updates per frame.
     control_panel_min_width: f32, // Minimum pixel width of the control panel on the left.
-    zoom_step: f32,   // Zooming coefficient for one step of the scroll wheel.
+    zoom_step: f32, // Zooming coefficient for one step of the scroll wheel.
     scroll_scale: f32, // Scaling factor for the scroll wheel output.
     supersampling: f32, // Scaling factor for the texture's rendering resolution.
-    zoom: f32,        // Current zoom rate.
+    zoom: f64,      // Current zoom rate.
     life: ConwayFieldHash256, // Conway's GoL engine; updates are performed at 256x256 level using simd instructions.
     life_rect: Option<egui::Rect>, // Part of the window displaying Conway's GoL.
     texture: egui::TextureHandle, // Texture handle of Conway's GoL.
-    viewport_buf: Vec<f32>,
-    viewport_pos: egui::Pos2, // Position (in the Conway's GoL field) of the left top corner of the viewport.
+    viewport_buf: Vec<f64>,
+    viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
+    viewport_pos_y: f64,
     frame_timer: Option<Instant>, // Timer to track frame duration.
-    paused: bool,             // Flag indicating if the simulation is paused.
-    iter_idx: usize,          // Current iteration index.
+    paused: bool,                 // Flag indicating if the simulation is paused.
+    iter_idx: u64,                // Current iteration index.
 }
 
 fn main() {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(1200., 1000.)),
+        viewport: egui::ViewportBuilder::default().with_inner_size(egui::vec2(800., 600.)),
         ..Default::default()
     };
     eframe::run_native(
         "Conway's Game of Life",
         options,
         Box::new(move |cc| {
-            // let mut life = ConwayFieldHash256::blank(field_size.ilog2());
-            // otca_transform(&mut life, [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]]);
-            // otca_transform(&mut life, [[0]]);
-            let life = ConwayFieldHash256::from_recursive_otca_megapixel(2, [[1]]);
+            let life = ConwayFieldHash256::from_recursive_otca_megapixel(
+                3,
+                [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
+            );
             Box::new(App {
-                life_size: life.side_length(),
-                updates_per_frame: life.side_length() / 2,
+                life_size: life.side_length() as f64,
+                updates_per_frame: 0, //life.side_length() / 2,
                 control_panel_min_width: 60.,
                 zoom_step: 1.1,
                 scroll_scale: -50.,
-                supersampling: 1.,
+                supersampling: 0.7,
                 zoom: 1.,
                 life,
                 life_rect: None,
@@ -56,7 +57,8 @@ fn main() {
                     egui::TextureOptions::default(),
                 ),
                 viewport_buf: vec![],
-                viewport_pos: egui::Pos2::ZERO,
+                viewport_pos_x: 0.,
+                viewport_pos_y: 0.,
                 frame_timer: None,
                 paused: false,
                 iter_idx: 0,
@@ -67,25 +69,30 @@ fn main() {
 }
 
 #[inline(never)]
-fn normalize_brightness(v: &Vec<f32>) -> Vec<u8> {
-    // TODO: slow!!!
-    let (mut low, mut high) = (0., 0.);
-    for &x in v {
-        if high < x {
-            high = x;
+fn normalize_brightness(v: &Vec<f64>) -> Vec<u8> {
+    // TODO: improve performance
+    let u = v
+        .iter()
+        .filter_map(|&x| if x == 0. { None } else { Some(x) })
+        .collect::<Vec<_>>();
+    if u.iter().all(|&x| x == u[0]) {
+        let mut k = 1.;
+        if u.len() != 0 {
+            k = 1. / u[0];
         }
+        return v.iter().map(|&x| (x / k) as u8 * u8::MAX).collect();
     }
+    let m = u.iter().sum::<f64>() / u.len() as f64;
+    let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
+    dbg!(m, dev);
     v.iter()
-        .map(|x| ((x - low) / (high - low) * u8::MAX as f32) as u8)
+        .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
         .collect()
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == 1 {
-            unsafe {
-                println!("{} {}", engine::LEAF_NODES_CNT, engine::COMPOSITE_NODES_CNT);
-            }
+        if self.iter_idx == 10000 {
             std::process::exit(0);
         }
         self.iter_idx += 1;
@@ -99,14 +106,18 @@ impl eframe::App for App {
             .show(ctx, |ui| {
                 ctx.request_repaint();
                 // updating frame counter
-                if let Some(timer) = self.frame_timer {
-                    let dur = timer.elapsed();
-                    println!(
-                        "FRAMETIME: {:>5}\t\tFPS: {:.3}",
-                        dur.as_millis(),
-                        1. / dur.as_secs_f64()
-                    );
-                }
+                // if let Some(timer) = self.frame_timer {
+                //     let dur = timer.elapsed();
+                //     unsafe {
+                //         println!(
+                //             "FRAMETIME: {:>5}\tFPS: {:.3}\tLEAFS: {}\tOTHER: {}",
+                //             dur.as_millis(),
+                //             1. / dur.as_secs_f64(),
+                //             engine::LEAF_NODES_CNT,
+                //             engine::COMPOSITE_NODES_CNT
+                //         );
+                //     }
+                // }
                 self.frame_timer = Some(Instant::now());
 
                 let (w, h) = (ui.available_width(), ui.available_height());
@@ -123,7 +134,7 @@ impl eframe::App for App {
                     });
                     ui.add_space(ui.available_width() - size);
 
-                    // updating an drawing the field
+                    // updating and drawing the field
                     if let Some(life_rect) = self.life_rect {
                         self.update_viewport(ctx, life_rect);
                     }
@@ -132,10 +143,10 @@ impl eframe::App for App {
                     // desired size of texture in pixels
                     let mut resolution = (size * self.supersampling).ceil() as usize;
                     // left top viewport coordinate in cells
-                    let mut x = (self.life_size as f32 * self.viewport_pos.x) as usize;
-                    let mut y = (self.life_size as f32 * self.viewport_pos.y) as usize;
+                    let mut x = (self.life_size * self.viewport_pos_x) as usize;
+                    let mut y = (self.life_size * self.viewport_pos_y) as usize;
                     // size of viewport in cells
-                    let mut side = (self.life_size as f32 * self.zoom).ceil() as usize;
+                    let mut side = (self.life_size * self.zoom).ceil() as usize;
                     self.life.fill_texture(
                         &mut x,
                         &mut y,
@@ -153,30 +164,19 @@ impl eframe::App for App {
                         egui::TextureOptions::NEAREST
                     };
                     self.texture.set(ci, texture_options);
-                    if !self.paused {
-                        self.life.update(self.updates_per_frame);
-                    }
-                    let mut frame_pos = self.viewport_pos
-                        - egui::vec2(
-                            x as f32 / self.life_size as f32,
-                            y as f32 / self.life_size as f32,
-                        );
-                    frame_pos.x *= self.life_size as f32 / side as f32;
-                    frame_pos.y *= self.life_size as f32 / side as f32;
+                    let side = side as f64;
+                    let vp_x = (self.viewport_pos_x * self.life_size - x as f64) / side;
+                    let vp_y = (self.viewport_pos_y * self.life_size - y as f64) / side;
+                    let vp = egui::pos2(vp_x as f32, vp_y as f32);
+                    let vp_s = egui::Vec2::splat((self.zoom * self.life_size / side) as f32);
                     self.life_rect.replace(
                         ui.add(|ui: &mut egui::Ui| {
                             egui::Widget::ui(
                                 egui::Image::new(egui::load::SizedTexture::new(
                                     self.texture.id(),
-                                    [size as f32; 2],
+                                    [size; 2],
                                 ))
-                                .uv(egui::Rect::from_points(&[
-                                    frame_pos,
-                                    frame_pos
-                                        + egui::Vec2::splat(
-                                            self.zoom * self.life_size as f32 / side as f32,
-                                        ),
-                                ])),
+                                .uv(egui::Rect::from_points(&[vp, vp + vp_s])),
                                 ui,
                             )
                         })
@@ -184,6 +184,9 @@ impl eframe::App for App {
                     );
                 });
 
+                if !self.paused {
+                    self.life.update(self.updates_per_frame);
+                }
                 std::thread::sleep(Duration::from_millis(20));
             });
     }
@@ -198,19 +201,23 @@ impl App {
                         let zoom_change = self
                             .zoom_step
                             .powf(input.scroll_delta.y / self.scroll_scale);
-                        self.viewport_pos +=
-                            self.zoom * (pos - life_rect.left_top()) * (1. - zoom_change)
-                                / life_rect.size();
-                        self.zoom *= zoom_change;
+                        self.viewport_pos_x += self.zoom
+                            * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
+                                / life_rect.size().x) as f64;
+                        self.viewport_pos_y += self.zoom
+                            * ((pos.y - life_rect.left_top().y) * (1. - zoom_change)
+                                / life_rect.size().y) as f64;
+                        self.zoom *= zoom_change as f64;
                     }
 
                     if input.pointer.primary_down() && input.pointer.delta() != egui::Vec2::ZERO {
-                        self.viewport_pos -= input.pointer.delta() / life_rect.size() * self.zoom;
+                        self.viewport_pos_x -=
+                            input.pointer.delta().x as f64 / life_rect.size().x as f64 * self.zoom;
+                        self.viewport_pos_y -=
+                            input.pointer.delta().y as f64 / life_rect.size().y as f64 * self.zoom;
                     }
-                    self.viewport_pos = self
-                        .viewport_pos
-                        .min(egui::pos2(1., 1.) - egui::vec2(self.zoom, self.zoom))
-                        .max(egui::Pos2::ZERO);
+                    self.viewport_pos_x = self.viewport_pos_x.min(1. - self.zoom).max(0.);
+                    self.viewport_pos_y = self.viewport_pos_y.min(1. - self.zoom).max(0.);
                     self.zoom = self.zoom.min(1.);
                 }
             }
