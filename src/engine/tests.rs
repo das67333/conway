@@ -35,8 +35,7 @@ mod tests {
             cells_simd.iter().map(|t| *t as usize).sum::<usize>(),
             cells_hash.iter().map(|t| *t as usize).sum::<usize>()
         );
-        // assert!(s.iter().all(|x| x == &s[0]), "s={:?}", s);
-        // assert!(v.iter().all(|x| x == &v[0]));
+        assert_eq!(cells_simd, cells_hash);
     }
 
     type Chunk = u64;
