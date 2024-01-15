@@ -1,4 +1,3 @@
-mod empty_hasher;
-pub mod engine;
+pub mod hashlife;
 mod parsing_rle;
 mod tests;

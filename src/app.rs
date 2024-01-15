@@ -1,4 +1,4 @@
-use super::engine::engine::ConwayFieldHash256;
+use super::engine::hashlife::ConwayFieldHash256;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -16,13 +16,13 @@ pub struct App {
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
-    frame_timer: Option<Instant>, // Timer to track frame duration.
-    paused: bool,                 // Flag indicating if the simulation is paused.
-    iter_idx: u64,                // Current iteration index.
+    frame_timer: Instant, // Timer to track frame duration.
+    paused: bool,         // Flag indicating if the simulation is paused.
+    iter_idx: u64,        // Current iteration index.
 }
 
 #[inline(never)]
-fn normalize_brightness(v: &Vec<f64>) -> Vec<u8> {
+fn normalize_brightness(v: &[f64]) -> Vec<u8> {
     // TODO: improve performance
     let u = v
         .iter()
@@ -30,7 +30,7 @@ fn normalize_brightness(v: &Vec<f64>) -> Vec<u8> {
         .collect::<Vec<_>>();
     if u.iter().all(|&x| x == u[0]) {
         let mut k = 1.;
-        if u.len() != 0 {
+        if !u.is_empty() {
             k = 1. / u[0];
         }
         return v.iter().map(|&x| (x / k) as u8 * u8::MAX).collect();
@@ -45,9 +45,9 @@ fn normalize_brightness(v: &Vec<f64>) -> Vec<u8> {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == 1 {
-            std::process::exit(0);
-        }
+        // if self.iter_idx == 1 {
+        //     std::process::exit(0);
+        // }
         self.iter_idx += 1;
         // full-window panel
         egui::CentralPanel::default()
@@ -58,20 +58,6 @@ impl eframe::App for App {
             })
             .show(ctx, |ui| {
                 ctx.request_repaint();
-                // updating frame counter
-                // if let Some(timer) = self.frame_timer {
-                //     let dur = timer.elapsed();
-                //     unsafe {
-                //         println!(
-                //             "FRAMETIME: {:>5}\tFPS: {:.3}\tLEAFS: {}\tOTHER: {}",
-                //             dur.as_millis(),
-                //             1. / dur.as_secs_f64(),
-                //             engine::LEAF_NODES_CNT,
-                //             engine::COMPOSITE_NODES_CNT
-                //         );
-                //     }
-                // }
-                self.frame_timer = Some(Instant::now());
 
                 let (w, h) = (ui.available_width(), ui.available_height());
                 // size of the viewport in pixels
@@ -140,6 +126,16 @@ impl eframe::App for App {
                 if !self.paused {
                     self.life.update(self.updates_per_frame);
                 }
+                // updating frame counter
+                let dur = self.frame_timer.elapsed();
+                println!(
+                    "FRAMETIME: {:>5}\tFPS: {:.3}",
+                    dur.as_millis(),
+                    1. / dur.as_secs_f64()
+                );
+
+                self.frame_timer = Instant::now();
+
                 std::thread::sleep(Duration::from_millis(20));
             });
     }
@@ -170,7 +166,7 @@ impl App {
             viewport_buf: vec![],
             viewport_pos_x: 0.,
             viewport_pos_y: 0.,
-            frame_timer: None,
+            frame_timer: Instant::now(),
             paused: false,
             iter_idx: 0,
         }
