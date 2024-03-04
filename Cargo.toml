@@ -9,3 +9,14 @@ rand_chacha = "0.3"
 bytemuck = { version = "1.14", features = ["derive"] }
 eframe = "0.24"
 ahash = "0.8"
+lru = "0.12"
+hashlink = "0.9"
+jemallocator = "0.5"
+jemalloc-ctl = "0.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "bench"
+harness = false

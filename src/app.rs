@@ -37,7 +37,7 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
     }
     let m = u.iter().sum::<f64>() / u.len() as f64;
     let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
-    dbg!(m, dev);
+    println!("mean={:.2e} \tdev={:.2e}", m, dev);
     v.iter()
         .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
         .collect()
@@ -45,9 +45,9 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // if self.iter_idx == 1 {
-        //     std::process::exit(0);
-        // }
+        if self.iter_idx == 1 {
+            std::process::exit(0);
+        }
         self.iter_idx += 1;
         // full-window panel
         egui::CentralPanel::default()
@@ -129,10 +129,24 @@ impl eframe::App for App {
                 // updating frame counter
                 let dur = self.frame_timer.elapsed();
                 println!(
-                    "FRAMETIME: {:>5}\tFPS: {:.3}",
+                    "FRAMETIME: {:>5} ms \tFPS: {:.3}",
                     dur.as_millis(),
                     1. / dur.as_secs_f64()
                 );
+
+                pub fn heapsize() -> usize {
+                    let epoch: jemalloc_ctl::epoch_mib = jemalloc_ctl::epoch::mib().unwrap();
+                    let allocated: jemalloc_ctl::stats::allocated_mib =
+                        jemalloc_ctl::stats::allocated::mib().unwrap();
+
+                    // update jemalloc's stats
+                    epoch.advance().unwrap();
+
+                    // get the memory usage
+                    allocated.read().unwrap()
+                }
+
+                println!("TOTAL: {:.1} GB", heapsize() as f64 * 1e-9);
 
                 self.frame_timer = Instant::now();
 

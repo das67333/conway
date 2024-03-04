@@ -1,5 +1,8 @@
 #![warn(clippy::all)]
 
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 mod app;
 mod engine;
 
@@ -17,7 +20,7 @@ fn main() {
         Box::new(move |cc| {
             Box::new(app::App::new_otca(
                 &cc.egui_ctx,
-                1,
+                2,
                 [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
             ))
             // Box::new(app::App::new_otca(&cc.egui_ctx, 2, [[1]]))

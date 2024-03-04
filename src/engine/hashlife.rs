@@ -7,9 +7,6 @@ const BASE_SIDE: usize = 128;
 const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
 const CHUNKS_IN_LEAF: usize = BASE_SIDE * BASE_SIDE / CELLS_IN_CHUNK;
 
-pub static mut LEAF_NODES_CNT: u64 = 0;
-pub static mut COMPOSITE_NODES_CNT: u64 = 0;
-
 type HashMapNodesComposite = AHashMap<[usize; 4], Rc<QuadTreeNode>>;
 type HashMapNodesLeaf = AHashMap<[u64; CHUNKS_IN_LEAF], Rc<QuadTreeNode>>;
 
@@ -39,9 +36,6 @@ impl ConwayFieldHash256 {
         if let Some(node) = nodes.get(&data) {
             node.clone()
         } else {
-            unsafe {
-                LEAF_NODES_CNT += 1;
-            }
             let result = Rc::new(QuadTreeNode {
                 population: data.iter().map(|x| x.count_ones()).sum::<u32>() as f64,
                 data: NodeData::Leaf(Box::new(data)),
@@ -64,9 +58,6 @@ impl ConwayFieldHash256 {
         if let Some(node) = t {
             node.clone()
         } else {
-            unsafe {
-                COMPOSITE_NODES_CNT += 1;
-            }
             let result = Rc::new(QuadTreeNode {
                 population: (nw.population + ne.population) + (sw.population + se.population),
                 data: NodeData::Composite([nw.clone(), ne.clone(), sw.clone(), se.clone()]),
