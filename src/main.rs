@@ -1,8 +1,5 @@
 #![warn(clippy::all)]
 
-#[global_allocator]
-static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
-
 mod app;
 mod engine;
 

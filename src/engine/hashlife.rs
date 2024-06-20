@@ -3,9 +3,9 @@ use std::{arch::x86_64::*, cell::RefCell, rc::Rc};
 
 type Chunk = u64;
 
-const BASE_SIDE: usize = 128;
+const BASE_SIZE: usize = 128;
 const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
-const CHUNKS_IN_LEAF: usize = BASE_SIDE * BASE_SIDE / CELLS_IN_CHUNK;
+const CHUNKS_IN_LEAF: usize = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
 
 type HashMapNodesComposite = AHashMap<[usize; 4], Rc<QuadTreeNode>>;
 type HashMapNodesLeaf = AHashMap<[u64; CHUNKS_IN_LEAF], Rc<QuadTreeNode>>;
@@ -141,8 +141,8 @@ impl ConwayFieldHash256 {
 
     #[target_feature(enable = "avx2")]
     unsafe fn base_update(&mut self, node: &Rc<QuadTreeNode>) -> Rc<QuadTreeNode> {
-        const W: usize = BASE_SIDE / CELLS_IN_CHUNK;
-        const H: usize = BASE_SIDE;
+        const W: usize = BASE_SIZE / CELLS_IN_CHUNK;
+        const H: usize = BASE_SIZE;
 
         let [nw, ne, sw, se] = Self::split_node(node);
         let (v0, v1, v2, v3) = if let (
@@ -195,7 +195,7 @@ impl ConwayFieldHash256 {
     fn update_composite_sequential(
         &mut self,
         node: &Rc<QuadTreeNode>,
-        mut curr_size_log2: u32,
+        mut size_log2: u32,
     ) -> Rc<QuadTreeNode> {
         let [nw, ne, sw, se] = Self::split_node(node);
         let [_, ne0, sw0, se0] = Self::split_node(&nw);
@@ -203,30 +203,30 @@ impl ConwayFieldHash256 {
         let [nw2, ne2, _, se2] = Self::split_node(&sw);
         let [nw3, ne3, sw3, _] = Self::split_node(&se);
 
-        curr_size_log2 -= 1;
-        let p0 = self.update_node(&nw, curr_size_log2);
+        size_log2 -= 1;
+        let p0 = self.update_node(&nw, size_log2);
         let temp = Self::get_composite_node(&ne0, &nw1, &se0, &sw1, &mut self.nodes_composite);
-        let p1 = self.update_node(&temp, curr_size_log2);
-        let p2 = self.update_node(&ne, curr_size_log2);
+        let p1 = self.update_node(&temp, size_log2);
+        let p2 = self.update_node(&ne, size_log2);
         let temp = Self::get_composite_node(&sw0, &se0, &nw2, &ne2, &mut self.nodes_composite);
-        let p3 = self.update_node(&temp, curr_size_log2);
+        let p3 = self.update_node(&temp, size_log2);
         let temp = Self::get_composite_node(&se0, &sw1, &ne2, &nw3, &mut self.nodes_composite);
-        let p4 = self.update_node(&temp, curr_size_log2);
+        let p4 = self.update_node(&temp, size_log2);
         let temp = Self::get_composite_node(&sw1, &se1, &nw3, &ne3, &mut self.nodes_composite);
-        let p5 = self.update_node(&temp, curr_size_log2);
-        let p6 = self.update_node(&sw, curr_size_log2);
+        let p5 = self.update_node(&temp, size_log2);
+        let p6 = self.update_node(&sw, size_log2);
         let temp = Self::get_composite_node(&ne2, &nw3, &se2, &sw3, &mut self.nodes_composite);
-        let p7 = self.update_node(&temp, curr_size_log2);
-        let p8 = self.update_node(&se, curr_size_log2);
+        let p7 = self.update_node(&temp, size_log2);
+        let p8 = self.update_node(&se, size_log2);
 
         let temp = Self::get_composite_node(&p0, &p1, &p3, &p4, &mut self.nodes_composite);
-        let q0 = self.update_node(&temp, curr_size_log2);
+        let q0 = self.update_node(&temp, size_log2);
         let temp = Self::get_composite_node(&p1, &p2, &p4, &p5, &mut self.nodes_composite);
-        let q1 = self.update_node(&temp, curr_size_log2);
+        let q1 = self.update_node(&temp, size_log2);
         let temp = Self::get_composite_node(&p3, &p4, &p6, &p7, &mut self.nodes_composite);
-        let q2 = self.update_node(&temp, curr_size_log2);
+        let q2 = self.update_node(&temp, size_log2);
         let temp = Self::get_composite_node(&p4, &p5, &p7, &p8, &mut self.nodes_composite);
-        let q3 = self.update_node(&temp, curr_size_log2);
+        let q3 = self.update_node(&temp, size_log2);
         Self::get_composite_node(&q0, &q1, &q2, &q3, &mut self.nodes_composite)
     }
 
@@ -234,7 +234,7 @@ impl ConwayFieldHash256 {
         if let Some(node_next) = &*node.next.borrow() {
             return node_next.clone();
         }
-        let next = if curr_size_log2 == BASE_SIDE.ilog2() + 1 {
+        let next = if curr_size_log2 == BASE_SIZE.ilog2() + 1 {
             unsafe { self.base_update(node) }
         } else {
             self.update_composite_sequential(node, curr_size_log2)
@@ -248,17 +248,17 @@ impl ConwayFieldHash256 {
     ///
     /// `viewport_x`, `viewport_y` are reduced to divide by `step`;
     ///
-    /// `side` is increased to the next power of two;
+    /// `size` is increased to the next power of two;
     ///
     /// `resolution` is reduced to previous power of two (to fit the texture into `dst`),
-    /// doesn't exceed `side`;
+    /// doesn't exceed `size`;
     ///
     /// `dst` - buffer of texture.
     pub fn fill_texture(
         &self,
         viewport_x: &mut usize,
         viewport_y: &mut usize,
-        side: &mut usize,
+        size: &mut usize,
         resolution: &mut usize,
         dst: &mut Vec<f64>,
     ) {
@@ -266,14 +266,14 @@ impl ConwayFieldHash256 {
             viewport_x: usize,
             viewport_y: usize,
             resolution: usize,
-            viewport_side: usize,
-            step_log2: u32,
+            viewport_size: usize,
+            step_log2: usize,
         }
         fn inner(
             node: &Rc<QuadTreeNode>,
             curr_x: usize,
             curr_y: usize,
-            curr_size_log2: u32,
+            curr_size_log2: usize,
             const_args: &ConstArgs,
             dst: &mut Vec<f64>,
         ) {
@@ -290,26 +290,26 @@ impl ConwayFieldHash256 {
                         let x = curr_x + half * (i & 1 != 0) as usize;
                         let y = curr_y + half * (i & 2 != 0) as usize;
                         if x + half > const_args.viewport_x
-                            && x < const_args.viewport_x + const_args.viewport_side
+                            && x < const_args.viewport_x + const_args.viewport_size
                             && y + half > const_args.viewport_y
-                            && y < const_args.viewport_y + const_args.viewport_side
+                            && y < const_args.viewport_y + const_args.viewport_size
                         {
                             inner(child, x, y, curr_size_log2 - 1, const_args, dst);
                         }
                     }
                 }
                 NodeData::Leaf(data) => {
-                    let k = BASE_SIDE >> const_args.step_log2;
+                    let k = BASE_SIZE >> const_args.step_log2;
                     let step = 1 << const_args.step_log2;
                     for sy in 0..k {
                         for sx in 0..k {
                             let mut sum = 0;
                             for dy in 0..step {
                                 for dx in 0..step {
-                                    let x = (sx * step + dx) & (BASE_SIDE - 1);
-                                    let y = (sy * step + dy) & (BASE_SIDE - 1);
-                                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
-                                    let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
+                                    let x = (sx * step + dx) & (BASE_SIZE - 1);
+                                    let y = (sy * step + dy) & (BASE_SIZE - 1);
+                                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                                    let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
                                     sum += data[pos] >> offset & 1;
                                 }
                             }
@@ -322,44 +322,44 @@ impl ConwayFieldHash256 {
             }
         }
 
-        let step_log2 = (*side / *resolution).max(1).ilog2();
+        let step_log2 = (*size / *resolution).max(1).ilog2() as usize;
         println!("STEP={}", 1u64 << step_log2);
-        let com_mul = BASE_SIDE.max(1 << step_log2);
-        *side = side.next_multiple_of(com_mul) + com_mul;
+        let com_mul = BASE_SIZE.max(1 << step_log2);
+        *size = size.next_multiple_of(com_mul) + com_mul;
         *viewport_x = (*viewport_x + 1).next_multiple_of(com_mul) - com_mul;
         *viewport_y = (*viewport_y + 1).next_multiple_of(com_mul) - com_mul;
-        *resolution = *side >> step_log2;
+        *resolution = *size >> step_log2;
         dst.fill(0.);
         dst.resize(*resolution * *resolution, 0.);
         inner(
             &self.root,
             0,
             0,
-            self.size.ilog2(),
+            self.size.ilog2() as usize,
             &ConstArgs {
                 viewport_x: *viewport_x,
                 viewport_y: *viewport_y,
                 resolution: *resolution,
-                viewport_side: *side,
+                viewport_size: *size,
                 step_log2,
             },
             dst,
         );
     }
 
-    pub fn blank(side_log2: u32) -> Self {
+    pub fn blank(size_log2: u32) -> Self {
         assert!(is_x86_feature_detected!("avx2"));
         assert!(is_x86_feature_detected!("popcnt"));
-        assert!(side_log2 > BASE_SIDE.ilog2());
+        assert!(size_log2 > BASE_SIZE.ilog2());
         let mut nodes_composite = HashMapNodesComposite::default();
         let mut nodes_leaf = HashMapNodesLeaf::default();
         let mut node = { Self::get_leaf_node([0; CHUNKS_IN_LEAF], &mut nodes_leaf) };
-        for _ in BASE_SIDE.ilog2()..side_log2 {
+        for _ in BASE_SIZE.ilog2()..size_log2 {
             node = Self::get_composite_node(&node, &node, &node, &node, &mut nodes_composite);
         }
         Self {
             root: node,
-            size: 1 << side_log2,
+            size: 1 << size_log2,
             nodes_composite,
             nodes_leaf,
         }
@@ -372,14 +372,14 @@ impl ConwayFieldHash256 {
     pub fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
         let mut node = &self.root;
         let mut size = self.size;
-        while size >= BASE_SIDE {
-            size /= 2;
+        while size >= BASE_SIZE {
+            size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             match &node.data {
                 NodeData::Composite(nodes) => node = &nodes[idx],
                 NodeData::Leaf(data) => {
-                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
-                    let offset = (x + y * BASE_SIDE) % CELLS_IN_CHUNK;
+                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                    let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
                     return data[pos] >> offset & 1 != 0;
                 }
             }
@@ -398,7 +398,7 @@ impl ConwayFieldHash256 {
             state: bool,
             engine: &mut ConwayFieldHash256,
         ) -> Rc<QuadTreeNode> {
-            size /= 2;
+            size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             match &node.data {
                 NodeData::Composite(nodes) => {
@@ -417,8 +417,8 @@ impl ConwayFieldHash256 {
                 }
                 NodeData::Leaf(data) => {
                     let mut data_new: [Chunk; CHUNKS_IN_LEAF] = *data.as_ref();
-                    let pos = (x + y * BASE_SIDE) / CELLS_IN_CHUNK;
-                    let mask = 1 << ((x + y * BASE_SIDE) % CELLS_IN_CHUNK);
+                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                    let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
                     if state {
                         data_new[pos] |= mask;
                     } else {
@@ -443,9 +443,10 @@ impl ConwayFieldHash256 {
         for _ in 0..iters_cnt / m {
             // TODO: recursive anyway
             let top = &self.root;
+            let size_log2 = self.size.ilog2();
             let q = {
                 let temp = Self::get_composite_node(top, top, top, top, &mut self.nodes_composite);
-                self.update_node(&temp, self.size.ilog2() + 1)
+                self.update_node(&temp, size_log2 + 1)
             };
             let [se, sw, ne, nw] = Self::split_node(&q);
             self.root = Self::get_composite_node(&nw, &ne, &sw, &se, &mut self.nodes_composite);
@@ -462,7 +463,9 @@ impl ConwayFieldHash256 {
         depth: u32,
         top_pattern: [[u8; N]; N],
     ) -> Self {
-        const OTCA_SIDE: usize = 2048;
+        assert!(N.is_power_of_two());
+
+        const OTCA_SIZE: usize = 2048;
         // dead and alive
         let otca_patterns = ["res/otca_0.rle", "res/otca_1.rle"].map(|path| {
             use std::fs::File;
@@ -470,8 +473,8 @@ impl ConwayFieldHash256 {
             let mut buf = vec![];
             File::open(path).unwrap().read_to_end(&mut buf).unwrap();
             let (w, h, data) = super::parsing_rle::parse_rle(&buf);
-            assert_eq!(w, OTCA_SIDE);
-            assert_eq!(h, OTCA_SIDE);
+            assert_eq!(w, OTCA_SIZE);
+            assert_eq!(h, OTCA_SIZE);
             data
         });
 
@@ -485,15 +488,15 @@ impl ConwayFieldHash256 {
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
-            for y in 0..OTCA_SIDE / BASE_SIDE {
-                for x in 0..OTCA_SIDE / BASE_SIDE {
+            for y in 0..OTCA_SIZE / BASE_SIZE {
+                for x in 0..OTCA_SIZE / BASE_SIZE {
                     let mut data = [0; CHUNKS_IN_LEAF];
-                    for sy in 0..BASE_SIDE {
-                        for sx in 0..BASE_SIDE {
-                            let pos = (sx + sy * BASE_SIDE) / CELLS_IN_CHUNK;
-                            let mask = 1 << ((sx + sy * BASE_SIDE) % CELLS_IN_CHUNK);
+                    for sy in 0..BASE_SIZE {
+                        for sx in 0..BASE_SIZE {
+                            let pos = (sx + sy * BASE_SIZE) / CELLS_IN_CHUNK;
+                            let mask = 1 << ((sx + sy * BASE_SIZE) % CELLS_IN_CHUNK);
                             if otca_patterns[i]
-                                [(sx + x * BASE_SIDE) + (sy + y * BASE_SIDE) * OTCA_SIDE]
+                                [(sx + x * BASE_SIZE) + (sy + y * BASE_SIZE) * OTCA_SIZE]
                             {
                                 data[pos] |= mask;
                             }
@@ -502,14 +505,14 @@ impl ConwayFieldHash256 {
                     nodes_curr.push(Self::get_leaf_node(data, &mut nodes_leaf));
                 }
             }
-            let mut side = OTCA_SIDE / BASE_SIDE;
-            while side != 1 {
-                for y in (0..side).step_by(2) {
-                    for x in (0..side).step_by(2) {
-                        let nw = &nodes_curr[x + y * side];
-                        let ne = &nodes_curr[(x + 1) + y * side];
-                        let sw = &nodes_curr[x + (y + 1) * side];
-                        let se = &nodes_curr[(x + 1) + (y + 1) * side];
+            let mut t = OTCA_SIZE / BASE_SIZE;
+            while t != 1 {
+                for y in (0..t).step_by(2) {
+                    for x in (0..t).step_by(2) {
+                        let nw = &nodes_curr[x + y * t];
+                        let ne = &nodes_curr[(x + 1) + y * t];
+                        let sw = &nodes_curr[x + (y + 1) * t];
+                        let se = &nodes_curr[(x + 1) + (y + 1) * t];
                         nodes_next.push(Self::get_composite_node(
                             nw,
                             ne,
@@ -521,7 +524,7 @@ impl ConwayFieldHash256 {
                 }
                 std::mem::swap(&mut nodes_curr, &mut nodes_next);
                 nodes_next.clear();
-                side /= 2;
+                t >>= 1;
             }
             assert_eq!(nodes_curr.len(), 1);
             nodes_curr.pop().unwrap()
@@ -529,20 +532,20 @@ impl ConwayFieldHash256 {
         // creating next-levels OTCA nodes
         for _ in 1..depth {
             let otca_nodes_next = [0, 1].map(|i| {
-                for y in 0..OTCA_SIDE {
-                    for x in 0..OTCA_SIDE {
-                        let state = otca_patterns[i][x + y * OTCA_SIDE] as usize;
+                for y in 0..OTCA_SIZE {
+                    for x in 0..OTCA_SIZE {
+                        let state = otca_patterns[i][x + y * OTCA_SIZE] as usize;
                         nodes_curr.push(otca_nodes[state].clone());
                     }
                 }
-                let mut side = OTCA_SIDE;
-                while side != 1 {
-                    for y in (0..side).step_by(2) {
-                        for x in (0..side).step_by(2) {
-                            let nw = &nodes_curr[x + y * side];
-                            let ne = &nodes_curr[(x + 1) + y * side];
-                            let sw = &nodes_curr[x + (y + 1) * side];
-                            let se = &nodes_curr[(x + 1) + (y + 1) * side];
+                let mut t = OTCA_SIZE;
+                while t != 1 {
+                    for y in (0..t).step_by(2) {
+                        for x in (0..t).step_by(2) {
+                            let nw = &nodes_curr[x + y * t];
+                            let ne = &nodes_curr[(x + 1) + y * t];
+                            let sw = &nodes_curr[x + (y + 1) * t];
+                            let se = &nodes_curr[(x + 1) + (y + 1) * t];
                             nodes_next.push(Self::get_composite_node(
                                 nw,
                                 ne,
@@ -554,7 +557,7 @@ impl ConwayFieldHash256 {
                     }
                     std::mem::swap(&mut nodes_curr, &mut nodes_next);
                     nodes_next.clear();
-                    side /= 2;
+                    t >>= 1;
                 }
                 assert_eq!(nodes_curr.len(), 1);
                 nodes_curr.pop().unwrap()
@@ -570,14 +573,14 @@ impl ConwayFieldHash256 {
                 nodes_curr.push(otca_nodes[state].clone());
             }
         }
-        let mut side = N;
-        while side != 1 {
-            for y in (0..side).step_by(2) {
-                for x in (0..side).step_by(2) {
-                    let nw = &nodes_curr[x + y * side];
-                    let ne = &nodes_curr[(x + 1) + y * side];
-                    let sw = &nodes_curr[x + (y + 1) * side];
-                    let se = &nodes_curr[(x + 1) + (y + 1) * side];
+        let mut t = N;
+        while t != 1 {
+            for y in (0..t).step_by(2) {
+                for x in (0..t).step_by(2) {
+                    let nw = &nodes_curr[x + y * t];
+                    let ne = &nodes_curr[(x + 1) + y * t];
+                    let sw = &nodes_curr[x + (y + 1) * t];
+                    let se = &nodes_curr[(x + 1) + (y + 1) * t];
                     nodes_next.push(Self::get_composite_node(
                         nw,
                         ne,
@@ -589,14 +592,14 @@ impl ConwayFieldHash256 {
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
             nodes_next.clear();
-            side /= 2;
+            t >>= 1;
         }
         assert_eq!(nodes_curr.len(), 1);
         let root = nodes_curr.pop().unwrap();
 
         Self {
             root,
-            size: OTCA_SIDE.pow(depth) * N,
+            size: OTCA_SIZE.pow(depth) * N,
             nodes_composite,
             nodes_leaf,
         }

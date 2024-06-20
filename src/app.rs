@@ -53,7 +53,7 @@ impl eframe::App for App {
         egui::CentralPanel::default()
             .frame(egui::Frame {
                 fill: egui::Color32::LIGHT_GRAY,
-                inner_margin: egui::style::Margin::symmetric(10., 10.),
+                inner_margin: egui::Margin::symmetric(10., 10.),
                 ..Default::default()
             })
             .show(ctx, |ui| {
@@ -134,20 +134,6 @@ impl eframe::App for App {
                     1. / dur.as_secs_f64()
                 );
 
-                pub fn heapsize() -> usize {
-                    let epoch: jemalloc_ctl::epoch_mib = jemalloc_ctl::epoch::mib().unwrap();
-                    let allocated: jemalloc_ctl::stats::allocated_mib =
-                        jemalloc_ctl::stats::allocated::mib().unwrap();
-
-                    // update jemalloc's stats
-                    epoch.advance().unwrap();
-
-                    // get the memory usage
-                    allocated.read().unwrap()
-                }
-
-                println!("TOTAL: {:.1} GB", heapsize() as f64 * 1e-9);
-
                 self.frame_timer = Instant::now();
 
                 std::thread::sleep(Duration::from_millis(20));
@@ -190,10 +176,11 @@ impl App {
         ctx.input(|input| {
             if let Some(pos) = input.pointer.latest_pos() {
                 if life_rect.contains(pos) {
-                    if input.scroll_delta.y != 0. {
+                    // TODO: use smooth_scroll_delta
+                    if input.raw_scroll_delta.y != 0. {
                         let zoom_change = self
                             .zoom_step
-                            .powf(input.scroll_delta.y / self.scroll_scale);
+                            .powf(input.raw_scroll_delta.y / self.scroll_scale);
                         self.viewport_pos_x += self.zoom
                             * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
                                 / life_rect.size().x) as f64;
