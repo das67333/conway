@@ -1,14 +1,14 @@
 use ahash::AHashMap;
-use std::{arch::x86_64::*, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
-type Chunk = u64;
+type Chunk = u8;
 
-const BASE_SIZE: usize = 128;
+const BASE_SIZE: usize = 8;
 const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
 const CHUNKS_IN_LEAF: usize = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
 
 type HashMapNodesComposite = AHashMap<[usize; 4], Rc<QuadTreeNode>>;
-type HashMapNodesLeaf = AHashMap<[u64; CHUNKS_IN_LEAF], Rc<QuadTreeNode>>;
+type HashMapNodesLeaf = AHashMap<[Chunk; CHUNKS_IN_LEAF], Rc<QuadTreeNode>>;
 
 enum NodeData {
     Composite([Rc<QuadTreeNode>; 4]),
@@ -75,72 +75,47 @@ impl ConwayFieldHash256 {
         }
     }
 
-    unsafe fn shift_left(v: __m256i) -> __m256i {
-        _mm256_or_si256(
-            _mm256_slli_epi64(v, 1),
-            _mm256_and_si256(
-                _mm256_permute4x64_epi64::<0b10010011>(_mm256_srli_epi64(v, 63)),
-                _mm256_set_epi64x(-1, -1, -1, 0),
-            ),
-        )
-    }
-
-    unsafe fn shift_right(v: __m256i) -> __m256i {
-        _mm256_or_si256(
-            _mm256_srli_epi64(v, 1),
-            _mm256_and_si256(
-                _mm256_permute4x64_epi64::<0b00111001>(_mm256_slli_epi64(v, 63)),
-                _mm256_set_epi64x(0, -1, -1, -1),
-            ),
-        )
-    }
-
-    #[target_feature(enable = "avx2")]
-    unsafe fn update_row(row_prev: __m256i, row_curr: __m256i, row_next: __m256i) -> __m256i {
+    fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
-        let a = Self::shift_left(b);
-        let c = Self::shift_right(b);
+        let a = b << 1;
+        let c = b >> 1;
         let i = row_curr;
-        let h = Self::shift_left(i);
-        let d = Self::shift_right(i);
+        let h = i << 1;
+        let d = i >> 1;
         let f = row_next;
-        let g = Self::shift_left(f);
-        let e = Self::shift_right(f);
+        let g = f << 1;
+        let e = f >> 1;
 
-        let ab0 = _mm256_xor_si256(a, b);
-        let ab1 = _mm256_and_si256(a, b);
-        let cd0 = _mm256_xor_si256(c, d);
-        let cd1 = _mm256_and_si256(c, d);
+        let ab0 = a ^ b;
+        let ab1 = a & b;
+        let cd0 = c ^ d;
+        let cd1 = c & d;
 
-        let ef0 = _mm256_xor_si256(e, f);
-        let ef1 = _mm256_and_si256(e, f);
-        let gh0 = _mm256_xor_si256(g, h);
-        let gh1 = _mm256_and_si256(g, h);
+        let ef0 = e ^ f;
+        let ef1 = e & f;
+        let gh0 = g ^ h;
+        let gh1 = g & h;
 
-        let ad0 = _mm256_xor_si256(ab0, cd0);
-        let ad1 = _mm256_xor_si256(_mm256_xor_si256(ab1, cd1), _mm256_and_si256(ab0, cd0));
-        let ad2 = _mm256_and_si256(ab1, cd1);
+        let ad0 = ab0 ^ cd0;
+        let ad1 = (ab1 ^ cd1) ^ (ab0 & cd0);
+        let ad2 = ab1 & cd1;
 
-        let eh0 = _mm256_xor_si256(ef0, gh0);
-        let eh1 = _mm256_xor_si256(_mm256_xor_si256(ef1, gh1), _mm256_and_si256(ef0, gh0));
-        let eh2 = _mm256_and_si256(ef1, gh1);
+        let eh0 = ef0 ^ gh0;
+        let eh1 = (ef1 ^ gh1) ^ (ef0 & gh0);
+        let eh2 = ef1 & gh1;
 
-        let ah0 = _mm256_xor_si256(ad0, eh0);
-        let xx = _mm256_and_si256(ad0, eh0);
-        let yy = _mm256_xor_si256(ad1, eh1);
-        let ah1 = _mm256_xor_si256(xx, yy);
-        let ah23 = _mm256_or_si256(
-            _mm256_or_si256(ad2, eh2),
-            _mm256_or_si256(_mm256_and_si256(ad1, eh1), _mm256_and_si256(xx, yy)),
-        );
-        let z = _mm256_andnot_si256(ah23, ah1);
-        let i2 = _mm256_andnot_si256(ah0, z);
-        let i3 = _mm256_and_si256(ah0, z);
-        _mm256_or_si256(_mm256_and_si256(i, i2), i3)
+        let ah0 = ad0 ^ eh0;
+        let xx = ad0 & eh0;
+        let yy = ad1 ^ eh1;
+        let ah1 = xx ^ yy;
+        let ah23 = (ad2 | eh2) | (ad1 & eh1) | (xx & yy);
+        let z = !ah23 & ah1;
+        let i2 = !ah0 & z;
+        let i3 = ah0 & z;
+        (i & i2) | i3
     }
 
-    #[target_feature(enable = "avx2")]
-    unsafe fn base_update(&mut self, node: &Rc<QuadTreeNode>) -> Rc<QuadTreeNode> {
+    fn base_update(&mut self, node: &Rc<QuadTreeNode>) -> Rc<QuadTreeNode> {
         const W: usize = BASE_SIZE / CELLS_IN_CHUNK;
         const H: usize = BASE_SIZE;
 
@@ -171,23 +146,22 @@ impl ConwayFieldHash256 {
         for t in 1..=H / 2 {
             for y in t..2 * H - t {
                 let row_prev = &src[(y - 1) * 2 * W..y * 2 * W];
-                let row_prev = _mm256_loadu_si256(row_prev.as_ptr() as *const __m256i);
+                let row_prev = u16::from_le_bytes(row_prev.try_into().unwrap());
                 let row_curr = &src[y * 2 * W..(y + 1) * 2 * W];
-                let row_curr = _mm256_loadu_si256(row_curr.as_ptr() as *const __m256i);
+                let row_curr = u16::from_le_bytes(row_curr.try_into().unwrap());
                 let row_next = &src[(y + 1) * 2 * W..(y + 2) * 2 * W];
-                let row_next = _mm256_loadu_si256(row_next.as_ptr() as *const __m256i);
+                let row_next = u16::from_le_bytes(row_next.try_into().unwrap());
                 let dst = &mut dst[y * 2 * W..(y + 1) * 2 * W];
-                let dst = dst.as_mut_ptr() as *mut __m256i;
-                _mm256_storeu_si256(dst, Self::update_row(row_prev, row_curr, row_next));
+                let x = Self::update_row(row_prev, row_curr, row_next).to_le_bytes();
+                dst.copy_from_slice(&x);
             }
             std::mem::swap(&mut src, &mut dst);
         }
 
         let mut result = [0; W * H];
         for y in 0..H {
-            for x in 0..W {
-                result[x + y * W] = src[(x + W / 2) + (y + H / 2) * 2 * W];
-            }
+            let t = (y + 4) * 2;
+            result[y] = (u16::from_le_bytes(src[t..t + 2].try_into().unwrap()) >> 4) as u8;
         }
         Self::get_leaf_node(result, &mut self.nodes_leaf)
     }
@@ -235,7 +209,7 @@ impl ConwayFieldHash256 {
             return node_next.clone();
         }
         let next = if curr_size_log2 == BASE_SIZE.ilog2() + 1 {
-            unsafe { self.base_update(node) }
+            self.base_update(node)
         } else {
             self.update_composite_sequential(node, curr_size_log2)
         };
@@ -602,6 +576,73 @@ impl ConwayFieldHash256 {
             size: OTCA_SIZE.pow(depth) * N,
             nodes_composite,
             nodes_leaf,
+        }
+    }
+
+    pub fn into_mc<P: AsRef<Path>>(&self, path: P) {
+        use std::collections::HashMap;
+        use std::fs::File;
+        use std::io::Write;
+
+        fn inner(
+            node: &Rc<QuadTreeNode>,
+            size_log2: u32,
+            codes: &mut HashMap<*const QuadTreeNode, usize>,
+            result: &mut Vec<String>,
+        ) {
+            if codes.contains_key(&Rc::as_ptr(node)) {
+                return;
+            }
+            let mut s = String::new();
+            match &node.data {
+                NodeData::Composite(data) => {
+                    for t in data.iter() {
+                        inner(t, size_log2 - 1, codes, result);
+                    }
+                    s = format!(
+                        "{} {} {} {} {}",
+                        size_log2,
+                        codes.get(&Rc::as_ptr(&data[0])).unwrap(),
+                        codes.get(&Rc::as_ptr(&data[1])).unwrap(),
+                        codes.get(&Rc::as_ptr(&data[2])).unwrap(),
+                        codes.get(&Rc::as_ptr(&data[3])).unwrap(),
+                    );
+                }
+                NodeData::Leaf(data) => {
+                    for t in data.iter() {
+                        for i in 0..8 {
+                            if t >> i & 1 != 0 {
+                                s.push('*');
+                            } else {
+                                s.push('.');
+                            }
+                        }
+                        while s.ends_with('.') {
+                            s.pop();
+                        }
+                        s.push('$');
+                    }
+                }
+            }
+            let v = if node.population != 0.0 {
+                result.push(s);
+                result.len()
+            } else {
+                0
+            };
+            codes
+                .entry(Rc::as_ptr(node) as *const QuadTreeNode)
+                .or_insert(v);
+        }
+
+        let mut codes = HashMap::new();
+        let mut result = vec![];
+        inner(&self.root, self.size.ilog2(), &mut codes, &mut result);
+
+        let mut file = File::create(path).unwrap();
+        write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
+        for s in result {
+            writeln!(file, "{}", s).unwrap();
         }
     }
 }
