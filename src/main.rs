@@ -4,7 +4,7 @@ mod app;
 mod engine;
 
 use eframe::egui;
-pub use engine::hashlife::ConwayFieldHash256;
+pub use engine::hashlife::HashLifeEngine;
 
 fn main() {
     let options = eframe::NativeOptions {
@@ -18,6 +18,7 @@ fn main() {
             Box::new(app::App::new_otca(
                 &cc.egui_ctx,
                 2,
+                false,
                 [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
             ))
             // Box::new(app::App::new_otca(&cc.egui_ctx, 2, [[1]]))

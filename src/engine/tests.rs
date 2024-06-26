@@ -9,7 +9,7 @@ mod tests {
         const FILL_RATE: f64 = 0.6;
 
         let mut life_simd = ConwayFieldSimd2::blank(N, N);
-        let mut life_hash = crate::ConwayFieldHash256::blank(N.ilog2());
+        let mut life_hash = crate::HashLifeEngine::blank(N.ilog2());
 
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(SEED);
         for y in 0..N {

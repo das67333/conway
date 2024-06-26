@@ -1,4 +1,4 @@
-use super::engine::hashlife::ConwayFieldHash256;
+use super::engine::hashlife::HashLifeEngine;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,7 @@ pub struct App {
     scroll_scale: f32, // Scaling factor for the scroll wheel output.
     supersampling: f32, // Scaling factor for the texture's rendering resolution.
     zoom: f64,      // Current zoom rate.
-    life: ConwayFieldHash256, // Conway's GoL engine; updates are performed at 256x256 level using simd instructions.
+    life: HashLifeEngine, // Conway's GoL engine; updates are performed at 256x256 level using simd instructions.
     life_rect: Option<egui::Rect>, // Part of the window displaying Conway's GoL.
     texture: egui::TextureHandle, // Texture handle of Conway's GoL.
     viewport_buf: Vec<f64>,
@@ -46,8 +46,10 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.iter_idx == 1 {
+            self.life.hashtable.print_stats();
             std::process::exit(0);
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
         self.iter_idx += 1;
         // full-window panel
         egui::CentralPanel::default()
@@ -145,9 +147,12 @@ impl App {
     pub fn new_otca<const N: usize>(
         ctx: &egui::Context,
         depth: u32,
+        paused: bool,
         top_pattern: [[u8; N]; N],
     ) -> Self {
-        let life = ConwayFieldHash256::from_recursive_otca_megapixel(depth, top_pattern);
+        let life = HashLifeEngine::from_recursive_otca_megapixel(depth, top_pattern);
+        // life.into_mc("mega.mc");
+        // std::process::exit(0);
         App {
             life_size: life.side_length() as f64,
             updates_per_frame: life.side_length() / 2,
@@ -167,7 +172,7 @@ impl App {
             viewport_pos_x: 0.,
             viewport_pos_y: 0.,
             frame_timer: Instant::now(),
-            paused: false,
+            paused,
             iter_idx: 0,
         }
     }

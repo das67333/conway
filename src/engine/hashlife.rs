@@ -1,80 +1,17 @@
-use ahash::AHashMap;
-use std::{cell::RefCell, path::Path, rc::Rc};
-
-type Chunk = u8;
+use super::memory::{HashTable, QuadTreeNode};
+use std::path::Path;
 
 const BASE_SIZE: usize = 8;
-const CELLS_IN_CHUNK: usize = std::mem::size_of::<Chunk>() * 8;
+const CELLS_IN_CHUNK: usize = 8;
 const CHUNKS_IN_LEAF: usize = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
 
-type HashMapNodesComposite = AHashMap<[usize; 4], Rc<QuadTreeNode>>;
-type HashMapNodesLeaf = AHashMap<[Chunk; CHUNKS_IN_LEAF], Rc<QuadTreeNode>>;
-
-enum NodeData {
-    Composite([Rc<QuadTreeNode>; 4]),
-    Leaf(Box<[Chunk; CHUNKS_IN_LEAF]>),
-}
-
-struct QuadTreeNode {
-    population: f64,
-    data: NodeData,
-    next: RefCell<Option<Rc<QuadTreeNode>>>,
-}
-
-pub struct ConwayFieldHash256 {
-    root: Rc<QuadTreeNode>,
+pub struct HashLifeEngine {
+    root: *mut QuadTreeNode,
     size: usize,
-    nodes_composite: HashMapNodesComposite,
-    nodes_leaf: HashMapNodesLeaf,
+    pub hashtable: HashTable,
 }
 
-impl ConwayFieldHash256 {
-    fn get_leaf_node(
-        data: [Chunk; CHUNKS_IN_LEAF],
-        nodes: &mut HashMapNodesLeaf,
-    ) -> Rc<QuadTreeNode> {
-        if let Some(node) = nodes.get(&data) {
-            node.clone()
-        } else {
-            let result = Rc::new(QuadTreeNode {
-                population: data.iter().map(|x| x.count_ones()).sum::<u32>() as f64,
-                data: NodeData::Leaf(Box::new(data)),
-                next: RefCell::new(None),
-            });
-            nodes.insert(data, result.clone());
-            result
-        }
-    }
-
-    fn get_composite_node(
-        nw: &Rc<QuadTreeNode>,
-        ne: &Rc<QuadTreeNode>,
-        sw: &Rc<QuadTreeNode>,
-        se: &Rc<QuadTreeNode>,
-        nodes: &mut HashMapNodesComposite,
-    ) -> Rc<QuadTreeNode> {
-        let data = [nw, ne, sw, se].map(|t| Rc::as_ptr(t) as usize);
-        let t = nodes.get(&data);
-        if let Some(node) = t {
-            node.clone()
-        } else {
-            let result = Rc::new(QuadTreeNode {
-                population: (nw.population + ne.population) + (sw.population + se.population),
-                data: NodeData::Composite([nw.clone(), ne.clone(), sw.clone(), se.clone()]),
-                next: RefCell::new(None),
-            });
-            nodes.insert(data, result.clone());
-            result
-        }
-    }
-
-    fn split_node(node: &QuadTreeNode) -> [Rc<QuadTreeNode>; 4] {
-        match &node.data {
-            NodeData::Composite(nodes) => nodes.clone(),
-            NodeData::Leaf(_) => panic!("Base node cannot be split"),
-        }
-    }
-
+impl HashLifeEngine {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -115,22 +52,15 @@ impl ConwayFieldHash256 {
         (i & i2) | i3
     }
 
-    fn base_update(&mut self, node: &Rc<QuadTreeNode>) -> Rc<QuadTreeNode> {
+    fn base_update(&mut self, node: *mut QuadTreeNode) -> *mut QuadTreeNode {
         const W: usize = BASE_SIZE / CELLS_IN_CHUNK;
         const H: usize = BASE_SIZE;
 
-        let [nw, ne, sw, se] = Self::split_node(node);
-        let (v0, v1, v2, v3) = if let (
-            NodeData::Leaf(v0),
-            NodeData::Leaf(v1),
-            NodeData::Leaf(v2),
-            NodeData::Leaf(v3),
-        ) = (&nw.data, &ne.data, &sw.data, &se.data)
-        {
-            (v0, v1, v2, v3)
-        } else {
-            unreachable!()
-        };
+        let node = unsafe { &mut *node };
+        let v0 = unsafe { ((*node.nw).ne as u64).to_le_bytes() };
+        let v1 = unsafe { ((*node.ne).ne as u64).to_le_bytes() };
+        let v2 = unsafe { ((*node.sw).ne as u64).to_le_bytes() };
+        let v3 = unsafe { ((*node.se).ne as u64).to_le_bytes() };
 
         let mut src = vec![0; 4 * W * H];
         for y in 0..H {
@@ -163,59 +93,59 @@ impl ConwayFieldHash256 {
             let t = (y + 4) * 2;
             result[y] = (u16::from_le_bytes(src[t..t + 2].try_into().unwrap()) >> 4) as u8;
         }
-        Self::get_leaf_node(result, &mut self.nodes_leaf)
+        self.hashtable.find_leaf(u64::from_le_bytes(result))
     }
 
     fn update_composite_sequential(
         &mut self,
-        node: &Rc<QuadTreeNode>,
+        node: *mut QuadTreeNode,
         mut size_log2: u32,
-    ) -> Rc<QuadTreeNode> {
-        let [nw, ne, sw, se] = Self::split_node(node);
-        let [_, ne0, sw0, se0] = Self::split_node(&nw);
-        let [nw1, _, sw1, se1] = Self::split_node(&ne);
-        let [nw2, ne2, _, se2] = Self::split_node(&sw);
-        let [nw3, ne3, sw3, _] = Self::split_node(&se);
+    ) -> *mut QuadTreeNode {
+        let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+        let [_, ne0, sw0, se0] = unsafe { [(*nw).nw, (*nw).ne, (*nw).sw, (*nw).se] };
+        let [nw1, _, sw1, se1] = unsafe { [(*ne).nw, (*ne).ne, (*ne).sw, (*ne).se] };
+        let [nw2, ne2, _, se2] = unsafe { [(*sw).nw, (*sw).ne, (*sw).sw, (*sw).se] };
+        let [nw3, ne3, sw3, _] = unsafe { [(*se).nw, (*se).ne, (*se).sw, (*se).se] };
 
         size_log2 -= 1;
-        let p0 = self.update_node(&nw, size_log2);
-        let temp = Self::get_composite_node(&ne0, &nw1, &se0, &sw1, &mut self.nodes_composite);
-        let p1 = self.update_node(&temp, size_log2);
-        let p2 = self.update_node(&ne, size_log2);
-        let temp = Self::get_composite_node(&sw0, &se0, &nw2, &ne2, &mut self.nodes_composite);
-        let p3 = self.update_node(&temp, size_log2);
-        let temp = Self::get_composite_node(&se0, &sw1, &ne2, &nw3, &mut self.nodes_composite);
-        let p4 = self.update_node(&temp, size_log2);
-        let temp = Self::get_composite_node(&sw1, &se1, &nw3, &ne3, &mut self.nodes_composite);
-        let p5 = self.update_node(&temp, size_log2);
-        let p6 = self.update_node(&sw, size_log2);
-        let temp = Self::get_composite_node(&ne2, &nw3, &se2, &sw3, &mut self.nodes_composite);
-        let p7 = self.update_node(&temp, size_log2);
-        let p8 = self.update_node(&se, size_log2);
+        let p0 = self.update_node(nw, size_log2);
+        let temp = self.hashtable.find_node(ne0, nw1, se0, sw1);
+        let p1 = self.update_node(temp, size_log2);
+        let p2 = self.update_node(ne, size_log2);
+        let temp = self.hashtable.find_node(sw0, se0, nw2, ne2);
+        let p3 = self.update_node(temp, size_log2);
+        let temp = self.hashtable.find_node(se0, sw1, ne2, nw3);
+        let p4 = self.update_node(temp, size_log2);
+        let temp = self.hashtable.find_node(sw1, se1, nw3, ne3);
+        let p5 = self.update_node(temp, size_log2);
+        let p6 = self.update_node(sw, size_log2);
+        let temp = self.hashtable.find_node(ne2, nw3, se2, sw3);
+        let p7 = self.update_node(temp, size_log2);
+        let p8 = self.update_node(se, size_log2);
 
-        let temp = Self::get_composite_node(&p0, &p1, &p3, &p4, &mut self.nodes_composite);
-        let q0 = self.update_node(&temp, size_log2);
-        let temp = Self::get_composite_node(&p1, &p2, &p4, &p5, &mut self.nodes_composite);
-        let q1 = self.update_node(&temp, size_log2);
-        let temp = Self::get_composite_node(&p3, &p4, &p6, &p7, &mut self.nodes_composite);
-        let q2 = self.update_node(&temp, size_log2);
-        let temp = Self::get_composite_node(&p4, &p5, &p7, &p8, &mut self.nodes_composite);
-        let q3 = self.update_node(&temp, size_log2);
-        Self::get_composite_node(&q0, &q1, &q2, &q3, &mut self.nodes_composite)
+        let temp = self.hashtable.find_node(p0, p1, p3, p4);
+        let q0 = self.update_node(temp, size_log2);
+        let temp = self.hashtable.find_node(p1, p2, p4, p5);
+        let q1 = self.update_node(temp, size_log2);
+        let temp = self.hashtable.find_node(p3, p4, p6, p7);
+        let q2 = self.update_node(temp, size_log2);
+        let temp = self.hashtable.find_node(p4, p5, p7, p8);
+        let q3 = self.update_node(temp, size_log2);
+        self.hashtable.find_node(q0, q1, q2, q3)
     }
 
-    fn update_node(&mut self, node: &Rc<QuadTreeNode>, curr_size_log2: u32) -> Rc<QuadTreeNode> {
-        if let Some(node_next) = &*node.next.borrow() {
-            return node_next.clone();
+    fn update_node(&mut self, node: *mut QuadTreeNode, curr_size_log2: u32) -> *mut QuadTreeNode {
+        let cache = unsafe { (*node).cache };
+        if !cache.is_null() {
+            return cache;
         }
-        let next = if curr_size_log2 == BASE_SIZE.ilog2() + 1 {
+        let cache = if curr_size_log2 == BASE_SIZE.ilog2() + 1 {
             self.base_update(node)
         } else {
             self.update_composite_sequential(node, curr_size_log2)
         };
-        // let t = node.next.get_or_insert_with(|| next);
-        *node.next.borrow_mut() = Some(next.clone());
-        next
+        unsafe { (*node).cache = cache };
+        cache
     }
 
     /// Fills the texture of given resolution with a part of field.
@@ -244,7 +174,7 @@ impl ConwayFieldHash256 {
             step_log2: usize,
         }
         fn inner(
-            node: &Rc<QuadTreeNode>,
+            node: &mut QuadTreeNode,
             curr_x: usize,
             curr_y: usize,
             curr_size_log2: usize,
@@ -257,40 +187,39 @@ impl ConwayFieldHash256 {
                 dst[j + i * const_args.resolution] = node.population;
                 return;
             }
-            match &node.data {
-                NodeData::Composite(nodes) => {
-                    let half = 1 << (curr_size_log2 - 1);
-                    for (i, child) in nodes.iter().enumerate() {
-                        let x = curr_x + half * (i & 1 != 0) as usize;
-                        let y = curr_y + half * (i & 2 != 0) as usize;
-                        if x + half > const_args.viewport_x
-                            && x < const_args.viewport_x + const_args.viewport_size
-                            && y + half > const_args.viewport_y
-                            && y < const_args.viewport_y + const_args.viewport_size
-                        {
-                            inner(child, x, y, curr_size_log2 - 1, const_args, dst);
+            if node.nw.is_null() {
+                let data = (node.ne as u64).to_le_bytes();
+                let k = BASE_SIZE >> const_args.step_log2;
+                let step = 1 << const_args.step_log2;
+                for sy in 0..k {
+                    for sx in 0..k {
+                        let mut sum = 0;
+                        for dy in 0..step {
+                            for dx in 0..step {
+                                let x = (sx * step + dx) & (BASE_SIZE - 1);
+                                let y = (sy * step + dy) & (BASE_SIZE - 1);
+                                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
+                                sum += data[pos] >> offset & 1;
+                            }
                         }
+                        let j = sx + ((curr_x - const_args.viewport_x) >> const_args.step_log2);
+                        let i = sy + ((curr_y - const_args.viewport_y) >> const_args.step_log2);
+                        dst[j + i * const_args.resolution] = sum as f64;
                     }
                 }
-                NodeData::Leaf(data) => {
-                    let k = BASE_SIZE >> const_args.step_log2;
-                    let step = 1 << const_args.step_log2;
-                    for sy in 0..k {
-                        for sx in 0..k {
-                            let mut sum = 0;
-                            for dy in 0..step {
-                                for dx in 0..step {
-                                    let x = (sx * step + dx) & (BASE_SIZE - 1);
-                                    let y = (sy * step + dy) & (BASE_SIZE - 1);
-                                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                                    let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
-                                    sum += data[pos] >> offset & 1;
-                                }
-                            }
-                            let j = sx + ((curr_x - const_args.viewport_x) >> const_args.step_log2);
-                            let i = sy + ((curr_y - const_args.viewport_y) >> const_args.step_log2);
-                            dst[j + i * const_args.resolution] = sum as f64;
-                        }
+            } else {
+                let half = 1 << (curr_size_log2 - 1);
+                for (i, &child) in [node.nw, node.ne, node.sw, node.se].iter().enumerate() {
+                    let x = curr_x + half * (i & 1 != 0) as usize;
+                    let y = curr_y + half * (i & 2 != 0) as usize;
+                    let child = unsafe { &mut *child };
+                    if x + half > const_args.viewport_x
+                        && x < const_args.viewport_x + const_args.viewport_size
+                        && y + half > const_args.viewport_y
+                        && y < const_args.viewport_y + const_args.viewport_size
+                    {
+                        inner(child, x, y, curr_size_log2 - 1, const_args, dst);
                     }
                 }
             }
@@ -306,7 +235,7 @@ impl ConwayFieldHash256 {
         dst.fill(0.);
         dst.resize(*resolution * *resolution, 0.);
         inner(
-            &self.root,
+            unsafe { &mut *self.root },
             0,
             0,
             self.size.ilog2() as usize,
@@ -325,17 +254,15 @@ impl ConwayFieldHash256 {
         assert!(is_x86_feature_detected!("avx2"));
         assert!(is_x86_feature_detected!("popcnt"));
         assert!(size_log2 > BASE_SIZE.ilog2());
-        let mut nodes_composite = HashMapNodesComposite::default();
-        let mut nodes_leaf = HashMapNodesLeaf::default();
-        let mut node = { Self::get_leaf_node([0; CHUNKS_IN_LEAF], &mut nodes_leaf) };
+        let mut hashtable = HashTable::new();
+        let mut node = hashtable.find_leaf(0);
         for _ in BASE_SIZE.ilog2()..size_log2 {
-            node = Self::get_composite_node(&node, &node, &node, &node, &mut nodes_composite);
+            node = hashtable.find_node(node, node, node, node);
         }
         Self {
             root: node,
             size: 1 << size_log2,
-            nodes_composite,
-            nodes_leaf,
+            hashtable,
         }
     }
 
@@ -344,18 +271,24 @@ impl ConwayFieldHash256 {
     }
 
     pub fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
-        let mut node = &self.root;
+        let mut node = self.root;
         let mut size = self.size;
         while size >= BASE_SIZE {
             size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-            match &node.data {
-                NodeData::Composite(nodes) => node = &nodes[idx],
-                NodeData::Leaf(data) => {
-                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                    let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
-                    return data[pos] >> offset & 1 != 0;
-                }
+            if unsafe { (*node).nw.is_null() } {
+                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
+                return data[pos] >> offset & 1 != 0;
+            } else {
+                node = match idx {
+                    0 => unsafe { (*node).nw },
+                    1 => unsafe { (*node).ne },
+                    2 => unsafe { (*node).sw },
+                    3 => unsafe { (*node).se },
+                    _ => unreachable!(),
+                };
             }
             x -= (x >= size) as usize * size;
             y -= (y >= size) as usize * size;
@@ -368,63 +301,43 @@ impl ConwayFieldHash256 {
             mut x: usize,
             mut y: usize,
             mut size: usize,
-            node: &Rc<QuadTreeNode>,
+            node: *mut QuadTreeNode,
             state: bool,
-            engine: &mut ConwayFieldHash256,
-        ) -> Rc<QuadTreeNode> {
+            engine: &mut HashLifeEngine,
+        ) -> *mut QuadTreeNode {
             size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-            match &node.data {
-                NodeData::Composite(nodes) => {
-                    let mut nodes = nodes.clone();
-                    x -= (x >= size) as usize * size;
-                    y -= (y >= size) as usize * size;
-                    nodes[idx] = inner(x, y, size, &nodes[idx], state, engine);
-                    let [nw, ne, sw, se] = nodes;
-                    ConwayFieldHash256::get_composite_node(
-                        &nw,
-                        &ne,
-                        &sw,
-                        &se,
-                        &mut engine.nodes_composite,
-                    )
+            if size == BASE_SIZE {
+                let mut data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
+                if state {
+                    data[pos] |= mask;
+                } else {
+                    data[pos] &= !mask;
                 }
-                NodeData::Leaf(data) => {
-                    let mut data_new: [Chunk; CHUNKS_IN_LEAF] = *data.as_ref();
-                    let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                    let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
-                    if state {
-                        data_new[pos] |= mask;
-                    } else {
-                        data_new[pos] &= !mask;
-                    }
-                    ConwayFieldHash256::get_leaf_node(data_new, &mut engine.nodes_leaf)
-                }
+                engine.hashtable.find_leaf(u64::from_le_bytes(data))
+            } else {
+                let mut arr = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+                x -= (x >= size) as usize * size;
+                y -= (y >= size) as usize * size;
+                arr[idx] = inner(x, y, size, arr[idx], state, engine);
+                engine.hashtable.find_node(arr[0], arr[1], arr[2], arr[3])
             }
         }
 
-        self.root = inner(x, y, self.size, &self.root.clone(), state, self);
+        self.root = inner(x, y, self.size, self.root, state, self);
     }
 
-    pub fn update(&mut self, iters_cnt: usize) {
-        let m = self.size / 2;
-        assert!(
-            iters_cnt % m == 0,
-            "iters_cnt (={}) is not divisible by {}",
-            iters_cnt,
-            m
-        );
-        for _ in 0..iters_cnt / m {
-            // TODO: recursive anyway
-            let top = &self.root;
-            let size_log2 = self.size.ilog2();
-            let q = {
-                let temp = Self::get_composite_node(top, top, top, top, &mut self.nodes_composite);
-                self.update_node(&temp, size_log2 + 1)
-            };
-            let [se, sw, ne, nw] = Self::split_node(&q);
-            self.root = Self::get_composite_node(&nw, &ne, &sw, &se, &mut self.nodes_composite);
-        }
+    pub fn update(&mut self, _: usize) {
+        let top = self.root;
+        let size_log2 = self.size.ilog2();
+        let q = {
+            let temp = self.hashtable.find_node(top, top, top, top);
+            self.update_node(temp, size_log2 + 1)
+        };
+        let [nw, ne, sw, se] = unsafe { [(*q).nw, (*q).ne, (*q).sw, (*q).se] };
+        self.root = self.hashtable.find_node(se, sw, ne, nw);
     }
 
     /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.
@@ -457,14 +370,13 @@ impl ConwayFieldHash256 {
             unimplemented!()
         }
 
-        let mut nodes_composite = HashMapNodesComposite::default();
-        let mut nodes_leaf = HashMapNodesLeaf::default();
+        let mut hashtable = HashTable::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
             for y in 0..OTCA_SIZE / BASE_SIZE {
                 for x in 0..OTCA_SIZE / BASE_SIZE {
-                    let mut data = [0; CHUNKS_IN_LEAF];
+                    let mut data: [u8; 8] = [0; CHUNKS_IN_LEAF];
                     for sy in 0..BASE_SIZE {
                         for sx in 0..BASE_SIZE {
                             let pos = (sx + sy * BASE_SIZE) / CELLS_IN_CHUNK;
@@ -476,24 +388,18 @@ impl ConwayFieldHash256 {
                             }
                         }
                     }
-                    nodes_curr.push(Self::get_leaf_node(data, &mut nodes_leaf));
+                    nodes_curr.push(hashtable.find_leaf(u64::from_le_bytes(data)));
                 }
             }
             let mut t = OTCA_SIZE / BASE_SIZE;
             while t != 1 {
                 for y in (0..t).step_by(2) {
                     for x in (0..t).step_by(2) {
-                        let nw = &nodes_curr[x + y * t];
-                        let ne = &nodes_curr[(x + 1) + y * t];
-                        let sw = &nodes_curr[x + (y + 1) * t];
-                        let se = &nodes_curr[(x + 1) + (y + 1) * t];
-                        nodes_next.push(Self::get_composite_node(
-                            nw,
-                            ne,
-                            sw,
-                            se,
-                            &mut nodes_composite,
-                        ));
+                        let nw = nodes_curr[x + y * t];
+                        let ne = nodes_curr[(x + 1) + y * t];
+                        let sw = nodes_curr[x + (y + 1) * t];
+                        let se = nodes_curr[(x + 1) + (y + 1) * t];
+                        nodes_next.push(hashtable.find_node(nw, ne, sw, se));
                     }
                 }
                 std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -516,17 +422,11 @@ impl ConwayFieldHash256 {
                 while t != 1 {
                     for y in (0..t).step_by(2) {
                         for x in (0..t).step_by(2) {
-                            let nw = &nodes_curr[x + y * t];
-                            let ne = &nodes_curr[(x + 1) + y * t];
-                            let sw = &nodes_curr[x + (y + 1) * t];
-                            let se = &nodes_curr[(x + 1) + (y + 1) * t];
-                            nodes_next.push(Self::get_composite_node(
-                                nw,
-                                ne,
-                                sw,
-                                se,
-                                &mut nodes_composite,
-                            ));
+                            let nw = nodes_curr[x + y * t];
+                            let ne = nodes_curr[(x + 1) + y * t];
+                            let sw = nodes_curr[x + (y + 1) * t];
+                            let se = nodes_curr[(x + 1) + (y + 1) * t];
+                            nodes_next.push(hashtable.find_node(nw, ne, sw, se));
                         }
                     }
                     std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -551,17 +451,11 @@ impl ConwayFieldHash256 {
         while t != 1 {
             for y in (0..t).step_by(2) {
                 for x in (0..t).step_by(2) {
-                    let nw = &nodes_curr[x + y * t];
-                    let ne = &nodes_curr[(x + 1) + y * t];
-                    let sw = &nodes_curr[x + (y + 1) * t];
-                    let se = &nodes_curr[(x + 1) + (y + 1) * t];
-                    nodes_next.push(Self::get_composite_node(
-                        nw,
-                        ne,
-                        sw,
-                        se,
-                        &mut nodes_composite,
-                    ));
+                    let nw = nodes_curr[x + y * t];
+                    let ne = nodes_curr[(x + 1) + y * t];
+                    let sw = nodes_curr[x + (y + 1) * t];
+                    let se = nodes_curr[(x + 1) + (y + 1) * t];
+                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -574,8 +468,7 @@ impl ConwayFieldHash256 {
         Self {
             root,
             size: OTCA_SIZE.pow(depth) * N,
-            nodes_composite,
-            nodes_leaf,
+            hashtable,
         }
     }
 
@@ -585,59 +478,57 @@ impl ConwayFieldHash256 {
         use std::io::Write;
 
         fn inner(
-            node: &Rc<QuadTreeNode>,
+            node: *mut QuadTreeNode,
             size_log2: u32,
-            codes: &mut HashMap<*const QuadTreeNode, usize>,
+            codes: &mut HashMap<*mut QuadTreeNode, usize>,
             result: &mut Vec<String>,
         ) {
-            if codes.contains_key(&Rc::as_ptr(node)) {
+            if codes.contains_key(&node) {
                 return;
             }
             let mut s = String::new();
-            match &node.data {
-                NodeData::Composite(data) => {
-                    for t in data.iter() {
-                        inner(t, size_log2 - 1, codes, result);
-                    }
-                    s = format!(
-                        "{} {} {} {} {}",
-                        size_log2,
-                        codes.get(&Rc::as_ptr(&data[0])).unwrap(),
-                        codes.get(&Rc::as_ptr(&data[1])).unwrap(),
-                        codes.get(&Rc::as_ptr(&data[2])).unwrap(),
-                        codes.get(&Rc::as_ptr(&data[3])).unwrap(),
-                    );
-                }
-                NodeData::Leaf(data) => {
-                    for t in data.iter() {
-                        for i in 0..8 {
-                            if t >> i & 1 != 0 {
-                                s.push('*');
-                            } else {
-                                s.push('.');
-                            }
+            if unsafe { (*node).nw.is_null() } {
+                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                for t in data.iter() {
+                    for i in 0..8 {
+                        if t >> i & 1 != 0 {
+                            s.push('*');
+                        } else {
+                            s.push('.');
                         }
-                        while s.ends_with('.') {
-                            s.pop();
-                        }
-                        s.push('$');
                     }
+                    while s.ends_with('.') {
+                        s.pop();
+                    }
+                    s.push('$');
                 }
+            } else {
+                let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+                inner(nw, size_log2 - 1, codes, result);
+                inner(ne, size_log2 - 1, codes, result);
+                inner(sw, size_log2 - 1, codes, result);
+                inner(se, size_log2 - 1, codes, result);
+                s = format!(
+                    "{} {} {} {} {}",
+                    size_log2,
+                    codes.get(&nw).unwrap(),
+                    codes.get(&ne).unwrap(),
+                    codes.get(&sw).unwrap(),
+                    codes.get(&se).unwrap(),
+                );
             }
-            let v = if node.population != 0.0 {
+            let v = if unsafe { (*node).population } != 0.0 {
                 result.push(s);
                 result.len()
             } else {
                 0
             };
-            codes
-                .entry(Rc::as_ptr(node) as *const QuadTreeNode)
-                .or_insert(v);
+            codes.entry(node).or_insert(v);
         }
 
         let mut codes = HashMap::new();
         let mut result = vec![];
-        inner(&self.root, self.size.ilog2(), &mut codes, &mut result);
+        inner(self.root, self.size.ilog2(), &mut codes, &mut result);
 
         let mut file = File::create(path).unwrap();
         write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
