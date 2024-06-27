@@ -1,13 +1,15 @@
+use crate::Engine;
+
 use super::memory::{HashTable, QuadTreeNode};
 use std::path::Path;
 
-const BASE_SIZE: usize = 8;
-const CELLS_IN_CHUNK: usize = 8;
-const CHUNKS_IN_LEAF: usize = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
+const BASE_SIZE: u64 = 8;
+const CELLS_IN_CHUNK: u64 = 8;
+const CHUNKS_IN_LEAF: u64 = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
 
 pub struct HashLifeEngine {
     root: *mut QuadTreeNode,
-    size: usize,
+    n: u64,
     pub hashtable: HashTable,
 }
 
@@ -53,8 +55,8 @@ impl HashLifeEngine {
     }
 
     fn base_update(&mut self, node: *mut QuadTreeNode) -> *mut QuadTreeNode {
-        const W: usize = BASE_SIZE / CELLS_IN_CHUNK;
-        const H: usize = BASE_SIZE;
+        const W: usize = (BASE_SIZE / CELLS_IN_CHUNK) as usize;
+        const H: usize = (BASE_SIZE) as usize;
 
         let node = unsafe { &mut *node };
         let v0 = unsafe { ((*node.nw).ne as u64).to_le_bytes() };
@@ -148,218 +150,26 @@ impl HashLifeEngine {
         cache
     }
 
-    /// Fills the texture of given resolution with a part of field.
-    ///
-    /// `viewport_x`, `viewport_y` are reduced to divide by `step`;
-    ///
-    /// `size` is increased to the next power of two;
-    ///
-    /// `resolution` is reduced to previous power of two (to fit the texture into `dst`),
-    /// doesn't exceed `size`;
-    ///
-    /// `dst` - buffer of texture.
-    pub fn fill_texture(
-        &self,
-        viewport_x: &mut usize,
-        viewport_y: &mut usize,
-        size: &mut usize,
-        resolution: &mut usize,
-        dst: &mut Vec<f64>,
-    ) {
-        struct ConstArgs {
-            viewport_x: usize,
-            viewport_y: usize,
-            resolution: usize,
-            viewport_size: usize,
-            step_log2: usize,
-        }
-        fn inner(
-            node: &mut QuadTreeNode,
-            curr_x: usize,
-            curr_y: usize,
-            curr_size_log2: usize,
-            const_args: &ConstArgs,
-            dst: &mut Vec<f64>,
-        ) {
-            if const_args.step_log2 == curr_size_log2 {
-                let j = (curr_x - const_args.viewport_x) >> const_args.step_log2;
-                let i = (curr_y - const_args.viewport_y) >> const_args.step_log2;
-                dst[j + i * const_args.resolution] = node.population;
-                return;
-            }
-            if node.nw.is_null() {
-                let data = (node.ne as u64).to_le_bytes();
-                let k = BASE_SIZE >> const_args.step_log2;
-                let step = 1 << const_args.step_log2;
-                for sy in 0..k {
-                    for sx in 0..k {
-                        let mut sum = 0;
-                        for dy in 0..step {
-                            for dx in 0..step {
-                                let x = (sx * step + dx) & (BASE_SIZE - 1);
-                                let y = (sy * step + dy) & (BASE_SIZE - 1);
-                                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
-                                sum += data[pos] >> offset & 1;
-                            }
-                        }
-                        let j = sx + ((curr_x - const_args.viewport_x) >> const_args.step_log2);
-                        let i = sy + ((curr_y - const_args.viewport_y) >> const_args.step_log2);
-                        dst[j + i * const_args.resolution] = sum as f64;
-                    }
-                }
-            } else {
-                let half = 1 << (curr_size_log2 - 1);
-                for (i, &child) in [node.nw, node.ne, node.sw, node.se].iter().enumerate() {
-                    let x = curr_x + half * (i & 1 != 0) as usize;
-                    let y = curr_y + half * (i & 2 != 0) as usize;
-                    let child = unsafe { &mut *child };
-                    if x + half > const_args.viewport_x
-                        && x < const_args.viewport_x + const_args.viewport_size
-                        && y + half > const_args.viewport_y
-                        && y < const_args.viewport_y + const_args.viewport_size
-                    {
-                        inner(child, x, y, curr_size_log2 - 1, const_args, dst);
-                    }
-                }
-            }
-        }
-
-        let step_log2 = (*size / *resolution).max(1).ilog2() as usize;
-        println!("STEP={}", 1u64 << step_log2);
-        let com_mul = BASE_SIZE.max(1 << step_log2);
-        *size = size.next_multiple_of(com_mul) + com_mul;
-        *viewport_x = (*viewport_x + 1).next_multiple_of(com_mul) - com_mul;
-        *viewport_y = (*viewport_y + 1).next_multiple_of(com_mul) - com_mul;
-        *resolution = *size >> step_log2;
-        dst.fill(0.);
-        dst.resize(*resolution * *resolution, 0.);
-        inner(
-            unsafe { &mut *self.root },
-            0,
-            0,
-            self.size.ilog2() as usize,
-            &ConstArgs {
-                viewport_x: *viewport_x,
-                viewport_y: *viewport_y,
-                resolution: *resolution,
-                viewport_size: *size,
-                step_log2,
-            },
-            dst,
-        );
-    }
-
-    pub fn blank(size_log2: u32) -> Self {
-        assert!(is_x86_feature_detected!("avx2"));
-        assert!(is_x86_feature_detected!("popcnt"));
-        assert!(size_log2 > BASE_SIZE.ilog2());
-        let mut hashtable = HashTable::new();
-        let mut node = hashtable.find_leaf(0);
-        for _ in BASE_SIZE.ilog2()..size_log2 {
-            node = hashtable.find_node(node, node, node, node);
-        }
-        Self {
-            root: node,
-            size: 1 << size_log2,
-            hashtable,
-        }
-    }
-
-    pub fn side_length(&self) -> usize {
-        self.size
-    }
-
-    pub fn get_cell(&self, mut x: usize, mut y: usize) -> bool {
-        let mut node = self.root;
-        let mut size = self.size;
-        while size >= BASE_SIZE {
-            size >>= 1;
-            let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-            if unsafe { (*node).nw.is_null() } {
-                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
-                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
-                return data[pos] >> offset & 1 != 0;
-            } else {
-                node = match idx {
-                    0 => unsafe { (*node).nw },
-                    1 => unsafe { (*node).ne },
-                    2 => unsafe { (*node).sw },
-                    3 => unsafe { (*node).se },
-                    _ => unreachable!(),
-                };
-            }
-            x -= (x >= size) as usize * size;
-            y -= (y >= size) as usize * size;
-        }
-        unreachable!("Size is smaller than the base size, which is impossible")
-    }
-
-    pub fn set_cell(&mut self, x: usize, y: usize, state: bool) {
-        fn inner(
-            mut x: usize,
-            mut y: usize,
-            mut size: usize,
-            node: *mut QuadTreeNode,
-            state: bool,
-            engine: &mut HashLifeEngine,
-        ) -> *mut QuadTreeNode {
-            size >>= 1;
-            let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-            if size == BASE_SIZE {
-                let mut data = unsafe { ((*node).ne as u64).to_le_bytes() };
-                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
-                if state {
-                    data[pos] |= mask;
-                } else {
-                    data[pos] &= !mask;
-                }
-                engine.hashtable.find_leaf(u64::from_le_bytes(data))
-            } else {
-                let mut arr = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
-                x -= (x >= size) as usize * size;
-                y -= (y >= size) as usize * size;
-                arr[idx] = inner(x, y, size, arr[idx], state, engine);
-                engine.hashtable.find_node(arr[0], arr[1], arr[2], arr[3])
-            }
-        }
-
-        self.root = inner(x, y, self.size, self.root, state, self);
-    }
-
-    pub fn update(&mut self, _: usize) {
-        let top = self.root;
-        let size_log2 = self.size.ilog2();
-        let q = {
-            let temp = self.hashtable.find_node(top, top, top, top);
-            self.update_node(temp, size_log2 + 1)
-        };
-        let [nw, ne, sw, se] = unsafe { [(*q).nw, (*q).ne, (*q).sw, (*q).se] };
-        self.root = self.hashtable.find_node(se, sw, ne, nw);
-    }
-
     /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.
     ///
     /// If `depth` == 0, every cell is a regular cell, if 1 it is
     /// an OTCA build from regular cells and so on.
     ///
     /// `top_pattern` must consist of zeros and ones.
-    pub fn from_recursive_otca_megapixel<const N: usize>(
+    pub fn from_recursive_otca_metapixel<const N: usize>(
         depth: u32,
         top_pattern: [[u8; N]; N],
     ) -> Self {
         assert!(N.is_power_of_two());
 
-        const OTCA_SIZE: usize = 2048;
+        const OTCA_SIZE: u64 = 2048;
         // dead and alive
         let otca_patterns = ["res/otca_0.rle", "res/otca_1.rle"].map(|path| {
             use std::fs::File;
             use std::io::Read;
             let mut buf = vec![];
             File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-            let (w, h, data) = super::parsing_rle::parse_rle(&buf);
+            let (w, h, data) = crate::parse_rle(&buf);
             assert_eq!(w, OTCA_SIZE);
             assert_eq!(h, OTCA_SIZE);
             data
@@ -376,15 +186,15 @@ impl HashLifeEngine {
         let mut otca_nodes = [0, 1].map(|i| {
             for y in 0..OTCA_SIZE / BASE_SIZE {
                 for x in 0..OTCA_SIZE / BASE_SIZE {
-                    let mut data: [u8; 8] = [0; CHUNKS_IN_LEAF];
+                    let mut data = [0; CHUNKS_IN_LEAF as usize];
                     for sy in 0..BASE_SIZE {
                         for sx in 0..BASE_SIZE {
                             let pos = (sx + sy * BASE_SIZE) / CELLS_IN_CHUNK;
                             let mask = 1 << ((sx + sy * BASE_SIZE) % CELLS_IN_CHUNK);
                             if otca_patterns[i]
-                                [(sx + x * BASE_SIZE) + (sy + y * BASE_SIZE) * OTCA_SIZE]
+                                [((sx + x * BASE_SIZE) + (sy + y * BASE_SIZE) * OTCA_SIZE) as usize]
                             {
-                                data[pos] |= mask;
+                                data[pos as usize] |= mask;
                             }
                         }
                     }
@@ -395,10 +205,10 @@ impl HashLifeEngine {
             while t != 1 {
                 for y in (0..t).step_by(2) {
                     for x in (0..t).step_by(2) {
-                        let nw = nodes_curr[x + y * t];
-                        let ne = nodes_curr[(x + 1) + y * t];
-                        let sw = nodes_curr[x + (y + 1) * t];
-                        let se = nodes_curr[(x + 1) + (y + 1) * t];
+                        let nw = nodes_curr[(x + y * t) as usize];
+                        let ne = nodes_curr[((x + 1) + y * t) as usize];
+                        let sw = nodes_curr[(x + (y + 1) * t) as usize];
+                        let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
                         nodes_next.push(hashtable.find_node(nw, ne, sw, se));
                     }
                 }
@@ -414,7 +224,7 @@ impl HashLifeEngine {
             let otca_nodes_next = [0, 1].map(|i| {
                 for y in 0..OTCA_SIZE {
                     for x in 0..OTCA_SIZE {
-                        let state = otca_patterns[i][x + y * OTCA_SIZE] as usize;
+                        let state = otca_patterns[i][(x + y * OTCA_SIZE) as usize] as usize;
                         nodes_curr.push(otca_nodes[state].clone());
                     }
                 }
@@ -422,10 +232,10 @@ impl HashLifeEngine {
                 while t != 1 {
                     for y in (0..t).step_by(2) {
                         for x in (0..t).step_by(2) {
-                            let nw = nodes_curr[x + y * t];
-                            let ne = nodes_curr[(x + 1) + y * t];
-                            let sw = nodes_curr[x + (y + 1) * t];
-                            let se = nodes_curr[(x + 1) + (y + 1) * t];
+                            let nw = nodes_curr[(x + y * t) as usize];
+                            let ne = nodes_curr[((x + 1) + y * t) as usize];
+                            let sw = nodes_curr[(x + (y + 1) * t) as usize];
+                            let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
                             nodes_next.push(hashtable.find_node(nw, ne, sw, se));
                         }
                     }
@@ -467,7 +277,7 @@ impl HashLifeEngine {
 
         Self {
             root,
-            size: OTCA_SIZE.pow(depth) * N,
+            n: OTCA_SIZE.pow(depth) * N as u64,
             hashtable,
         }
     }
@@ -528,12 +338,211 @@ impl HashLifeEngine {
 
         let mut codes = HashMap::new();
         let mut result = vec![];
-        inner(self.root, self.size.ilog2(), &mut codes, &mut result);
+        inner(self.root, self.n.ilog2(), &mut codes, &mut result);
 
         let mut file = File::create(path).unwrap();
         write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
         for s in result {
             writeln!(file, "{}", s).unwrap();
         }
+    }
+}
+
+impl Engine for HashLifeEngine {
+    fn blank(n_log2: u32) -> Self {
+        assert!(n_log2 >= 6 && n_log2 < 64);
+        let mut hashtable = HashTable::new();
+        let mut node = hashtable.find_leaf(0);
+        for _ in BASE_SIZE.ilog2()..n_log2 {
+            node = hashtable.find_node(node, node, node, node);
+        }
+        Self {
+            root: node,
+            n: 1 << n_log2,
+            hashtable,
+        }
+    }
+
+    fn parse_rle(data: &[u8]) -> Self {
+        unimplemented!()
+    }
+
+    fn side_length(&self) -> u64 {
+        self.n
+    }
+
+    fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
+        let mut node = self.root;
+        let mut size = self.n;
+        while size >= BASE_SIZE {
+            size >>= 1;
+            let idx = (x >= size) as usize + 2 * (y >= size) as usize;
+            if unsafe { (*node).nw.is_null() } {
+                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
+                return data[pos as usize] >> offset & 1 != 0;
+            } else {
+                node = match idx {
+                    0 => unsafe { (*node).nw },
+                    1 => unsafe { (*node).ne },
+                    2 => unsafe { (*node).sw },
+                    3 => unsafe { (*node).se },
+                    _ => unreachable!(),
+                };
+            }
+            x -= (x >= size) as u64 * size;
+            y -= (y >= size) as u64 * size;
+        }
+        unreachable!("Size is smaller than the base size, which is impossible")
+    }
+
+    fn set_cell(&mut self, x: u64, y: u64, state: bool) {
+        fn inner(
+            mut x: u64,
+            mut y: u64,
+            mut size: u64,
+            node: *mut QuadTreeNode,
+            state: bool,
+            engine: &mut HashLifeEngine,
+        ) -> *mut QuadTreeNode {
+            size >>= 1;
+            let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
+            if size == BASE_SIZE {
+                let mut data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
+                if state {
+                    data[pos as usize] |= mask;
+                } else {
+                    data[pos as usize] &= !mask;
+                }
+                engine.hashtable.find_leaf(u64::from_le_bytes(data))
+            } else {
+                let mut arr = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+                x -= (x >= size) as u64 * size;
+                y -= (y >= size) as u64 * size;
+                arr[idx] = inner(x, y, size, arr[idx], state, engine);
+                engine.hashtable.find_node(arr[0], arr[1], arr[2], arr[3])
+            }
+        }
+
+        self.root = inner(x, y, self.n, self.root, state, self);
+    }
+
+    fn update(&mut self, iters_log2: u32) {
+        println!("Changing update step is not supported");
+        let top = self.root;
+        let size_log2 = self.n.ilog2();
+        let q = {
+            let temp = self.hashtable.find_node(top, top, top, top);
+            self.update_node(temp, size_log2 + 1)
+        };
+        let [nw, ne, sw, se] = unsafe { [(*q).nw, (*q).ne, (*q).sw, (*q).se] };
+        self.root = self.hashtable.find_node(se, sw, ne, nw);
+    }
+
+    fn fill_texture(
+        &self,
+        viewport_x: &mut f64,
+        viewport_y: &mut f64,
+        size: &mut f64,
+        resolution: &mut f64,
+        dst: &mut Vec<f64>,
+    ) {
+        struct Args<'a> {
+            curr_size_log2: u32,
+            viewport_x: u64,
+            viewport_y: u64,
+            resolution: u64,
+            viewport_size: u64,
+            step_log2: u32,
+            dst: &'a mut Vec<f64>,
+        }
+        fn inner(node: &QuadTreeNode, curr_x: u64, curr_y: u64, args: &mut Args) {
+            if args.step_log2 == args.curr_size_log2 {
+                let j = (curr_x - args.viewport_x) >> args.step_log2;
+                let i = (curr_y - args.viewport_y) >> args.step_log2;
+                args.dst[(j + i * args.resolution) as usize] = node.population;
+                return;
+            }
+            if node.nw.is_null() {
+                let data = (node.ne as u64).to_le_bytes();
+                let k = BASE_SIZE >> args.step_log2;
+                let step = 1 << args.step_log2;
+                for sy in 0..k {
+                    for sx in 0..k {
+                        let mut sum = 0;
+                        for dy in 0..step {
+                            for dx in 0..step {
+                                let x = (sx * step + dx) & (BASE_SIZE - 1);
+                                let y = (sy * step + dy) & (BASE_SIZE - 1);
+                                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
+                                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
+                                sum += data[pos as usize] >> offset & 1;
+                            }
+                        }
+                        let j = sx + ((curr_x - args.viewport_x) >> args.step_log2);
+                        let i = sy + ((curr_y - args.viewport_y) >> args.step_log2);
+                        args.dst[(j + i * args.resolution) as usize] = sum as f64;
+                    }
+                }
+            } else {
+                args.curr_size_log2 -= 1;
+                let half = 1 << args.curr_size_log2;
+                for (i, &child) in [node.nw, node.ne, node.sw, node.se]
+                    .iter()
+                    .enumerate()
+                {
+                    let x = curr_x + half * (i & 1 != 0) as u64;
+                    let y = curr_y + half * (i & 2 != 0) as u64;
+                    let child = unsafe { &*child };
+                    if x + half > args.viewport_x
+                        && x < args.viewport_x + args.viewport_size
+                        && y + half > args.viewport_y
+                        && y < args.viewport_y + args.viewport_size
+                    {
+                        inner(child, x, y, args);
+                    }
+                }
+                args.curr_size_log2 += 1;
+            }
+        }
+
+        let step_log2 = ((*size / *resolution) as u64).max(1).ilog2();
+        let step = 1 << step_log2;
+        let com_mul = step.max(BASE_SIZE);
+        let size_int = (*size as u64).next_multiple_of(com_mul) + com_mul;
+        *size = size_int as f64;
+        let resolution_int = size_int / step;
+        *resolution = resolution_int as f64;
+        let x_int = (*viewport_x as u64 + 1).next_multiple_of(com_mul) - com_mul;
+        *viewport_x = x_int as f64;
+        let y_int = (*viewport_y as u64 + 1).next_multiple_of(com_mul) - com_mul;
+        *viewport_y = y_int as f64;
+
+        dst.clear();
+        dst.resize((resolution_int * resolution_int) as usize, 0.);
+        let mut args = Args {
+            curr_size_log2: self.n.ilog2(),
+            viewport_x: x_int,
+            viewport_y: y_int,
+            resolution: resolution_int,
+            viewport_size: size_int,
+            step_log2,
+            dst,
+        };
+        inner(unsafe { &*self.root }, 0, 0, &mut args);
+    }
+
+    fn print_stats(&self) {
+        println!(
+            "
+\tHashLifeEngine:
+n: {}
+{}",
+            self.n,
+            self.hashtable.stats()
+        )
     }
 }

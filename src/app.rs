@@ -1,16 +1,16 @@
-use super::engine::hashlife::HashLifeEngine;
+use crate::{PatternObliviousEngine, Engine, HashLifeEngine};
 use eframe::egui;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct App {
     life_size: f64, // Side length of Conway's square field; edges are stitched together.
-    updates_per_frame: usize, // Number of Conway's GoL updates per frame.
+    updates_per_frame: u64, // Number of Conway's GoL updates per frame.
     control_panel_min_width: f32, // Minimum pixel width of the control panel on the left.
     zoom_step: f32, // Zooming coefficient for one step of the scroll wheel.
     scroll_scale: f32, // Scaling factor for the scroll wheel output.
-    supersampling: f32, // Scaling factor for the texture's rendering resolution.
+    supersampling: f64, // Scaling factor for the texture's rendering resolution.
     zoom: f64,      // Current zoom rate.
-    life: HashLifeEngine, // Conway's GoL engine; updates are performed at 256x256 level using simd instructions.
+    life: Box<dyn Engine>, // Conway's GoL engine.
     life_rect: Option<egui::Rect>, // Part of the window displaying Conway's GoL.
     texture: egui::TextureHandle, // Texture handle of Conway's GoL.
     viewport_buf: Vec<f64>,
@@ -37,7 +37,6 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
     }
     let m = u.iter().sum::<f64>() / u.len() as f64;
     let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
-    println!("mean={:.2e} \tdev={:.2e}", m, dev);
     v.iter()
         .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
         .collect()
@@ -45,12 +44,13 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == 1 {
-            self.life.hashtable.print_stats();
+        if self.iter_idx == u64::MAX {
+            self.life.print_stats();
+            println!("FPS: {:.3}", 1e3 / self.frame_timer.elapsed().as_secs_f64());
             std::process::exit(0);
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
         self.iter_idx += 1;
+        // std::thread::sleep(std::time::Duration::from_millis(100));
         // full-window panel
         egui::CentralPanel::default()
             .frame(egui::Frame {
@@ -63,17 +63,17 @@ impl eframe::App for App {
 
                 let (w, h) = (ui.available_width(), ui.available_height());
                 // size of the viewport in pixels
-                let size = h.min(w - self.control_panel_min_width);
+                let size_px = h.min(w - self.control_panel_min_width);
                 ui.horizontal(|ui| {
                     // drawing control panel
-                    ui.add_sized([w - size, h], |ui: &mut egui::Ui| {
+                    ui.add_sized([w - size_px, h], |ui: &mut egui::Ui| {
                         ui.vertical(|ui| {
                             ui.label("hi");
                             ui.label("ha")
                         })
                         .inner
                     });
-                    ui.add_space(ui.available_width() - size);
+                    ui.add_space(ui.available_width() - size_px);
 
                     // updating and drawing the field
                     if let Some(life_rect) = self.life_rect {
@@ -82,40 +82,39 @@ impl eframe::App for App {
 
                     // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
                     // desired size of texture in pixels
-                    let mut resolution = (size * self.supersampling).ceil() as usize;
-                    // left top viewport coordinate in cells
-                    let mut x = (self.life_size * self.viewport_pos_x) as usize;
-                    let mut y = (self.life_size * self.viewport_pos_y) as usize;
+                    let mut resolution = size_px as f64 * self.supersampling;
+                    // top left viewport coordinate in cells
+                    let mut x = self.life_size * self.viewport_pos_x;
+                    let mut y = self.life_size * self.viewport_pos_y;
                     // size of viewport in cells
-                    let mut side = (self.life_size * self.zoom).ceil() as usize;
+                    let mut size_c = self.life_size * self.zoom;
                     self.life.fill_texture(
                         &mut x,
                         &mut y,
-                        &mut side,
+                        &mut size_c,
                         &mut resolution,
                         &mut self.viewport_buf,
                     );
 
                     let gray = normalize_brightness(&self.viewport_buf);
-                    let ci = egui::ColorImage::from_gray([resolution; 2], &gray);
+                    let ci = egui::ColorImage::from_gray([resolution as usize; 2], &gray);
                     // TODO: NEAREST when close, LINEAR when far away
-                    let texture_options = if side > resolution {
+                    let texture_options = if size_c > resolution {
                         egui::TextureOptions::LINEAR
                     } else {
                         egui::TextureOptions::NEAREST
                     };
                     self.texture.set(ci, texture_options);
-                    let side = side as f64;
-                    let vp_x = (self.viewport_pos_x * self.life_size - x as f64) / side;
-                    let vp_y = (self.viewport_pos_y * self.life_size - y as f64) / side;
+                    let vp_x = (self.viewport_pos_x * self.life_size - x) / size_c;
+                    let vp_y = (self.viewport_pos_y * self.life_size - y) / size_c;
                     let vp = egui::pos2(vp_x as f32, vp_y as f32);
-                    let vp_s = egui::Vec2::splat((self.zoom * self.life_size / side) as f32);
+                    let vp_s = egui::Vec2::splat((self.zoom * self.life_size / size_c) as f32);
                     self.life_rect.replace(
                         ui.add(|ui: &mut egui::Ui| {
                             egui::Widget::ui(
                                 egui::Image::new(egui::load::SizedTexture::new(
                                     self.texture.id(),
-                                    [size; 2],
+                                    [size_px as f32; 2],
                                 ))
                                 .uv(egui::Rect::from_points(&[vp, vp + vp_s])),
                                 ui,
@@ -126,7 +125,7 @@ impl eframe::App for App {
                 });
 
                 if !self.paused {
-                    self.life.update(self.updates_per_frame);
+                    self.life.update(self.updates_per_frame as u32);
                 }
                 // updating frame counter
                 let dur = self.frame_timer.elapsed();
@@ -137,20 +136,19 @@ impl eframe::App for App {
                 );
 
                 self.frame_timer = Instant::now();
-
-                std::thread::sleep(Duration::from_millis(20));
             });
     }
 }
 
 impl App {
-    pub fn new_otca<const N: usize>(
+    pub fn new(
         ctx: &egui::Context,
-        depth: u32,
-        paused: bool,
-        top_pattern: [[u8; N]; N],
     ) -> Self {
-        let life = HashLifeEngine::from_recursive_otca_megapixel(depth, top_pattern);
+        let life = PatternObliviousEngine::random(6, 0.3, Some(42));
+        // let life = HashLifeEngine::from_recursive_otca_metapixel(
+        //     2,
+        //     [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
+        // );
         // life.into_mc("mega.mc");
         // std::process::exit(0);
         App {
@@ -161,7 +159,7 @@ impl App {
             scroll_scale: -50.,
             supersampling: 0.7,
             zoom: 1.,
-            life,
+            life: Box::new(life),
             life_rect: None,
             texture: ctx.load_texture(
                 "Conway's GoL field",
@@ -172,7 +170,7 @@ impl App {
             viewport_pos_x: 0.,
             viewport_pos_y: 0.,
             frame_timer: Instant::now(),
-            paused,
+            paused: true,
             iter_idx: 0,
         }
     }

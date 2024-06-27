@@ -1,5 +1,5 @@
 /// Returns width, height and row-major vector filled with cells of the parsed RLE pattern
-pub fn parse_rle(data: &[u8]) -> (usize, usize, Vec<bool>) {
+pub fn parse_rle(data: &[u8]) -> (u64, u64, Vec<bool>) {
     let parse_next_number = |i: &mut usize| {
         while !data[*i].is_ascii_digit() {
             *i += 1;
@@ -38,22 +38,16 @@ pub fn parse_rle(data: &[u8]) -> (usize, usize, Vec<bool>) {
     // run-length encoded pattern data
     let (mut x, mut y, mut cnt) = (0, 0, 1);
     while i < data.len() {
-        let c = data[i];
-        match c {
+        match data[i] {
             b'\n' => i += 1,
             b'0'..=b'9' => cnt = parse_next_number(&mut i),
             b'o' => {
                 for _ in 0..cnt {
                     result[x + y * width] = true;
-                    x += 1
+                    x += 1;
                 }
                 (i, cnt) = (i + 1, 1);
-                assert!(
-                    x <= width,
-                    "i={} {:?}",
-                    i,
-                    String::from_utf8(data[i - 36..=i].to_vec())
-                );
+                assert!(x <= width);
             }
             b'b' => {
                 (x, i, cnt) = (x + cnt, i + 1, 1);
@@ -72,5 +66,5 @@ pub fn parse_rle(data: &[u8]) -> (usize, usize, Vec<bool>) {
         };
     }
     assert!(y <= height);
-    (width, height, result)
+    (width as u64, height as u64, result)
 }
