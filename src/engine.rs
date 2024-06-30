@@ -1,7 +1,7 @@
 pub trait Engine {
     /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`
     ///
-    /// `6 <= n_log2 < 64`
+    /// `7 <= n_log2 < 64`
     fn blank(n_log2: u32) -> Self
     where
         Self: Sized;
@@ -34,15 +34,15 @@ pub trait Engine {
     where
         Self: Sized;
 
-    /// Get the size of the field
-    fn side_length(&self) -> u64;
+    /// Get the side length of the field in log2
+    fn side_length_log2(&self) -> u32;
 
     fn get_cell(&self, x: u64, y: u64) -> bool;
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool);
 
     /// Update the field `2^{iters_log2}` times
-    fn update(&mut self, iters_log2: u32);
+    fn update(&mut self, steps_log2: u32);
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`)
@@ -60,5 +60,5 @@ pub trait Engine {
         dst: &mut Vec<f64>,
     );
 
-    fn print_stats(&self);
+    fn stats(&self) -> String;
 }

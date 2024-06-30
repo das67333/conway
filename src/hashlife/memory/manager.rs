@@ -4,7 +4,6 @@ use std::collections::LinkedList;
 const CHUNK_SIZE: usize = (1 << 20) / std::mem::size_of::<QuadTreeNode>();
 const MAX_MEMORY_BYTES: usize = 2 << 30;
 const GC_PERIOD: u64 = 1 << 20;
-// TODO: modulo to and
 
 // impl QuadTreeNode {
 //     pub fn nw() {}

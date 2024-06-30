@@ -225,7 +225,7 @@ impl HashLifeEngine {
                 for y in 0..OTCA_SIZE {
                     for x in 0..OTCA_SIZE {
                         let state = otca_patterns[i][(x + y * OTCA_SIZE) as usize] as usize;
-                        nodes_curr.push(otca_nodes[state].clone());
+                        nodes_curr.push(otca_nodes[state]);
                     }
                 }
                 let mut t = OTCA_SIZE;
@@ -254,7 +254,7 @@ impl HashLifeEngine {
             for state in row {
                 let state = state as usize;
                 assert!(state == 0 || state == 1);
-                nodes_curr.push(otca_nodes[state].clone());
+                nodes_curr.push(otca_nodes[state]);
             }
         }
         let mut t = N;
@@ -350,7 +350,7 @@ impl HashLifeEngine {
 
 impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
-        assert!(n_log2 >= 6 && n_log2 < 64);
+        assert!((7..64).contains(&n_log2));
         let mut hashtable = HashTable::new();
         let mut node = hashtable.find_leaf(0);
         for _ in BASE_SIZE.ilog2()..n_log2 {
@@ -367,8 +367,8 @@ impl Engine for HashLifeEngine {
         unimplemented!()
     }
 
-    fn side_length(&self) -> u64 {
-        self.n
+    fn side_length_log2(&self) -> u32 {
+        self.n.ilog2()
     }
 
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
@@ -430,7 +430,7 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, self.n, self.root, state, self);
     }
 
-    fn update(&mut self, iters_log2: u32) {
+    fn update(&mut self, steps_log2: u32) {
         println!("Changing update step is not supported");
         let top = self.root;
         let size_log2 = self.n.ilog2();
@@ -535,8 +535,8 @@ impl Engine for HashLifeEngine {
         inner(unsafe { &*self.root }, 0, 0, &mut args);
     }
 
-    fn print_stats(&self) {
-        println!(
+    fn stats(&self) -> String {
+        format!(
             "
 \tHashLifeEngine:
 n: {}

@@ -1,24 +1,29 @@
-use crate::{PatternObliviousEngine, Engine, HashLifeEngine};
-use eframe::egui;
+use crate::{Engine, HashLifeEngine};
+use eframe::egui::{
+    load::SizedTexture, pos2, Button, CentralPanel, Color32, ColorImage, Context, DragValue, Frame,
+    Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui, Vec2, Widget,
+};
 use std::time::Instant;
 
 pub struct App {
+    ctx: Context,
     life_size: f64, // Side length of Conway's square field; edges are stitched together.
-    updates_per_frame: u64, // Number of Conway's GoL updates per frame.
-    control_panel_min_width: f32, // Minimum pixel width of the control panel on the left.
-    zoom_step: f32, // Zooming coefficient for one step of the scroll wheel.
-    scroll_scale: f32, // Scaling factor for the scroll wheel output.
-    supersampling: f64, // Scaling factor for the texture's rendering resolution.
+    simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
     zoom: f64,      // Current zoom rate.
     life: Box<dyn Engine>, // Conway's GoL engine.
-    life_rect: Option<egui::Rect>, // Part of the window displaying Conway's GoL.
-    texture: egui::TextureHandle, // Texture handle of Conway's GoL.
+    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL.
+    texture: TextureHandle, // Texture handle of Conway's GoL.
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
-    frame_timer: Instant, // Timer to track frame duration.
-    paused: bool,         // Flag indicating if the simulation is paused.
-    iter_idx: u64,        // Current iteration index.
+    frame_timer: Instant,      // Timer to track frame duration.
+    last_frame_duration: f64,  // Duration of the last frame in seconds.
+    last_update_duration: f64, // Duration of the last life update in seconds.
+    is_paused: bool,           // Flag indicating whether the simulation is paused.
+    generation: u64,           // Current generation number.
+    do_one_step: bool,         // Do one step and pause.
+    pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
+    updates_before_pause: u64, // Number of updates left before stopping.
 }
 
 #[inline(never)]
@@ -43,147 +48,221 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.iter_idx == u64::MAX {
-            self.life.print_stats();
-            println!("FPS: {:.3}", 1e3 / self.frame_timer.elapsed().as_secs_f64());
-            std::process::exit(0);
-        }
-        self.iter_idx += 1;
-        // std::thread::sleep(std::time::Duration::from_millis(100));
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // full-window panel
-        egui::CentralPanel::default()
-            .frame(egui::Frame {
-                fill: egui::Color32::LIGHT_GRAY,
-                inner_margin: egui::Margin::symmetric(10., 10.),
-                ..Default::default()
-            })
+        CentralPanel::default()
+            .frame(
+                Frame::default()
+                    .inner_margin(Margin::same(Self::FRAME_MARGIN))
+                    .fill(Color32::LIGHT_GRAY),
+            )
             .show(ctx, |ui| {
+                // TODO: power-efficient mode?
                 ctx.request_repaint();
 
-                let (w, h) = (ui.available_width(), ui.available_height());
-                // size of the viewport in pixels
-                let size_px = h.min(w - self.control_panel_min_width);
+                // updating and drawing the field
+                if let Some(life_rect) = self.life_rect {
+                    self.update_viewport(ctx, life_rect);
+                }
+
+                let area = ui.available_size();
+                let size_px = area
+                    .y
+                    .min(area.x - Self::CONTROL_PANEL_WIDTH - Self::FRAME_MARGIN);
                 ui.horizontal(|ui| {
-                    // drawing control panel
-                    ui.add_sized([w - size_px, h], |ui: &mut egui::Ui| {
-                        ui.vertical(|ui| {
-                            ui.label("hi");
-                            ui.label("ha")
-                        })
-                        .inner
-                    });
+                    self.draw_control_panel(ui);
                     ui.add_space(ui.available_width() - size_px);
-
-                    // updating and drawing the field
-                    if let Some(life_rect) = self.life_rect {
-                        self.update_viewport(ctx, life_rect);
-                    }
-
-                    // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
-                    // desired size of texture in pixels
-                    let mut resolution = size_px as f64 * self.supersampling;
-                    // top left viewport coordinate in cells
-                    let mut x = self.life_size * self.viewport_pos_x;
-                    let mut y = self.life_size * self.viewport_pos_y;
-                    // size of viewport in cells
-                    let mut size_c = self.life_size * self.zoom;
-                    self.life.fill_texture(
-                        &mut x,
-                        &mut y,
-                        &mut size_c,
-                        &mut resolution,
-                        &mut self.viewport_buf,
-                    );
-
-                    let gray = normalize_brightness(&self.viewport_buf);
-                    let ci = egui::ColorImage::from_gray([resolution as usize; 2], &gray);
-                    // TODO: NEAREST when close, LINEAR when far away
-                    let texture_options = if size_c > resolution {
-                        egui::TextureOptions::LINEAR
-                    } else {
-                        egui::TextureOptions::NEAREST
-                    };
-                    self.texture.set(ci, texture_options);
-                    let vp_x = (self.viewport_pos_x * self.life_size - x) / size_c;
-                    let vp_y = (self.viewport_pos_y * self.life_size - y) / size_c;
-                    let vp = egui::pos2(vp_x as f32, vp_y as f32);
-                    let vp_s = egui::Vec2::splat((self.zoom * self.life_size / size_c) as f32);
-                    self.life_rect.replace(
-                        ui.add(|ui: &mut egui::Ui| {
-                            egui::Widget::ui(
-                                egui::Image::new(egui::load::SizedTexture::new(
-                                    self.texture.id(),
-                                    [size_px as f32; 2],
-                                ))
-                                .uv(egui::Rect::from_points(&[vp, vp + vp_s])),
-                                ui,
-                            )
-                        })
-                        .rect,
-                    );
+                    self.draw_gol_field(ui, size_px);
                 });
 
-                if !self.paused {
-                    self.life.update(self.updates_per_frame as u32);
-                }
-                // updating frame counter
-                let dur = self.frame_timer.elapsed();
-                println!(
-                    "FRAMETIME: {:>5} ms \tFPS: {:.3}",
-                    dur.as_millis(),
-                    1. / dur.as_secs_f64()
-                );
-
-                self.frame_timer = Instant::now();
+                self.update_field();
             });
+
+        // updating frame counter
+        self.last_frame_duration = self.frame_timer.elapsed().as_secs_f64();
+        self.frame_timer = Instant::now();
     }
 }
 
 impl App {
-    pub fn new(
-        ctx: &egui::Context,
-    ) -> Self {
-        let life = PatternObliviousEngine::random(6, 0.3, Some(42));
-        // let life = HashLifeEngine::from_recursive_otca_metapixel(
-        //     2,
-        //     [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
-        // );
-        // life.into_mc("mega.mc");
-        // std::process::exit(0);
+    const ZOOM_STEP: f32 = 1.1;
+    const SCROLL_SCALE: f32 = -50.;
+    const SUPERSAMPLING: f64 = 0.7;
+
+    const FRAME_MARGIN: f32 = 20.;
+    const CONTROL_PANEL_WIDTH: f32 = 400.;
+    const TEXT_SIZE: f32 = 16.;
+    const TEXT_COLOR: Color32 = Color32::BLACK;
+    const BUTTON_STROKE_WIDTH: f32 = 3.;
+    const BUTTON_STROKE_COLOR: Color32 = Color32::DARK_GRAY;
+    const BUTTON_FILL_COLOR: Color32 = Color32::LIGHT_GRAY;
+
+    pub fn new(ctx: &Context) -> Self {
+        let life = HashLifeEngine::from_recursive_otca_metapixel(
+            1,
+            [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
+        );
+        // let life = PatternObliviousEngine::random(7, 0.5, None);
         App {
-            life_size: life.side_length() as f64,
-            updates_per_frame: life.side_length() / 2,
-            control_panel_min_width: 60.,
-            zoom_step: 1.1,
-            scroll_scale: -50.,
-            supersampling: 0.7,
+            ctx: ctx.clone(),
+            life_size: 2f64.powi(life.side_length_log2() as i32),
+            simulation_steps_log2: 0,
             zoom: 1.,
             life: Box::new(life),
             life_rect: None,
             texture: ctx.load_texture(
                 "Conway's GoL field",
-                egui::ColorImage::default(),
-                egui::TextureOptions::default(),
+                ColorImage::default(),
+                TextureOptions::default(),
             ),
             viewport_buf: vec![],
             viewport_pos_x: 0.,
             viewport_pos_y: 0.,
             frame_timer: Instant::now(),
-            paused: true,
-            iter_idx: 0,
+            last_frame_duration: 0.,
+            last_update_duration: 0.,
+            is_paused: true,
+            generation: 0,
+            do_one_step: false,
+            pause_after_updates: false,
+            updates_before_pause: 0,
         }
     }
 
-    fn update_viewport(&mut self, ctx: &egui::Context, life_rect: egui::Rect) {
+    fn update_field(&mut self) {
+        if self.pause_after_updates && self.updates_before_pause == 0 {
+            self.is_paused = true;
+            self.do_one_step = false;
+        }
+        if self.is_paused && !self.do_one_step {
+            return;
+        }
+
+        let timer = Instant::now();
+        self.life.update(self.simulation_steps_log2);
+        // updating frame counter
+        self.last_update_duration = timer.elapsed().as_secs_f64();
+
+        self.generation += 1 << self.simulation_steps_log2;
+        if self.pause_after_updates {
+            self.updates_before_pause -= 1;
+        }
+        self.do_one_step = false;
+    }
+
+    fn draw_control_panel(&mut self, ui: &mut Ui) {
+        let new_text = |text: &str| {
+            RichText::new(text)
+                .color(Self::TEXT_COLOR)
+                .size(Self::TEXT_SIZE)
+        };
+
+        let new_button = |text: &str| {
+            Button::new(new_text(text))
+                .fill(Self::BUTTON_FILL_COLOR)
+                .stroke(Stroke::new(
+                    Self::BUTTON_STROKE_WIDTH,
+                    Self::BUTTON_STROKE_COLOR,
+                ))
+        };
+
+        let aw = ui.available_width();
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.label(new_text(&format!(
+                    "Generation: {:>10e}",
+                    self.generation as f64
+                )));
+
+                let text = if self.is_paused { "Play" } else { "Pause" };
+                if ui.add(new_button(text)).clicked() {
+                    self.is_paused = !self.is_paused;
+                }
+
+                ui.add_enabled(self.is_paused, |ui: &mut Ui| {
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.pause_after_updates, new_text("Pause after "));
+                        ui.add_enabled(self.pause_after_updates, |ui: &mut Ui| {
+                            ui.add(DragValue::new(&mut self.updates_before_pause));
+                            ui.label(new_text(" updates"))
+                        });
+                    });
+
+                    if ui.add(new_button("Next step")).clicked() {
+                        self.do_one_step = true;
+                    }
+                    ui.horizontal(|ui: &mut Ui| {
+                        ui.label(new_text("Step size:  2^"));
+                        ui.add(
+                            DragValue::new(&mut self.simulation_steps_log2)
+                                .clamp_range(0..=self.life.side_length_log2() - 1),
+                        )
+                    });
+
+                    if ui.add(new_button("Reset")).clicked() {
+                        *self = Self::new(&self.ctx);
+                    }
+
+                    ui.label(new_text(&format!(
+                        "Last update duration: {:.3} ms",
+                        self.last_update_duration * 1e3
+                    )));
+
+                    ui.label(new_text(&self.life.stats()))
+                });
+            });
+            // to fix the bounds of the control panel
+            ui.add_space((Self::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
+            // TODO: life.print_stats()
+        });
+    }
+
+    fn draw_gol_field(&mut self, ui: &mut Ui, size_px: f32) {
+        // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
+        // desired size of texture in pixels
+        let mut resolution = size_px as f64 * Self::SUPERSAMPLING;
+        // top left viewport coordinate in cells
+        let mut x = self.life_size * self.viewport_pos_x;
+        let mut y = self.life_size * self.viewport_pos_y;
+        // size of viewport in cells
+        let mut size_c = self.life_size * self.zoom;
+        self.life.fill_texture(
+            &mut x,
+            &mut y,
+            &mut size_c,
+            &mut resolution,
+            &mut self.viewport_buf,
+        );
+
+        let gray = normalize_brightness(&self.viewport_buf);
+        let ci = ColorImage::from_gray([resolution as usize; 2], &gray);
+        // TODO: NEAREST when close, LINEAR when far away
+        let texture_options = if size_c > resolution {
+            TextureOptions::LINEAR
+        } else {
+            TextureOptions::NEAREST
+        };
+        self.texture.set(ci, texture_options);
+        let vp_x = (self.viewport_pos_x * self.life_size - x) / size_c;
+        let vp_y = (self.viewport_pos_y * self.life_size - y) / size_c;
+        let vp = pos2(vp_x as f32, vp_y as f32);
+        let vp_s = Vec2::splat((self.zoom * self.life_size / size_c) as f32);
+
+        let source = SizedTexture::new(self.texture.id(), [size_px as f32; 2]);
+        let uv = Rect::from_points(&[vp, vp + vp_s]);
+        let response = ui
+            .vertical_centered(|ui: &mut Ui| Widget::ui(Image::new(source).uv(uv), ui))
+            .response;
+        self.life_rect.replace(response.rect);
+    }
+
+    fn update_viewport(&mut self, ctx: &Context, life_rect: Rect) {
         ctx.input(|input| {
             if let Some(pos) = input.pointer.latest_pos() {
                 if life_rect.contains(pos) {
-                    // TODO: use smooth_scroll_delta
                     if input.raw_scroll_delta.y != 0. {
-                        let zoom_change = self
-                            .zoom_step
-                            .powf(input.raw_scroll_delta.y / self.scroll_scale);
+                        let zoom_change =
+                            Self::ZOOM_STEP.powf(input.raw_scroll_delta.y / Self::SCROLL_SCALE);
                         self.viewport_pos_x += self.zoom
                             * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
                                 / life_rect.size().x) as f64;
@@ -193,7 +272,7 @@ impl App {
                         self.zoom *= zoom_change as f64;
                     }
 
-                    if input.pointer.primary_down() && input.pointer.delta() != egui::Vec2::ZERO {
+                    if input.pointer.primary_down() && input.pointer.delta() != Vec2::ZERO {
                         self.viewport_pos_x -=
                             input.pointer.delta().x as f64 / life_rect.size().x as f64 * self.zoom;
                         self.viewport_pos_y -=
@@ -204,9 +283,9 @@ impl App {
                     self.zoom = self.zoom.min(1.);
                 }
             }
-            if input.key_pressed(egui::Key::Space) {
-                self.paused = !self.paused;
-            }
+            // if input.key_pressed(Key::Space) {
+            //     self.state = !self.state;
+            // }
         });
     }
 }

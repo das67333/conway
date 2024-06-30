@@ -105,7 +105,7 @@ impl PatternObliviousEngine {
 
 impl Engine for PatternObliviousEngine {
     fn blank(n_log2: u32) -> Self {
-        assert!(n_log2 >= 6 && n_log2 < 64);
+        assert!((7..64).contains(&n_log2));
         let n: u64 = 1 << n_log2;
         Self {
             data: vec![0; 1 << (2 * n_log2 - Self::CELLS_IN_CHUNK.ilog2())],
@@ -125,8 +125,8 @@ impl Engine for PatternObliviousEngine {
         result
     }
 
-    fn side_length(&self) -> u64 {
-        self.n
+    fn side_length_log2(&self) -> u32 {
+        self.n.ilog2()
     }
 
     fn get_cell(&self, x: u64, y: u64) -> bool {
@@ -145,8 +145,8 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn update(&mut self, iters_log2: u32) {
-        for _ in 0..1 << iters_log2 {
+    fn update(&mut self, steps_log2: u32) {
+        for _ in 0..1u64 << steps_log2 {
             self.update_inner();
         }
     }
@@ -172,7 +172,7 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn print_stats(&self) {
-        println!("memory on field: {} bytes", self.data.len() * 8);
+    fn stats(&self) -> String {
+        format!("memory on field: {} bytes", self.data.len() * 8)
     }
 }
