@@ -1,4 +1,4 @@
-use crate::{Engine, HashLifeEngine};
+use crate::{Engine, FpsLimiter, HashLifeEngine};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Color32, ColorImage, Context, DragValue, Frame,
     Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui, Vec2, Widget,
@@ -16,14 +16,13 @@ pub struct App {
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
-    frame_timer: Instant,      // Timer to track frame duration.
-    last_frame_duration: f64,  // Duration of the last frame in seconds.
     last_update_duration: f64, // Duration of the last life update in seconds.
     is_paused: bool,           // Flag indicating whether the simulation is paused.
     generation: u64,           // Current generation number.
     do_one_step: bool,         // Do one step and pause.
     pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
     updates_before_pause: u64, // Number of updates left before stopping.
+    fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
 }
 
 #[inline(never)]
@@ -78,13 +77,13 @@ impl eframe::App for App {
                 self.update_field();
             });
 
-        // updating frame counter
-        self.last_frame_duration = self.frame_timer.elapsed().as_secs_f64();
-        self.frame_timer = Instant::now();
+        self.fps_limiter.delay();
     }
 }
 
 impl App {
+    const MAX_FPS: f64 = 60.;
+
     const ZOOM_STEP: f32 = 1.1;
     const SCROLL_SCALE: f32 = -50.;
     const SUPERSAMPLING: f64 = 0.7;
@@ -118,14 +117,13 @@ impl App {
             viewport_buf: vec![],
             viewport_pos_x: 0.,
             viewport_pos_y: 0.,
-            frame_timer: Instant::now(),
-            last_frame_duration: 0.,
             last_update_duration: 0.,
             is_paused: true,
             generation: 0,
             do_one_step: false,
             pause_after_updates: false,
             updates_before_pause: 0,
+            fps_limiter: FpsLimiter::new(Self::MAX_FPS),
         }
     }
 
@@ -204,16 +202,20 @@ impl App {
                     }
 
                     ui.label(new_text(&format!(
-                        "Last update duration: {:.3} ms",
+                        "Last field update: {:.3} ms",
                         self.last_update_duration * 1e3
                     )));
 
+                    ui.label(new_text(&format!(
+                        "FPS:  {:3}",
+                        self.fps_limiter.fps().round() as u32
+                    )));
+                    ui.add_space(50.);
                     ui.label(new_text(&self.life.stats()))
                 });
             });
-            // to fix the bounds of the control panel
+            // to adjust the bounds of the control panel
             ui.add_space((Self::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
-            // TODO: life.print_stats()
         });
     }
 
