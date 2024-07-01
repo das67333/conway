@@ -7,7 +7,7 @@ pub trait Engine {
         Self: Sized;
 
     /// Create a field with random cells
-    /// 
+    ///
     /// `fill_rate` - probability of cell being alive
     /// `seed` - random seed (if `None`, then random seed is generated)
     fn random(n_log2: u32, fill_rate: f64, seed: Option<u64>) -> Self

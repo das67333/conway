@@ -134,7 +134,7 @@ impl HashTable {
 
     pub fn stats(&self) -> String {
         let mut s = format!(
-"{}
+            "{}
 memory on hashtable: {} MB
 hashtable elements / buckets: {} / {}
 hashtable hits: {}

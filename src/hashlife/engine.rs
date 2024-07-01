@@ -490,10 +490,7 @@ impl Engine for HashLifeEngine {
             } else {
                 args.curr_size_log2 -= 1;
                 let half = 1 << args.curr_size_log2;
-                for (i, &child) in [node.nw, node.ne, node.sw, node.se]
-                    .iter()
-                    .enumerate()
-                {
+                for (i, &child) in [node.nw, node.ne, node.sw, node.se].iter().enumerate() {
                     let x = curr_x + half * (i & 1 != 0) as u64;
                     let y = curr_y + half * (i & 2 != 0) as u64;
                     let child = unsafe { &*child };
