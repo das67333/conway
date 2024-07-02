@@ -11,8 +11,8 @@ pub struct App {
     simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
     zoom: f64,      // Current zoom rate.
     life: Box<dyn Engine>, // Conway's GoL engine.
-    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL.
-    texture: TextureHandle, // Texture handle of Conway's GoL.
+    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
+    texture: TextureHandle, // Texture handle of Conway's GoL field.
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
@@ -82,7 +82,7 @@ impl eframe::App for App {
 }
 
 impl App {
-    const MAX_FPS: f64 = 60.;
+    const MAX_FPS: f64 = 30.;
 
     const ZOOM_STEP: f32 = 1.1;
     const SCROLL_SCALE: f32 = -50.;
@@ -98,7 +98,7 @@ impl App {
 
     pub fn new(ctx: &Context) -> Self {
         let life = HashLifeEngine::from_recursive_otca_metapixel(
-            1,
+            2,
             [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
         );
         // let life = PatternObliviousEngine::random(7, 0.5, None);
@@ -209,9 +209,10 @@ impl App {
                     ui.label(new_text(&format!(
                         "FPS:  {:3}",
                         self.fps_limiter.fps().round() as u32
-                    )));
-                    ui.add_space(50.);
-                    ui.label(new_text(&self.life.stats()))
+                    )))
+                    // ui.add_space(50.);
+                    // TODO: cache stats
+                    // ui.label(new_text(&self.life.stats()))
                 });
             });
             // to adjust the bounds of the control panel

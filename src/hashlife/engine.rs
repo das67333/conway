@@ -98,53 +98,105 @@ impl HashLifeEngine {
         self.hashtable.find_leaf(u64::from_le_bytes(result))
     }
 
-    fn update_composite_sequential(
+    #[cfg(not(feature = "prefetch"))]
+    unsafe fn update_composite_sequential(
         &mut self,
-        node: *mut QuadTreeNode,
+        nw: *mut QuadTreeNode,
+        ne: *mut QuadTreeNode,
+        sw: *mut QuadTreeNode,
+        se: *mut QuadTreeNode,
         mut size_log2: u32,
     ) -> *mut QuadTreeNode {
-        let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
-        let [_, ne0, sw0, se0] = unsafe { [(*nw).nw, (*nw).ne, (*nw).sw, (*nw).se] };
-        let [nw1, _, sw1, se1] = unsafe { [(*ne).nw, (*ne).ne, (*ne).sw, (*ne).se] };
-        let [nw2, ne2, _, se2] = unsafe { [(*sw).nw, (*sw).ne, (*sw).sw, (*sw).se] };
-        let [nw3, ne3, sw3, _] = unsafe { [(*se).nw, (*se).ne, (*se).sw, (*se).se] };
-
         size_log2 -= 1;
-        let p0 = self.update_node(nw, size_log2);
-        let temp = self.hashtable.find_node(ne0, nw1, se0, sw1);
-        let p1 = self.update_node(temp, size_log2);
-        let p2 = self.update_node(ne, size_log2);
-        let temp = self.hashtable.find_node(sw0, se0, nw2, ne2);
-        let p3 = self.update_node(temp, size_log2);
-        let temp = self.hashtable.find_node(se0, sw1, ne2, nw3);
-        let p4 = self.update_node(temp, size_log2);
-        let temp = self.hashtable.find_node(sw1, se1, nw3, ne3);
-        let p5 = self.update_node(temp, size_log2);
-        let p6 = self.update_node(sw, size_log2);
-        let temp = self.hashtable.find_node(ne2, nw3, se2, sw3);
-        let p7 = self.update_node(temp, size_log2);
-        let p8 = self.update_node(se, size_log2);
-
-        let temp = self.hashtable.find_node(p0, p1, p3, p4);
-        let q0 = self.update_node(temp, size_log2);
-        let temp = self.hashtable.find_node(p1, p2, p4, p5);
-        let q1 = self.update_node(temp, size_log2);
-        let temp = self.hashtable.find_node(p3, p4, p6, p7);
-        let q2 = self.update_node(temp, size_log2);
-        let temp = self.hashtable.find_node(p4, p5, p7, p8);
-        let q3 = self.update_node(temp, size_log2);
-        self.hashtable.find_node(q0, q1, q2, q3)
+        let node = self
+            .hashtable
+            .find_node((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
+        let t11 = self.update_node(node, size_log2);
+        let t00 = self.update_node(nw, size_log2);
+        let node = self
+            .hashtable
+            .find_node((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
+        let t01 = self.update_node(node, size_log2);
+        let t02 = self.update_node(ne, size_log2);
+        let node = self
+            .hashtable
+            .find_node((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
+        let t12 = self.update_node(node, size_log2);
+        let node = self
+            .hashtable
+            .find_node((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
+        let t10 = self.update_node(node, size_log2);
+        let t20 = self.update_node(sw, size_log2);
+        let node = self
+            .hashtable
+            .find_node((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
+        let t21 = self.update_node(node, size_log2);
+        let t22 = self.update_node(se, size_log2);
+        let node = self.hashtable.find_node(t11, t12, t21, t22);
+        let t44 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node(t10, t11, t20, t21);
+        let t43 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node(t00, t01, t10, t11);
+        let t33 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node(t01, t02, t11, t12);
+        let t34 = self.update_node(node, size_log2);
+        self.hashtable.find_node(t33, t34, t43, t44)
     }
 
-    fn update_node(&mut self, node: *mut QuadTreeNode, curr_size_log2: u32) -> *mut QuadTreeNode {
+    #[cfg(feature = "prefetch")]
+    unsafe fn update_composite_sequential(
+        &mut self,
+        nw: *mut QuadTreeNode,
+        ne: *mut QuadTreeNode,
+        sw: *mut QuadTreeNode,
+        se: *mut QuadTreeNode,
+        mut size_log2: u32,
+    ) -> *mut QuadTreeNode {
+        size_log2 -= 1;
+        let su2 = self.hashtable.setup_prefetch((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
+        let su0 = self.hashtable.setup_prefetch((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
+        let su1 = self.hashtable.setup_prefetch((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
+        let su3 = self.hashtable.setup_prefetch((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
+        let su4 = self.hashtable.setup_prefetch((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
+        let t00 = self.update_node(nw, size_log2);
+        let node = self.hashtable.find_node_prefetched(su0);
+        let t01 = self.update_node(node, size_log2);
+        let t02 = self.update_node(ne, size_log2);
+        let node = self.hashtable.find_node_prefetched(su1);
+        let t12 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node_prefetched(su2);
+        let t11 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node_prefetched(su3);
+        let t10 = self.update_node(node, size_log2);
+        let t20 = self.update_node(sw, size_log2);
+        let node = self.hashtable.find_node_prefetched(su4);
+        let t21 = self.update_node(node, size_log2);
+        let t22 = self.update_node(se, size_log2);
+        let su0 = self.hashtable.setup_prefetch(t11, t12, t21, t22);
+        let su1 = self.hashtable.setup_prefetch(t10, t11, t20, t21);
+        let su2 = self.hashtable.setup_prefetch(t00, t01, t10, t11);
+        let su3 = self.hashtable.setup_prefetch(t01, t02, t11, t12);
+        let node = self.hashtable.find_node_prefetched(su0);
+        let t44 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node_prefetched(su1);
+        let t43 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node_prefetched(su2);
+        let t33 = self.update_node(node, size_log2);
+        let node = self.hashtable.find_node_prefetched(su3);
+        let t34 = self.update_node(node, size_log2);
+        self.hashtable.find_node(t33, t34, t43, t44)
+    }
+
+    fn update_node(&mut self, node: *mut QuadTreeNode, size_log2: u32) -> *mut QuadTreeNode {
         let cache = unsafe { (*node).cache };
         if !cache.is_null() {
             return cache;
         }
-        let cache = if curr_size_log2 == BASE_SIZE.ilog2() + 1 {
+        let cache = if size_log2 == BASE_SIZE.ilog2() + 1 {
             self.base_update(node)
         } else {
-            self.update_composite_sequential(node, curr_size_log2)
+            let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+            unsafe { self.update_composite_sequential(nw, ne, sw, se, size_log2) }
         };
         unsafe { (*node).cache = cache };
         cache

@@ -1,4 +1,5 @@
 use super::{manager::NodesManager, QuadTreeNode};
+use std::ptr::addr_of;
 
 const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
 const HASHTABLE_MAX_LOAD_FACTOR: f64 = 1.2;
@@ -15,6 +16,15 @@ pub struct HashTable {
     misses: u64,
     // storage for nodes
     mem_manager: NodesManager,
+}
+
+#[cfg(feature = "prefetch")]
+pub struct PrefetchedNode {
+    pub nw: *mut QuadTreeNode,
+    pub ne: *mut QuadTreeNode,
+    pub sw: *mut QuadTreeNode,
+    pub se: *mut QuadTreeNode,
+    pub hash: usize,
 }
 
 impl HashTable {
@@ -169,5 +179,68 @@ hashtable misses: {}
         }
 
         s
+    }
+
+    #[cfg(feature = "prefetch")]
+    pub fn setup_prefetch(
+        &self,
+        nw: *mut QuadTreeNode,
+        ne: *mut QuadTreeNode,
+        sw: *mut QuadTreeNode,
+        se: *mut QuadTreeNode,
+    ) -> PrefetchedNode {
+        let hash = QuadTreeNode::node_hash(nw, ne, sw, se);
+        let idx = hash & (self.buf.len() - 1);
+        unsafe {
+            let addr = addr_of!(self.buf[idx]);
+            std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(addr as *const _);
+        }
+        PrefetchedNode {
+            nw,
+            ne,
+            sw,
+            se,
+            hash,
+        }
+    }
+
+    #[cfg(feature = "prefetch")]
+    pub fn find_node_prefetched(&mut self, prefetched: PrefetchedNode) -> *mut QuadTreeNode {
+        let index = prefetched.hash & (self.buf.len() - 1);
+        let (nw, ne, sw, se) = (prefetched.nw, prefetched.ne, prefetched.sw, prefetched.se);
+        let mut node = self.buf[index];
+        let mut prev: *mut QuadTreeNode = std::ptr::null_mut();
+        // search for the node in the linked list
+        while !node.is_null() {
+            let next = unsafe { (*node).next };
+            if unsafe {
+                (*node).nw == nw && (*node).ne == ne && (*node).sw == sw && (*node).se == se
+            } {
+                // move the node to the front of the list
+                if !prev.is_null() {
+                    unsafe {
+                        (*prev).next = (*node).next;
+                        (*node).next = self.buf[index]
+                    };
+                    self.buf[index] = node;
+                }
+                self.hits += 1;
+                return node;
+            }
+            prev = node;
+            node = next;
+        }
+        self.misses += 1;
+        node = self.mem_manager.new_node();
+        unsafe {
+            (*node).nw = nw;
+            (*node).ne = ne;
+            (*node).sw = sw;
+            (*node).se = se;
+            (*node).population =
+                ((*nw).population + (*ne).population) + ((*sw).population + (*se).population);
+            self.insert(index, node);
+            node
+        }
     }
 }
