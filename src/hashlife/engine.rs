@@ -597,14 +597,14 @@ impl Engine for HashLifeEngine {
         inner(unsafe { &*self.root }, 0, 0, &mut args);
     }
 
-    fn stats(&self) -> String {
+    fn stats(&self, verbose: bool) -> String {
         format!(
             "
 \tHashLifeEngine:
 n: {}
 {}",
             self.n,
-            self.hashtable.stats()
+            self.hashtable.stats(verbose)
         )
     }
 }

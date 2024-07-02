@@ -141,7 +141,7 @@ impl HashTable {
         }
     }
 
-    pub fn stats(&self) -> String {
+    pub fn stats(&self, verbose: bool) -> String {
         let mut s = format!(
             "{}
 memory on hashtable: {} MB
@@ -157,26 +157,27 @@ hashtable misses: {}
             self.misses,
         );
 
-        let mut lengths = vec![];
-        for chain in self.buf.iter() {
-            let mut len = 0;
-            let mut node = *chain;
-            while !node.is_null() {
-                len += 1;
-                node = unsafe { (*node).next };
+        if verbose {
+            let mut lengths = vec![];
+            for chain in self.buf.iter() {
+                let mut len = 0;
+                let mut node = *chain;
+                while !node.is_null() {
+                    len += 1;
+                    node = unsafe { (*node).next };
+                }
+                if len >= lengths.len() {
+                    lengths.resize(len + 1, 0);
+                }
+                lengths[len] += 1;
             }
-            if len >= lengths.len() {
-                lengths.resize(len + 1, 0);
-            }
-            lengths[len] += 1;
-        }
 
-        for (i, count) in lengths.iter().enumerate() {
-            if *count > 0 {
-                s.extend(format!("buckets of size {}: {}\n", i, count).chars());
+            for (i, count) in lengths.iter().enumerate() {
+                if *count > 0 {
+                    s.extend(format!("buckets of size {}: {}\n", i, count).chars());
+                }
             }
         }
-
         s
     }
 

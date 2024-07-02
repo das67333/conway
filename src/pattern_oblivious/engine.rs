@@ -172,7 +172,7 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn stats(&self) -> String {
+    fn stats(&self, _verbose: bool) -> String {
         format!("memory on field: {} bytes", self.data.len() * 8)
     }
 }

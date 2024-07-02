@@ -1,7 +1,8 @@
 use crate::{Engine, FpsLimiter, HashLifeEngine};
 use eframe::egui::{
-    load::SizedTexture, pos2, Button, CentralPanel, Color32, ColorImage, Context, DragValue, Frame,
-    Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui, Vec2, Widget,
+    load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
+    DragValue, Frame, Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui,
+    Vec2, Widget,
 };
 use std::time::Instant;
 
@@ -23,6 +24,7 @@ pub struct App {
     pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
     updates_before_pause: u64, // Number of updates left before stopping.
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
+    show_verbose_stats: bool,
 }
 
 #[inline(never)]
@@ -96,6 +98,8 @@ impl App {
     const BUTTON_STROKE_COLOR: Color32 = Color32::DARK_GRAY;
     const BUTTON_FILL_COLOR: Color32 = Color32::LIGHT_GRAY;
 
+    const GAP_ABOVE_STATS: f32 = 50.;
+
     pub fn new(ctx: &Context) -> Self {
         let life = HashLifeEngine::from_recursive_otca_metapixel(
             2,
@@ -124,6 +128,7 @@ impl App {
             pause_after_updates: false,
             updates_before_pause: 0,
             fps_limiter: FpsLimiter::new(Self::MAX_FPS),
+            show_verbose_stats: false,
         }
     }
 
@@ -209,10 +214,14 @@ impl App {
                     ui.label(new_text(&format!(
                         "FPS:  {:3}",
                         self.fps_limiter.fps().round() as u32
-                    )))
-                    // ui.add_space(50.);
-                    // TODO: cache stats
-                    // ui.label(new_text(&self.life.stats()))
+                    )));
+                    ui.add_space(Self::GAP_ABOVE_STATS);
+
+                    ui.add(Checkbox::new(
+                        &mut self.show_verbose_stats,
+                        new_text("Verbose stats (can drop FPS)"),
+                    ));
+                    ui.label(new_text(&self.life.stats(self.show_verbose_stats)))
                 });
             });
             // to adjust the bounds of the control panel
