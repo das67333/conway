@@ -54,6 +54,7 @@ impl HashLifeEngine {
         (i & i2) | i3
     }
 
+    #[inline(never)]
     fn base_update(&mut self, node: *mut QuadTreeNode) -> *mut QuadTreeNode {
         const W: usize = (BASE_SIZE / CELLS_IN_CHUNK) as usize;
         const H: usize = (BASE_SIZE) as usize;
@@ -99,6 +100,7 @@ impl HashLifeEngine {
     }
 
     #[cfg(not(feature = "prefetch"))]
+    #[inline(never)]
     unsafe fn update_composite_sequential(
         &mut self,
         nw: *mut QuadTreeNode,
@@ -144,6 +146,7 @@ impl HashLifeEngine {
     }
 
     #[cfg(feature = "prefetch")]
+    #[inline(never)]
     unsafe fn update_composite_sequential(
         &mut self,
         nw: *mut QuadTreeNode,
@@ -153,36 +156,46 @@ impl HashLifeEngine {
         mut size_log2: u32,
     ) -> *mut QuadTreeNode {
         size_log2 -= 1;
-        let su2 = self.hashtable.setup_prefetch((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
-        let su0 = self.hashtable.setup_prefetch((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
-        let su1 = self.hashtable.setup_prefetch((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
-        let su3 = self.hashtable.setup_prefetch((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
-        let su4 = self.hashtable.setup_prefetch((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
+        let su2 = self
+            .hashtable
+            .setup_prefetch((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
+        let su0 = self
+            .hashtable
+            .setup_prefetch((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
+        let su1 = self
+            .hashtable
+            .setup_prefetch((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
+        let su3 = self
+            .hashtable
+            .setup_prefetch((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
+        let su4 = self
+            .hashtable
+            .setup_prefetch((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
         let t00 = self.update_node(nw, size_log2);
-        let node = self.hashtable.find_node_prefetched(su0);
+        let node = self.hashtable.find_node_prefetched(&su0);
         let t01 = self.update_node(node, size_log2);
         let t02 = self.update_node(ne, size_log2);
-        let node = self.hashtable.find_node_prefetched(su1);
+        let node = self.hashtable.find_node_prefetched(&su1);
         let t12 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(su2);
+        let node = self.hashtable.find_node_prefetched(&su2);
         let t11 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(su3);
+        let node = self.hashtable.find_node_prefetched(&su3);
         let t10 = self.update_node(node, size_log2);
         let t20 = self.update_node(sw, size_log2);
-        let node = self.hashtable.find_node_prefetched(su4);
+        let node = self.hashtable.find_node_prefetched(&su4);
         let t21 = self.update_node(node, size_log2);
         let t22 = self.update_node(se, size_log2);
-        let su0 = self.hashtable.setup_prefetch(t11, t12, t21, t22);
+        let su5 = self.hashtable.setup_prefetch(t11, t12, t21, t22);
         let su1 = self.hashtable.setup_prefetch(t10, t11, t20, t21);
         let su2 = self.hashtable.setup_prefetch(t00, t01, t10, t11);
         let su3 = self.hashtable.setup_prefetch(t01, t02, t11, t12);
-        let node = self.hashtable.find_node_prefetched(su0);
+        let node = self.hashtable.find_node_prefetched(&su5);
         let t44 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(su1);
+        let node = self.hashtable.find_node_prefetched(&su1);
         let t43 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(su2);
+        let node = self.hashtable.find_node_prefetched(&su2);
         let t33 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(su3);
+        let node = self.hashtable.find_node_prefetched(&su3);
         let t34 = self.update_node(node, size_log2);
         self.hashtable.find_node(t33, t34, t43, t44)
     }

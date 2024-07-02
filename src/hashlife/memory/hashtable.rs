@@ -1,5 +1,4 @@
 use super::{manager::NodesManager, QuadTreeNode};
-use std::ptr::addr_of;
 
 const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
 const HASHTABLE_MAX_LOAD_FACTOR: f64 = 1.2;
@@ -192,8 +191,9 @@ hashtable misses: {}
         let hash = QuadTreeNode::node_hash(nw, ne, sw, se);
         let idx = hash & (self.buf.len() - 1);
         unsafe {
-            let addr = addr_of!(self.buf[idx]);
-            std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(addr as *const _);
+            std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(
+                &self.buf[idx] as *const *mut QuadTreeNode as *const i8,
+            );
         }
         PrefetchedNode {
             nw,
@@ -205,7 +205,7 @@ hashtable misses: {}
     }
 
     #[cfg(feature = "prefetch")]
-    pub fn find_node_prefetched(&mut self, prefetched: PrefetchedNode) -> *mut QuadTreeNode {
+    pub fn find_node_prefetched(&mut self, prefetched: &PrefetchedNode) -> *mut QuadTreeNode {
         let index = prefetched.hash & (self.buf.len() - 1);
         let (nw, ne, sw, se) = (prefetched.nw, prefetched.ne, prefetched.sw, prefetched.se);
         let mut node = self.buf[index];
