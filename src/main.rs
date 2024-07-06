@@ -1,12 +1,12 @@
 #![warn(clippy::all)]
 
-use eframe::egui;
-
 fn main() {
+    use eframe::egui::{vec2, ViewportBuilder};
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(egui::vec2(1280., 720.))
-            .with_min_inner_size(egui::vec2(640.0, 360.0)),
+        viewport: ViewportBuilder::default()
+            .with_inner_size(vec2(1280., 720.))
+            .with_min_inner_size(vec2(640.0, 360.0)),
         ..Default::default()
     };
     eframe::run_native(
@@ -16,3 +16,23 @@ fn main() {
     )
     .unwrap();
 }
+
+// async fn f(n: usize) {
+//     let mut handles = Vec::with_capacity(n);
+//     for h in handles.iter_mut() {
+//         *h = tokio::spawn(async {});
+//     }
+//     tokio::task::
+// }
+
+// fn main() {
+//     let mut x = 0u64;
+
+//     tokio::runtime::Builder::new_current_thread()
+//         .enable_all()
+//         .build()
+//         .unwrap()
+//         .block_on(async {
+//             println!("Hello world");
+//         })
+// }

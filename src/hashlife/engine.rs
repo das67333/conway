@@ -428,7 +428,7 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn parse_rle(data: &[u8]) -> Self {
+    fn parse_rle(_data: &[u8]) -> Self {
         unimplemented!()
     }
 
@@ -495,7 +495,7 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, self.n, self.root, state, self);
     }
 
-    fn update(&mut self, steps_log2: u32) {
+    fn update(&mut self, _steps_log2: u32) {
         println!("Changing update step is not supported");
         let top = self.root;
         let size_log2 = self.n.ilog2();

@@ -61,7 +61,7 @@ pub trait Engine {
     );
 
     /// Returns multiline string reporting engine stats.
-    /// 
+    ///
     /// `verbose` enables stats that require heavy calculations.
     fn stats(&self, verbose: bool) -> String;
 }
