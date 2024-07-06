@@ -193,7 +193,7 @@ hashtable misses: {}
         let idx = hash & (self.buf.len() - 1);
         unsafe {
             std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(
-                &self.buf[idx] as *const *mut QuadTreeNode as *const i8,
+                &((*self.buf[idx]).cache) as *const *mut QuadTreeNode as *const i8,
             );
         }
         PrefetchedNode {
