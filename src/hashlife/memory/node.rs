@@ -1,8 +1,8 @@
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeIdx(usize);
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NodeIdx(u32);
 
 impl NodeIdx {
-    pub fn new(idx: usize) -> Self {
+    pub fn new(idx: u32) -> Self {
         NodeIdx(idx)
     }
 
@@ -15,15 +15,15 @@ impl NodeIdx {
     }
 
     pub fn get(&self) -> usize {
-        self.0
+        self.0 as usize
     }
 }
 
-#[repr(align(8))]
+#[repr(align(32))]
 #[derive(Clone)]
 pub struct QuadTreeNode {
     // 1) nw == null means that the node is a leaf
-    // then ne is the cells of the leaf
+    // then (ne + sw * 2^32) is the cells of the leaf
     // 2) nw != null means that the node is a composite
     // then nw, ne, sw, se are the pointers to the children
     pub nw: NodeIdx,
@@ -39,8 +39,8 @@ pub struct QuadTreeNode {
 }
 
 impl QuadTreeNode {
-    pub fn leaf_hash(cells: u64) -> usize {
-        let mut h = cells;
+    pub fn leaf_hash(cells: [u8; 8]) -> usize {
+        let mut h = u64::from_le_bytes(cells);
         h ^= h >> 33;
         h = h.wrapping_mul(0xff51afd7ed558ccd);
         h ^= h >> 33;
@@ -54,6 +54,14 @@ impl QuadTreeNode {
         let mut h = 5 * nw + 17 * ne + 257 * sw + 65537 * se;
         h += h >> 11;
         h
+    }
+}
+
+impl QuadTreeNode {
+    /// Returns the cells of a leaf node row by row.
+    pub fn cells(&self) -> [u8; 8] {
+        debug_assert_ne!(self.nw, NodeIdx::null());
+        (self.ne.get() as u64 | (self.sw.get() as u64) << 32).to_le_bytes()
     }
 }
 

@@ -56,52 +56,49 @@ impl HashLifeEngine {
 
     #[inline(never)]
     fn base_update(&mut self, node: NodeIdx) -> NodeIdx {
-        const W: usize = (BASE_SIZE / CELLS_IN_CHUNK) as usize;
-        const H: usize = (BASE_SIZE) as usize;
+        const H: usize = BASE_SIZE as usize;
 
-        let node = self.mem.get(node);
-        let v0 = (self.mem.get(node.nw).ne.get() as u64).to_le_bytes();
-        let v1 = (self.mem.get(node.ne).ne.get() as u64).to_le_bytes();
-        let v2 = (self.mem.get(node.sw).ne.get() as u64).to_le_bytes();
-        let v3 = (self.mem.get(node.se).ne.get() as u64).to_le_bytes();
+        let n = self.mem.get(node);
+        let v0 = self.mem.get(n.nw).cells();
+        let v1 = self.mem.get(n.ne).cells();
+        let v2 = self.mem.get(n.sw).cells();
+        let v3 = self.mem.get(n.se).cells();
 
-        let mut src = vec![0; 4 * W * H];
+        let mut src = vec![0; 4 * H];
         for y in 0..H {
-            for x in 0..W {
-                src[x + y * 2 * W] = v0[x + y * W];
-                src[(x + W) + y * 2 * W] = v1[x + y * W];
-                src[x + (y + H) * 2 * W] = v2[x + y * W];
-                src[(x + W) + (y + H) * 2 * W] = v3[x + y * W];
-            }
+            src[y * 2] = v0[y];
+            src[1 + y * 2] = v1[y];
+            src[(y + H) * 2] = v2[y];
+            src[1 + (y + H) * 2] = v3[y];
         }
 
-        let mut dst = vec![0; 4 * W * H];
+        let mut dst = vec![0; 4 * H];
         for t in 1..=H / 2 {
             for y in t..2 * H - t {
-                let row_prev = &src[(y - 1) * 2 * W..y * 2 * W];
+                let row_prev = &src[(y - 1) * 2..y * 2];
                 let row_prev = u16::from_le_bytes(row_prev.try_into().unwrap());
-                let row_curr = &src[y * 2 * W..(y + 1) * 2 * W];
+                let row_curr = &src[y * 2..(y + 1) * 2];
                 let row_curr = u16::from_le_bytes(row_curr.try_into().unwrap());
-                let row_next = &src[(y + 1) * 2 * W..(y + 2) * 2 * W];
+                let row_next = &src[(y + 1) * 2..(y + 2) * 2];
                 let row_next = u16::from_le_bytes(row_next.try_into().unwrap());
-                let dst = &mut dst[y * 2 * W..(y + 1) * 2 * W];
+                let dst = &mut dst[y * 2..(y + 1) * 2];
                 let x = Self::update_row(row_prev, row_curr, row_next).to_le_bytes();
                 dst.copy_from_slice(&x);
             }
             std::mem::swap(&mut src, &mut dst);
         }
 
-        let mut result = [0; W * H];
+        let mut result = [0; H];
         for y in 0..H {
             let t = (y + 4) * 2;
             result[y] = (u16::from_le_bytes(src[t..t + 2].try_into().unwrap()) >> 4) as u8;
         }
-        self.mem.find_leaf(u64::from_le_bytes(result))
+        self.mem.find_leaf(result)
     }
 
     #[cfg(not(feature = "prefetch"))]
     #[inline(never)]
-    unsafe fn update_composite_sequential(
+    fn update_composite_sequential(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -162,7 +159,7 @@ impl HashLifeEngine {
 
     #[cfg(feature = "prefetch")]
     #[inline(never)]
-    unsafe fn update_composite_sequential(
+    fn update_composite_sequential(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -231,20 +228,16 @@ impl HashLifeEngine {
     }
 
     fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        let cache = self.mem.get(node).cache;
+        let n = self.mem.get(node);
+        let cache = n.cache;
         if !cache.is_null() {
             return cache;
         }
         let cache = if size_log2 == BASE_SIZE.ilog2() + 1 {
             self.base_update(node)
         } else {
-            let [nw, ne, sw, se] = [
-                self.mem.get(node).nw,
-                self.mem.get(node).ne,
-                self.mem.get(node).sw,
-                self.mem.get(node).se,
-            ];
-            unsafe { self.update_composite_sequential(nw, ne, sw, se, size_log2) }
+            let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se];
+            self.update_composite_sequential(nw, ne, sw, se, size_log2)
         };
         self.mem.get_mut(node).cache = cache;
         cache
@@ -298,7 +291,7 @@ impl HashLifeEngine {
                             }
                         }
                     }
-                    nodes_curr.push(hashtable.find_leaf(u64::from_le_bytes(data)));
+                    nodes_curr.push(hashtable.find_leaf(data));
                 }
             }
             let mut t = OTCA_SIZE / BASE_SIZE;
@@ -399,7 +392,7 @@ impl HashLifeEngine {
             }
             let mut s = String::new();
             if mem.get(node).nw.is_null() {
-                let data = (mem.get(node).ne.get() as u64).to_le_bytes();
+                let data = mem.get(node).cells();
                 for t in data.iter() {
                     for i in 0..8 {
                         if t >> i & 1 != 0 {
@@ -464,7 +457,7 @@ impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
         assert!((7..64).contains(&n_log2));
         let mut hashtable = Manager::new();
-        let mut node = hashtable.find_leaf(0);
+        let mut node = hashtable.find_leaf([0; 8]);
         for _ in BASE_SIZE.ilog2()..n_log2 {
             node = hashtable.find_node(node, node, node, node);
         }
@@ -490,7 +483,7 @@ impl Engine for HashLifeEngine {
             size >>= 1;
             let idx = (x >= size) as usize + 2 * (y >= size) as usize;
             if self.mem.get(node).nw.is_null() {
-                let data = (self.mem.get(node).ne.get() as u64).to_le_bytes();
+                let data = self.mem.get(node).cells();
                 let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
                 let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
                 return data[pos as usize] >> offset & 1 != 0;
@@ -521,7 +514,7 @@ impl Engine for HashLifeEngine {
             size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             if size == BASE_SIZE {
-                let mut data = (engine.mem.get(node).ne.get() as u64).to_le_bytes();
+                let mut data = engine.mem.get(node).cells();
                 let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
                 let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
                 if state {
@@ -529,7 +522,7 @@ impl Engine for HashLifeEngine {
                 } else {
                     data[pos as usize] &= !mask;
                 }
-                engine.mem.find_leaf(u64::from_le_bytes(data))
+                engine.mem.find_leaf(data)
             } else {
                 let mut arr = [
                     engine.mem.get(node).nw,
@@ -590,7 +583,7 @@ impl Engine for HashLifeEngine {
                 return;
             }
             if node.nw.is_null() {
-                let data = (node.ne.get() as u64).to_le_bytes();
+                let data = node.cells();
                 let k = BASE_SIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
                 for sy in 0..k {

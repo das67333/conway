@@ -41,7 +41,7 @@ impl Manager {
     }
 
     // index must be hash(node) % buf.len(); node must not be present in the hashtable
-    unsafe fn insert(&mut self, index: usize, node: NodeIdx) {
+    fn insert(&mut self, index: usize, node: NodeIdx) {
         self.ht_size += 1;
         self.get_mut(node).next = self.hashtable[index];
         self.hashtable[index] = node;
@@ -53,7 +53,7 @@ impl Manager {
                 while !node.is_null() {
                     let next = self.get(node).next;
                     let hash = if self.get(node).nw.is_null() {
-                        QuadTreeNode::leaf_hash(self.get(node).ne.get() as u64)
+                        QuadTreeNode::leaf_hash(self.get(node).cells())
                     } else {
                         QuadTreeNode::node_hash(
                             self.get(node).nw,
@@ -81,13 +81,13 @@ impl Manager {
         &mut self.nodes[idx.get()]
     }
 
-    pub fn find_leaf(&mut self, cells: u64) -> NodeIdx {
+    pub fn find_leaf(&mut self, cells: [u8; 8]) -> NodeIdx {
         let index = QuadTreeNode::leaf_hash(cells) & (self.hashtable.len() - 1);
         let mut node = self.hashtable[index];
         let mut prev = NodeIdx::null();
         while !node.is_null() {
             let next = self.get(node).next;
-            if self.get(node).nw.is_null() && self.get(node).ne.get() as u64 == cells {
+            if self.get(node).nw.is_null() && self.get(node).cells() == cells {
                 // move the node to the front of the list
                 if !prev.is_null() {
                     self.get_mut(prev).next = self.get(node).next;
@@ -102,13 +102,13 @@ impl Manager {
         }
         self.misses += 1;
         node = self.new_node();
-        unsafe {
-            self.get_mut(node).nw = NodeIdx::null();
-            self.get_mut(node).ne = NodeIdx::new(cells as usize);
-            self.get_mut(node).population = cells.count_ones() as f64;
-            self.insert(index, node);
-            node
-        }
+        self.get_mut(node).nw = NodeIdx::null();
+        let cells = u64::from_le_bytes(cells);
+        self.get_mut(node).ne = NodeIdx::new(cells as u32);
+        self.get_mut(node).sw = NodeIdx::new((cells >> 32) as u32);
+        self.get_mut(node).population = cells.count_ones() as f64;
+        self.insert(index, node);
+        node
     }
 
     pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
@@ -137,16 +137,14 @@ impl Manager {
         }
         self.misses += 1;
         node = self.new_node();
-        unsafe {
-            self.get_mut(node).nw = nw;
-            self.get_mut(node).ne = ne;
-            self.get_mut(node).sw = sw;
-            self.get_mut(node).se = se;
-            self.get_mut(node).population = (self.get(nw).population + self.get(ne).population)
-                + (self.get(sw).population + self.get(se).population);
-            self.insert(index, node);
-            node
-        }
+        self.get_mut(node).nw = nw;
+        self.get_mut(node).ne = ne;
+        self.get_mut(node).sw = sw;
+        self.get_mut(node).se = se;
+        self.get_mut(node).population = (self.get(nw).population + self.get(ne).population)
+            + (self.get(sw).population + self.get(se).population);
+        self.insert(index, node);
+        node
     }
 
     pub fn stats(&self, verbose: bool) -> String {
@@ -260,6 +258,10 @@ hashtable misses: {}
 
     fn new_node(&mut self) -> NodeIdx {
         self.nodes.push(QuadTreeNode::default());
-        NodeIdx::new(self.nodes.len() - 1)
+        NodeIdx::new(
+            (self.nodes.len() - 1)
+                .try_into()
+                .expect("Nodes storage overflowed u32"),
+        )
     }
 }

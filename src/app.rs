@@ -48,41 +48,6 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
         .collect()
 }
 
-impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        // full-window panel
-        CentralPanel::default()
-            .frame(
-                Frame::default()
-                    .inner_margin(Margin::same(Self::FRAME_MARGIN))
-                    .fill(Color32::LIGHT_GRAY),
-            )
-            .show(ctx, |ui| {
-                // TODO: power-efficient mode?
-                ctx.request_repaint();
-
-                // updating and drawing the field
-                if let Some(life_rect) = self.life_rect {
-                    self.update_viewport(ctx, life_rect);
-                }
-
-                let area = ui.available_size();
-                let size_px = area
-                    .y
-                    .min(area.x - Self::CONTROL_PANEL_WIDTH - Self::FRAME_MARGIN);
-                ui.horizontal(|ui| {
-                    self.draw_control_panel(ui);
-                    ui.add_space(ui.available_width() - size_px);
-                    self.draw_gol_field(ui, size_px);
-                });
-
-                self.update_field();
-            });
-
-        self.fps_limiter.delay();
-    }
-}
-
 impl App {
     const MAX_FPS: f64 = 30.;
 
@@ -299,5 +264,40 @@ impl App {
             //     self.state = !self.state;
             // }
         });
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        // full-window panel
+        CentralPanel::default()
+            .frame(
+                Frame::default()
+                    .inner_margin(Margin::same(Self::FRAME_MARGIN))
+                    .fill(Color32::LIGHT_GRAY),
+            )
+            .show(ctx, |ui| {
+                // TODO: power-efficient mode?
+                ctx.request_repaint();
+
+                // updating and drawing the field
+                if let Some(life_rect) = self.life_rect {
+                    self.update_viewport(ctx, life_rect);
+                }
+
+                let area = ui.available_size();
+                let size_px = area
+                    .y
+                    .min(area.x - Self::CONTROL_PANEL_WIDTH - Self::FRAME_MARGIN);
+                ui.horizontal(|ui| {
+                    self.draw_control_panel(ui);
+                    ui.add_space(ui.available_width() - size_px);
+                    self.draw_gol_field(ui, size_px);
+                });
+
+                self.update_field();
+            });
+
+        self.fps_limiter.delay();
     }
 }
