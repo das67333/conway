@@ -1,6 +1,6 @@
 use crate::Engine;
 
-use super::memory::{HashTable, QuadTreeNode};
+use super::memory::{Manager, NodeIdx, QuadTreeNode};
 use std::path::Path;
 
 const BASE_SIZE: u64 = 8;
@@ -8,9 +8,9 @@ const CELLS_IN_CHUNK: u64 = 8;
 const CHUNKS_IN_LEAF: u64 = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
 
 pub struct HashLifeEngine {
-    root: *mut QuadTreeNode,
+    root: NodeIdx,
     n: u64,
-    pub hashtable: HashTable,
+    mem: Manager,
 }
 
 impl HashLifeEngine {
@@ -55,15 +55,15 @@ impl HashLifeEngine {
     }
 
     #[inline(never)]
-    fn base_update(&mut self, node: *mut QuadTreeNode) -> *mut QuadTreeNode {
+    fn base_update(&mut self, node: NodeIdx) -> NodeIdx {
         const W: usize = (BASE_SIZE / CELLS_IN_CHUNK) as usize;
         const H: usize = (BASE_SIZE) as usize;
 
-        let node = unsafe { &mut *node };
-        let v0 = unsafe { ((*node.nw).ne as u64).to_le_bytes() };
-        let v1 = unsafe { ((*node.ne).ne as u64).to_le_bytes() };
-        let v2 = unsafe { ((*node.sw).ne as u64).to_le_bytes() };
-        let v3 = unsafe { ((*node.se).ne as u64).to_le_bytes() };
+        let node = self.mem.get(node);
+        let v0 = (self.mem.get(node.nw).ne.get() as u64).to_le_bytes();
+        let v1 = (self.mem.get(node.ne).ne.get() as u64).to_le_bytes();
+        let v2 = (self.mem.get(node.sw).ne.get() as u64).to_le_bytes();
+        let v3 = (self.mem.get(node.se).ne.get() as u64).to_le_bytes();
 
         let mut src = vec![0; 4 * W * H];
         for y in 0..H {
@@ -96,81 +96,111 @@ impl HashLifeEngine {
             let t = (y + 4) * 2;
             result[y] = (u16::from_le_bytes(src[t..t + 2].try_into().unwrap()) >> 4) as u8;
         }
-        self.hashtable.find_leaf(u64::from_le_bytes(result))
+        self.mem.find_leaf(u64::from_le_bytes(result))
     }
 
     #[cfg(not(feature = "prefetch"))]
     #[inline(never)]
     unsafe fn update_composite_sequential(
         &mut self,
-        nw: *mut QuadTreeNode,
-        ne: *mut QuadTreeNode,
-        sw: *mut QuadTreeNode,
-        se: *mut QuadTreeNode,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
         mut size_log2: u32,
-    ) -> *mut QuadTreeNode {
+    ) -> NodeIdx {
         size_log2 -= 1;
-        let node = self
-            .hashtable
-            .find_node((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
+        let node = self.mem.find_node(
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
+        );
         let t11 = self.update_node(node, size_log2);
         let t00 = self.update_node(nw, size_log2);
-        let node = self
-            .hashtable
-            .find_node((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
+        let node = self.mem.find_node(
+            self.mem.get(nw).ne,
+            self.mem.get(ne).nw,
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
+        );
         let t01 = self.update_node(node, size_log2);
         let t02 = self.update_node(ne, size_log2);
-        let node = self
-            .hashtable
-            .find_node((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
+        let node = self.mem.find_node(
+            self.mem.get(ne).sw,
+            self.mem.get(ne).se,
+            self.mem.get(se).nw,
+            self.mem.get(se).ne,
+        );
         let t12 = self.update_node(node, size_log2);
-        let node = self
-            .hashtable
-            .find_node((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
+        let node = self.mem.find_node(
+            self.mem.get(nw).sw,
+            self.mem.get(nw).se,
+            self.mem.get(sw).nw,
+            self.mem.get(sw).ne,
+        );
         let t10 = self.update_node(node, size_log2);
         let t20 = self.update_node(sw, size_log2);
-        let node = self
-            .hashtable
-            .find_node((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
+        let node = self.mem.find_node(
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
+            self.mem.get(sw).se,
+            self.mem.get(se).sw,
+        );
         let t21 = self.update_node(node, size_log2);
         let t22 = self.update_node(se, size_log2);
-        let node = self.hashtable.find_node(t11, t12, t21, t22);
+        let node = self.mem.find_node(t11, t12, t21, t22);
         let t44 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node(t10, t11, t20, t21);
+        let node = self.mem.find_node(t10, t11, t20, t21);
         let t43 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node(t00, t01, t10, t11);
+        let node = self.mem.find_node(t00, t01, t10, t11);
         let t33 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node(t01, t02, t11, t12);
+        let node = self.mem.find_node(t01, t02, t11, t12);
         let t34 = self.update_node(node, size_log2);
-        self.hashtable.find_node(t33, t34, t43, t44)
+        self.mem.find_node(t33, t34, t43, t44)
     }
 
     #[cfg(feature = "prefetch")]
     #[inline(never)]
     unsafe fn update_composite_sequential(
         &mut self,
-        nw: *mut QuadTreeNode,
-        ne: *mut QuadTreeNode,
-        sw: *mut QuadTreeNode,
-        se: *mut QuadTreeNode,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
         mut size_log2: u32,
-    ) -> *mut QuadTreeNode {
+    ) -> NodeIdx {
         size_log2 -= 1;
-        let su2 = self
-            .hashtable
-            .setup_prefetch((*nw).se, (*ne).sw, (*sw).ne, (*se).nw);
-        let su0 = self
-            .hashtable
-            .setup_prefetch((*nw).ne, (*ne).nw, (*nw).se, (*ne).sw);
-        let su1 = self
-            .hashtable
-            .setup_prefetch((*ne).sw, (*ne).se, (*se).nw, (*se).ne);
-        let su3 = self
-            .hashtable
-            .setup_prefetch((*nw).sw, (*nw).se, (*sw).nw, (*sw).ne);
-        let su4 = self
-            .hashtable
-            .setup_prefetch((*sw).ne, (*se).nw, (*sw).se, (*se).sw);
+        let su2 = self.hashtable.setup_prefetch(
+            self.hashtable.get(nw).se,
+            self.hashtable.get(ne).sw,
+            self.hashtable.get(sw).ne,
+            self.hashtable.get(se).nw,
+        );
+        let su0 = self.hashtable.setup_prefetch(
+            self.hashtable.get(nw).ne,
+            self.hashtable.get(ne).nw,
+            self.hashtable.get(nw).se,
+            self.hashtable.get(ne).sw,
+        );
+        let su1 = self.hashtable.setup_prefetch(
+            self.hashtable.get(ne).sw,
+            self.hashtable.get(ne).se,
+            self.hashtable.get(se).nw,
+            self.hashtable.get(se).ne,
+        );
+        let su3 = self.hashtable.setup_prefetch(
+            self.hashtable.get(nw).sw,
+            self.hashtable.get(nw).se,
+            self.hashtable.get(sw).nw,
+            self.hashtable.get(sw).ne,
+        );
+        let su4 = self.hashtable.setup_prefetch(
+            self.hashtable.get(sw).ne,
+            self.hashtable.get(se).nw,
+            self.hashtable.get(sw).se,
+            self.hashtable.get(se).sw,
+        );
         let t00 = self.update_node(nw, size_log2);
         let node = self.hashtable.find_node_prefetched(&su0);
         let t01 = self.update_node(node, size_log2);
@@ -200,18 +230,23 @@ impl HashLifeEngine {
         self.hashtable.find_node(t33, t34, t43, t44)
     }
 
-    fn update_node(&mut self, node: *mut QuadTreeNode, size_log2: u32) -> *mut QuadTreeNode {
-        let cache = unsafe { (*node).cache };
+    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        let cache = self.mem.get(node).cache;
         if !cache.is_null() {
             return cache;
         }
         let cache = if size_log2 == BASE_SIZE.ilog2() + 1 {
             self.base_update(node)
         } else {
-            let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+            let [nw, ne, sw, se] = [
+                self.mem.get(node).nw,
+                self.mem.get(node).ne,
+                self.mem.get(node).sw,
+                self.mem.get(node).se,
+            ];
             unsafe { self.update_composite_sequential(nw, ne, sw, se, size_log2) }
         };
-        unsafe { (*node).cache = cache };
+        self.mem.get_mut(node).cache = cache;
         cache
     }
 
@@ -245,7 +280,7 @@ impl HashLifeEngine {
             unimplemented!()
         }
 
-        let mut hashtable = HashTable::new();
+        let mut hashtable = Manager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
@@ -343,7 +378,7 @@ impl HashLifeEngine {
         Self {
             root,
             n: OTCA_SIZE.pow(depth) * N as u64,
-            hashtable,
+            mem: hashtable,
         }
     }
 
@@ -353,17 +388,18 @@ impl HashLifeEngine {
         use std::io::Write;
 
         fn inner(
-            node: *mut QuadTreeNode,
+            node: NodeIdx,
             size_log2: u32,
-            codes: &mut HashMap<*mut QuadTreeNode, usize>,
+            mem: &Manager,
+            codes: &mut HashMap<NodeIdx, usize>,
             result: &mut Vec<String>,
         ) {
             if codes.contains_key(&node) {
                 return;
             }
             let mut s = String::new();
-            if unsafe { (*node).nw.is_null() } {
-                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
+            if mem.get(node).nw.is_null() {
+                let data = (mem.get(node).ne.get() as u64).to_le_bytes();
                 for t in data.iter() {
                     for i in 0..8 {
                         if t >> i & 1 != 0 {
@@ -378,11 +414,16 @@ impl HashLifeEngine {
                     s.push('$');
                 }
             } else {
-                let [nw, ne, sw, se] = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
-                inner(nw, size_log2 - 1, codes, result);
-                inner(ne, size_log2 - 1, codes, result);
-                inner(sw, size_log2 - 1, codes, result);
-                inner(se, size_log2 - 1, codes, result);
+                let [nw, ne, sw, se] = [
+                    mem.get(node).nw,
+                    mem.get(node).ne,
+                    mem.get(node).sw,
+                    mem.get(node).se,
+                ];
+                inner(nw, size_log2 - 1, mem, codes, result);
+                inner(ne, size_log2 - 1, mem, codes, result);
+                inner(sw, size_log2 - 1, mem, codes, result);
+                inner(se, size_log2 - 1, mem, codes, result);
                 s = format!(
                     "{} {} {} {} {}",
                     size_log2,
@@ -392,7 +433,7 @@ impl HashLifeEngine {
                     codes.get(&se).unwrap(),
                 );
             }
-            let v = if unsafe { (*node).population } != 0.0 {
+            let v = if mem.get(node).population != 0.0 {
                 result.push(s);
                 result.len()
             } else {
@@ -403,7 +444,13 @@ impl HashLifeEngine {
 
         let mut codes = HashMap::new();
         let mut result = vec![];
-        inner(self.root, self.n.ilog2(), &mut codes, &mut result);
+        inner(
+            self.root,
+            self.n.ilog2(),
+            &self.mem,
+            &mut codes,
+            &mut result,
+        );
 
         let mut file = File::create(path).unwrap();
         write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
@@ -416,7 +463,7 @@ impl HashLifeEngine {
 impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
         assert!((7..64).contains(&n_log2));
-        let mut hashtable = HashTable::new();
+        let mut hashtable = Manager::new();
         let mut node = hashtable.find_leaf(0);
         for _ in BASE_SIZE.ilog2()..n_log2 {
             node = hashtable.find_node(node, node, node, node);
@@ -424,7 +471,7 @@ impl Engine for HashLifeEngine {
         Self {
             root: node,
             n: 1 << n_log2,
-            hashtable,
+            mem: hashtable,
         }
     }
 
@@ -442,17 +489,17 @@ impl Engine for HashLifeEngine {
         while size >= BASE_SIZE {
             size >>= 1;
             let idx = (x >= size) as usize + 2 * (y >= size) as usize;
-            if unsafe { (*node).nw.is_null() } {
-                let data = unsafe { ((*node).ne as u64).to_le_bytes() };
+            if self.mem.get(node).nw.is_null() {
+                let data = (self.mem.get(node).ne.get() as u64).to_le_bytes();
                 let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
                 let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
                 return data[pos as usize] >> offset & 1 != 0;
             } else {
                 node = match idx {
-                    0 => unsafe { (*node).nw },
-                    1 => unsafe { (*node).ne },
-                    2 => unsafe { (*node).sw },
-                    3 => unsafe { (*node).se },
+                    0 => self.mem.get(node).nw,
+                    1 => self.mem.get(node).ne,
+                    2 => self.mem.get(node).sw,
+                    3 => self.mem.get(node).se,
                     _ => unreachable!(),
                 };
             }
@@ -467,14 +514,14 @@ impl Engine for HashLifeEngine {
             mut x: u64,
             mut y: u64,
             mut size: u64,
-            node: *mut QuadTreeNode,
+            node: NodeIdx,
             state: bool,
             engine: &mut HashLifeEngine,
-        ) -> *mut QuadTreeNode {
+        ) -> NodeIdx {
             size >>= 1;
             let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             if size == BASE_SIZE {
-                let mut data = unsafe { ((*node).ne as u64).to_le_bytes() };
+                let mut data = (engine.mem.get(node).ne.get() as u64).to_le_bytes();
                 let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
                 let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
                 if state {
@@ -482,13 +529,18 @@ impl Engine for HashLifeEngine {
                 } else {
                     data[pos as usize] &= !mask;
                 }
-                engine.hashtable.find_leaf(u64::from_le_bytes(data))
+                engine.mem.find_leaf(u64::from_le_bytes(data))
             } else {
-                let mut arr = unsafe { [(*node).nw, (*node).ne, (*node).sw, (*node).se] };
+                let mut arr = [
+                    engine.mem.get(node).nw,
+                    engine.mem.get(node).ne,
+                    engine.mem.get(node).sw,
+                    engine.mem.get(node).se,
+                ];
                 x -= (x >= size) as u64 * size;
                 y -= (y >= size) as u64 * size;
                 arr[idx] = inner(x, y, size, arr[idx], state, engine);
-                engine.hashtable.find_node(arr[0], arr[1], arr[2], arr[3])
+                engine.mem.find_node(arr[0], arr[1], arr[2], arr[3])
             }
         }
 
@@ -500,11 +552,16 @@ impl Engine for HashLifeEngine {
         let top = self.root;
         let size_log2 = self.n.ilog2();
         let q = {
-            let temp = self.hashtable.find_node(top, top, top, top);
+            let temp = self.mem.find_node(top, top, top, top);
             self.update_node(temp, size_log2 + 1)
         };
-        let [nw, ne, sw, se] = unsafe { [(*q).nw, (*q).ne, (*q).sw, (*q).se] };
-        self.root = self.hashtable.find_node(se, sw, ne, nw);
+        let [nw, ne, sw, se] = [
+            self.mem.get(q).nw,
+            self.mem.get(q).ne,
+            self.mem.get(q).sw,
+            self.mem.get(q).se,
+        ];
+        self.root = self.mem.find_node(se, sw, ne, nw);
     }
 
     fn fill_texture(
@@ -523,6 +580,7 @@ impl Engine for HashLifeEngine {
             viewport_size: u64,
             step_log2: u32,
             dst: &'a mut Vec<f64>,
+            mem: &'a Manager,
         }
         fn inner(node: &QuadTreeNode, curr_x: u64, curr_y: u64, args: &mut Args) {
             if args.step_log2 == args.curr_size_log2 {
@@ -532,7 +590,7 @@ impl Engine for HashLifeEngine {
                 return;
             }
             if node.nw.is_null() {
-                let data = (node.ne as u64).to_le_bytes();
+                let data = (node.ne.get() as u64).to_le_bytes();
                 let k = BASE_SIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
                 for sy in 0..k {
@@ -558,7 +616,7 @@ impl Engine for HashLifeEngine {
                 for (i, &child) in [node.nw, node.ne, node.sw, node.se].iter().enumerate() {
                     let x = curr_x + half * (i & 1 != 0) as u64;
                     let y = curr_y + half * (i & 2 != 0) as u64;
-                    let child = unsafe { &*child };
+                    let child = args.mem.get(child);
                     if x + half > args.viewport_x
                         && x < args.viewport_x + args.viewport_size
                         && y + half > args.viewport_y
@@ -593,8 +651,9 @@ impl Engine for HashLifeEngine {
             viewport_size: size_int,
             step_log2,
             dst,
+            mem: &self.mem,
         };
-        inner(unsafe { &*self.root }, 0, 0, &mut args);
+        inner(self.mem.get(self.root), 0, 0, &mut args);
     }
 
     fn stats(&self, verbose: bool) -> String {
@@ -604,7 +663,7 @@ impl Engine for HashLifeEngine {
 n: {}
 {}",
             self.n,
-            self.hashtable.stats(verbose)
+            self.mem.stats(verbose)
         )
     }
 }

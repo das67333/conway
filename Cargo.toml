@@ -13,5 +13,5 @@ eframe = "0.27"
 debug = true
 
 [features]
-default = ["prefetch"]
+default = []
 prefetch = []

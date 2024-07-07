@@ -1,3 +1,24 @@
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeIdx(usize);
+
+impl NodeIdx {
+    pub fn new(idx: usize) -> Self {
+        NodeIdx(idx)
+    }
+
+    pub fn null() -> Self {
+        NodeIdx(0)
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
 #[repr(align(8))]
 #[derive(Clone)]
 pub struct QuadTreeNode {
@@ -5,14 +26,14 @@ pub struct QuadTreeNode {
     // then ne is the cells of the leaf
     // 2) nw != null means that the node is a composite
     // then nw, ne, sw, se are the pointers to the children
-    pub nw: *mut QuadTreeNode,
-    pub ne: *mut QuadTreeNode,
-    pub sw: *mut QuadTreeNode,
-    pub se: *mut QuadTreeNode,
+    pub nw: NodeIdx,
+    pub ne: NodeIdx,
+    pub sw: NodeIdx,
+    pub se: NodeIdx,
     // for using in linked list
-    pub next: *mut QuadTreeNode,
+    pub next: NodeIdx,
     // cached result of update; for leaf nodes is unused
-    pub cache: *mut QuadTreeNode,
+    pub cache: NodeIdx,
     // total number of alive cells in the subtree
     pub population: f64,
 }
@@ -28,13 +49,8 @@ impl QuadTreeNode {
         h as usize
     }
 
-    pub fn node_hash(
-        nw: *mut QuadTreeNode,
-        ne: *mut QuadTreeNode,
-        sw: *mut QuadTreeNode,
-        se: *mut QuadTreeNode,
-    ) -> usize {
-        let (nw, ne, sw, se) = (nw as usize, ne as usize, sw as usize, se as usize);
+    pub fn node_hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
+        let (nw, ne, sw, se) = (nw.get(), ne.get(), sw.get(), se.get());
         let mut h = 5 * nw + 17 * ne + 257 * sw + 65537 * se;
         h += h >> 11;
         h
@@ -44,12 +60,12 @@ impl QuadTreeNode {
 impl Default for QuadTreeNode {
     fn default() -> Self {
         Self {
-            nw: std::ptr::null_mut(),
-            ne: std::ptr::null_mut(),
-            sw: std::ptr::null_mut(),
-            se: std::ptr::null_mut(),
-            next: std::ptr::null_mut(),
-            cache: std::ptr::null_mut(),
+            nw: NodeIdx::null(),
+            ne: NodeIdx::null(),
+            sw: NodeIdx::null(),
+            se: NodeIdx::null(),
+            next: NodeIdx::null(),
+            cache: NodeIdx::null(),
             population: 0.0,
         }
     }

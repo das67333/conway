@@ -1,6 +1,5 @@
-mod hashtable;
 mod manager;
 mod node;
 
-pub use hashtable::HashTable;
-pub use node::QuadTreeNode;
+pub use manager::Manager;
+pub use node::{NodeIdx, QuadTreeNode};
