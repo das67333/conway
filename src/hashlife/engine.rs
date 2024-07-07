@@ -168,63 +168,63 @@ impl HashLifeEngine {
         mut size_log2: u32,
     ) -> NodeIdx {
         size_log2 -= 1;
-        let su2 = self.hashtable.setup_prefetch(
-            self.hashtable.get(nw).se,
-            self.hashtable.get(ne).sw,
-            self.hashtable.get(sw).ne,
-            self.hashtable.get(se).nw,
+        let su2 = self.mem.setup_prefetch(
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
         );
-        let su0 = self.hashtable.setup_prefetch(
-            self.hashtable.get(nw).ne,
-            self.hashtable.get(ne).nw,
-            self.hashtable.get(nw).se,
-            self.hashtable.get(ne).sw,
+        let su0 = self.mem.setup_prefetch(
+            self.mem.get(nw).ne,
+            self.mem.get(ne).nw,
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
         );
-        let su1 = self.hashtable.setup_prefetch(
-            self.hashtable.get(ne).sw,
-            self.hashtable.get(ne).se,
-            self.hashtable.get(se).nw,
-            self.hashtable.get(se).ne,
+        let su1 = self.mem.setup_prefetch(
+            self.mem.get(ne).sw,
+            self.mem.get(ne).se,
+            self.mem.get(se).nw,
+            self.mem.get(se).ne,
         );
-        let su3 = self.hashtable.setup_prefetch(
-            self.hashtable.get(nw).sw,
-            self.hashtable.get(nw).se,
-            self.hashtable.get(sw).nw,
-            self.hashtable.get(sw).ne,
+        let su3 = self.mem.setup_prefetch(
+            self.mem.get(nw).sw,
+            self.mem.get(nw).se,
+            self.mem.get(sw).nw,
+            self.mem.get(sw).ne,
         );
-        let su4 = self.hashtable.setup_prefetch(
-            self.hashtable.get(sw).ne,
-            self.hashtable.get(se).nw,
-            self.hashtable.get(sw).se,
-            self.hashtable.get(se).sw,
+        let su4 = self.mem.setup_prefetch(
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
+            self.mem.get(sw).se,
+            self.mem.get(se).sw,
         );
         let t00 = self.update_node(nw, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su0);
+        let node = self.mem.find_node_prefetched(&su0);
         let t01 = self.update_node(node, size_log2);
         let t02 = self.update_node(ne, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su1);
+        let node = self.mem.find_node_prefetched(&su1);
         let t12 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su2);
+        let node = self.mem.find_node_prefetched(&su2);
         let t11 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su3);
+        let node = self.mem.find_node_prefetched(&su3);
         let t10 = self.update_node(node, size_log2);
         let t20 = self.update_node(sw, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su4);
+        let node = self.mem.find_node_prefetched(&su4);
         let t21 = self.update_node(node, size_log2);
         let t22 = self.update_node(se, size_log2);
-        let su5 = self.hashtable.setup_prefetch(t11, t12, t21, t22);
-        let su1 = self.hashtable.setup_prefetch(t10, t11, t20, t21);
-        let su2 = self.hashtable.setup_prefetch(t00, t01, t10, t11);
-        let su3 = self.hashtable.setup_prefetch(t01, t02, t11, t12);
-        let node = self.hashtable.find_node_prefetched(&su5);
+        let su5 = self.mem.setup_prefetch(t11, t12, t21, t22);
+        let su1 = self.mem.setup_prefetch(t10, t11, t20, t21);
+        let su2 = self.mem.setup_prefetch(t00, t01, t10, t11);
+        let su3 = self.mem.setup_prefetch(t01, t02, t11, t12);
+        let node = self.mem.find_node_prefetched(&su5);
         let t44 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su1);
+        let node = self.mem.find_node_prefetched(&su1);
         let t43 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su2);
+        let node = self.mem.find_node_prefetched(&su2);
         let t33 = self.update_node(node, size_log2);
-        let node = self.hashtable.find_node_prefetched(&su3);
+        let node = self.mem.find_node_prefetched(&su3);
         let t34 = self.update_node(node, size_log2);
-        self.hashtable.find_node(t33, t34, t43, t44)
+        self.mem.find_node(t33, t34, t43, t44)
     }
 
     fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {

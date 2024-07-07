@@ -102,11 +102,12 @@ impl Manager {
         }
         self.misses += 1;
         node = self.new_node();
-        self.get_mut(node).nw = NodeIdx::null();
+        let n = self.get_mut(node);
+        n.nw = NodeIdx::null();
         let cells = u64::from_le_bytes(cells);
-        self.get_mut(node).ne = NodeIdx::new(cells as u32);
-        self.get_mut(node).sw = NodeIdx::new((cells >> 32) as u32);
-        self.get_mut(node).population = cells.count_ones() as f64;
+        n.ne = NodeIdx::new(cells as u32);
+        n.sw = NodeIdx::new((cells >> 32) as u32);
+        n.population = cells.count_ones() as f64;
         self.insert(index, node);
         node
     }
@@ -136,13 +137,17 @@ impl Manager {
             node = next;
         }
         self.misses += 1;
-        node = self.new_node();
-        self.get_mut(node).nw = nw;
-        self.get_mut(node).ne = ne;
-        self.get_mut(node).sw = sw;
-        self.get_mut(node).se = se;
-        self.get_mut(node).population = (self.get(nw).population + self.get(ne).population)
+
+        let population = (self.get(nw).population + self.get(ne).population)
             + (self.get(sw).population + self.get(se).population);
+
+        node = self.new_node();
+        let n = self.get_mut(node);
+        n.nw = nw;
+        n.ne = ne;
+        n.sw = sw;
+        n.se = se;
+        n.population = population;
         self.insert(index, node);
         node
     }
@@ -198,10 +203,10 @@ hashtable misses: {}
         se: NodeIdx,
     ) -> PrefetchedNode {
         let hash = QuadTreeNode::node_hash(nw, ne, sw, se);
-        let idx = hash & (self.buf.len() - 1);
+        let idx = hash & (self.hashtable.len() - 1);
         unsafe {
             std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(
-                &((*self.buf[idx]).cache) as *const NodeIdx as *const i8,
+                &(self.get(self.hashtable[idx]).cache) as *const NodeIdx as *const i8,
             );
         }
         PrefetchedNode {
@@ -215,26 +220,23 @@ hashtable misses: {}
 
     #[cfg(feature = "prefetch")]
     pub fn find_node_prefetched(&mut self, prefetched: &PrefetchedNode) -> NodeIdx {
-        let index = prefetched.hash & (self.buf.len() - 1);
+        let index = prefetched.hash & (self.hashtable.len() - 1);
         let (nw, ne, sw, se) = (prefetched.nw, prefetched.ne, prefetched.sw, prefetched.se);
-        let mut node = self.buf[index];
+        let mut node = self.hashtable[index];
         let mut prev = NodeIdx::null();
         // search for the node in the linked list
         while !node.is_null() {
-            let next = unsafe { self.get(node).next };
-            if unsafe {
-                self.get(node).nw == nw
-                    && self.get(node).ne == ne
-                    && self.get(node).sw == sw
-                    && self.get(node).se == se
-            } {
+            let next = self.get(node).next;
+            if self.get(node).nw == nw
+                && self.get(node).ne == ne
+                && self.get(node).sw == sw
+                && self.get(node).se == se
+            {
                 // move the node to the front of the list
                 if !prev.is_null() {
-                    unsafe {
-                        self.get(prev).next = self.get(node).next;
-                        self.get(node).next = self.buf[index]
-                    };
-                    self.buf[index] = node;
+                    self.get_mut(prev).next = self.get(node).next;
+                    self.get_mut(node).next = self.hashtable[index];
+                    self.hashtable[index] = node;
                 }
                 self.hits += 1;
                 return node;
@@ -243,17 +245,17 @@ hashtable misses: {}
             node = next;
         }
         self.misses += 1;
+        let population = (self.get(nw).population + self.get(ne).population)
+            + (self.get(sw).population + self.get(se).population);
         node = self.new_node();
-        unsafe {
-            self.get(node).nw = nw;
-            self.get(node).ne = ne;
-            self.get(node).sw = sw;
-            self.get(node).se = se;
-            self.get(node).population = (self.get(nw).population + self.get(ne).population)
-                + (self.get(sw).population + self.get(se).population);
-            self.insert(index, node);
-            node
-        }
+        let n = self.get_mut(node);
+        n.nw = nw;
+        n.ne = ne;
+        n.sw = sw;
+        n.se = se;
+        n.population = population;
+        self.insert(index, node);
+        node
     }
 
     fn new_node(&mut self) -> NodeIdx {
