@@ -73,8 +73,7 @@ impl Manager {
     }
 
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
-        let t = &self.nodes[idx.get()] as *const QuadTreeNode;
-        unsafe { &*t }
+        &self.nodes[idx.get()]
     }
 
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {

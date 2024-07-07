@@ -50,18 +50,16 @@ impl QuadTreeNode {
     }
 
     pub fn node_hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
-        let (nw, ne, sw, se) = (nw.get(), ne.get(), sw.get(), se.get());
-        let mut h = 5 * nw + 17 * ne + 257 * sw + 65537 * se;
+        let mut h = 5 * nw.0 as u64 + 17 * ne.0 as u64 + 257 * sw.0 as u64 + 65537 * se.0 as u64;
         h += h >> 11;
-        h
+        h as usize
     }
 }
 
 impl QuadTreeNode {
     /// Returns the cells of a leaf node row by row.
     pub fn cells(&self) -> [u8; 8] {
-        debug_assert_ne!(self.nw, NodeIdx::null());
-        (self.ne.get() as u64 | (self.sw.get() as u64) << 32).to_le_bytes()
+        (self.ne.0 as u64 | (self.sw.0 as u64) << 32).to_le_bytes()
     }
 }
 
