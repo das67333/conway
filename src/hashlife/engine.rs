@@ -77,7 +77,7 @@ impl HashLifeEngine {
         }
 
         self.mem.find_leaf(
-            dst[4..12]
+            src[4..12]
                 .iter()
                 .map(|x| (x >> 4) as u8)
                 .collect::<Vec<_>>()
@@ -470,24 +470,22 @@ impl Engine for HashLifeEngine {
         let mut node = self.root;
         let mut size = self.n;
         while size >= BASE_SIZE {
+            if self.mem.get(node).nw.is_null() {
+                assert_eq!(size, BASE_SIZE);
+                let data = self.mem.get(node).cells();
+                return data[y as usize] >> x & 1 != 0;
+            }
             size >>= 1;
             let idx = (x >= size) as usize + 2 * (y >= size) as usize;
-            if self.mem.get(node).nw.is_null() {
-                let data = self.mem.get(node).cells();
-                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
-                return data[pos as usize] >> offset & 1 != 0;
-            } else {
-                node = match idx {
-                    0 => self.mem.get(node).nw,
-                    1 => self.mem.get(node).ne,
-                    2 => self.mem.get(node).sw,
-                    3 => self.mem.get(node).se,
-                    _ => unreachable!(),
-                };
-            }
             x -= (x >= size) as u64 * size;
             y -= (y >= size) as u64 * size;
+            node = match idx {
+                0 => self.mem.get(node).nw,
+                1 => self.mem.get(node).ne,
+                2 => self.mem.get(node).sw,
+                3 => self.mem.get(node).se,
+                _ => unreachable!(),
+            };
         }
         unreachable!("Size is smaller than the base size, which is impossible")
     }
@@ -501,16 +499,13 @@ impl Engine for HashLifeEngine {
             state: bool,
             engine: &mut HashLifeEngine,
         ) -> NodeIdx {
-            size >>= 1;
-            let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
             if size == BASE_SIZE {
                 let mut data = engine.mem.get(node).cells();
-                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                let mask = 1 << ((x + y * BASE_SIZE) % CELLS_IN_CHUNK);
+                let mask = 1 << x;
                 if state {
-                    data[pos as usize] |= mask;
+                    data[y as usize] |= mask;
                 } else {
-                    data[pos as usize] &= !mask;
+                    data[y as usize] &= !mask;
                 }
                 engine.mem.find_leaf(data)
             } else {
@@ -520,6 +515,8 @@ impl Engine for HashLifeEngine {
                     engine.mem.get(node).sw,
                     engine.mem.get(node).se,
                 ];
+                size >>= 1;
+                let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
                 x -= (x >= size) as u64 * size;
                 y -= (y >= size) as u64 * size;
                 arr[idx] = inner(x, y, size, arr[idx], state, engine);
