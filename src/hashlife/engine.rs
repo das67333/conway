@@ -56,44 +56,34 @@ impl HashLifeEngine {
 
     #[inline(never)]
     fn base_update(&mut self, node: NodeIdx) -> NodeIdx {
-        const H: usize = BASE_SIZE as usize;
-
         let n = self.mem.get(node);
-        let v0 = self.mem.get(n.nw).cells();
-        let v1 = self.mem.get(n.ne).cells();
-        let v2 = self.mem.get(n.sw).cells();
-        let v3 = self.mem.get(n.se).cells();
+        let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se].map(|x| self.mem.get(x).cells());
 
-        let mut src = vec![0; 4 * H];
-        for y in 0..H {
-            src[y * 2] = v0[y];
-            src[1 + y * 2] = v1[y];
-            src[(y + H) * 2] = v2[y];
-            src[1 + (y + H) * 2] = v3[y];
-        }
+        let mut src: [u16; 16] = nw
+            .iter()
+            .zip(ne.iter())
+            .chain(sw.iter().zip(se.iter()))
+            .map(|(&l, &r)| u16::from_le_bytes([l, r]))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let mut dst = [0; 16];
 
-        let mut dst = vec![0; 4 * H];
-        for t in 1..=H / 2 {
-            for y in t..2 * H - t {
-                let row_prev = &src[(y - 1) * 2..y * 2];
-                let row_prev = u16::from_le_bytes(row_prev.try_into().unwrap());
-                let row_curr = &src[y * 2..(y + 1) * 2];
-                let row_curr = u16::from_le_bytes(row_curr.try_into().unwrap());
-                let row_next = &src[(y + 1) * 2..(y + 2) * 2];
-                let row_next = u16::from_le_bytes(row_next.try_into().unwrap());
-                let dst = &mut dst[y * 2..(y + 1) * 2];
-                let x = Self::update_row(row_prev, row_curr, row_next).to_le_bytes();
-                dst.copy_from_slice(&x);
+        for t in 1..=4 {
+            for y in t..16 - t {
+                dst[y] = Self::update_row(src[y - 1], src[y], src[y + 1]);
             }
             std::mem::swap(&mut src, &mut dst);
         }
 
-        let mut result = [0; H];
-        for y in 0..H {
-            let t = (y + 4) * 2;
-            result[y] = (u16::from_le_bytes(src[t..t + 2].try_into().unwrap()) >> 4) as u8;
-        }
-        self.mem.find_leaf(result)
+        self.mem.find_leaf(
+            dst[4..12]
+                .iter()
+                .map(|x| (x >> 4) as u8)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        )
     }
 
     #[cfg(not(feature = "prefetch"))]
