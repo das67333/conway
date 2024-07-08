@@ -55,9 +55,8 @@ impl HashLifeEngine {
     }
 
     #[inline(never)]
-    fn base_update(&mut self, node: NodeIdx) -> NodeIdx {
-        let n = self.mem.get(node);
-        let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se].map(|x| self.mem.get(x).cells());
+    fn base_update(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
+        let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| self.mem.get(x).cells());
 
         let mut src: [u16; 16] = nw
             .iter()
@@ -223,10 +222,10 @@ impl HashLifeEngine {
         if !cache.is_null() {
             return cache;
         }
+        let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se];
         let cache = if size_log2 == BASE_SIZE.ilog2() + 1 {
-            self.base_update(node)
+            self.base_update(nw, ne, sw, se)
         } else {
-            let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se];
             self.update_composite_sequential(nw, ne, sw, se, size_log2)
         };
         self.mem.get_mut(node).cache = cache;
