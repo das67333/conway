@@ -3,13 +3,14 @@ use crate::Engine;
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
 use std::path::Path;
 
-const BASE_SIZE: u64 = 8;
+const LEAF_SIZE: u64 = 8;
 const CELLS_IN_CHUNK: u64 = 8;
-const CHUNKS_IN_LEAF: u64 = BASE_SIZE * BASE_SIZE / CELLS_IN_CHUNK;
+const CHUNKS_IN_LEAF: u64 = LEAF_SIZE * LEAF_SIZE / CELLS_IN_CHUNK;
 
 pub struct HashLifeEngine {
-    root: NodeIdx,
     n: u64,
+    root: NodeIdx,
+    step_size_log2: u32,
     mem: Manager,
 }
 
@@ -55,7 +56,14 @@ impl HashLifeEngine {
     }
 
     #[inline(never)]
-    fn base_update(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
+    fn update_leaves(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        steps: u64,
+    ) -> NodeIdx {
         let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| self.mem.get(x).cells());
 
         let mut src: [u16; 16] = nw
@@ -68,7 +76,7 @@ impl HashLifeEngine {
             .unwrap();
         let mut dst = [0; 16];
 
-        for t in 1..=4 {
+        for t in 1..=steps as usize {
             for y in t..16 - t {
                 dst[y] = Self::update_row(src[y - 1], src[y], src[y + 1]);
             }
@@ -85,17 +93,100 @@ impl HashLifeEngine {
         )
     }
 
-    #[cfg(not(feature = "prefetch"))]
-    #[inline(never)]
-    fn update_composite_sequential(
+    fn update_nodes_single(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
-        mut size_log2: u32,
+        size_log2: u32,
     ) -> NodeIdx {
-        size_log2 -= 1;
+        let t00 = self.update_node(nw, size_log2);
+        let node = self.mem.find_node(
+            self.mem.get(nw).ne,
+            self.mem.get(ne).nw,
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
+        );
+        let t01 = self.update_node(node, size_log2);
+        let node = self.mem.find_node(
+            self.mem.get(nw).sw,
+            self.mem.get(nw).se,
+            self.mem.get(sw).nw,
+            self.mem.get(sw).ne,
+        );
+        let t10 = self.update_node(node, size_log2);
+        let node = self.mem.find_node(
+            self.mem.get(nw).se,
+            self.mem.get(ne).sw,
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
+        );
+        let t11 = self.update_node(node, size_log2);
+        let t02 = self.update_node(ne, size_log2);
+        let node = self.mem.find_node(
+            self.mem.get(ne).sw,
+            self.mem.get(ne).se,
+            self.mem.get(se).nw,
+            self.mem.get(se).ne,
+        );
+        let t12 = self.update_node(node, size_log2);
+        let t20 = self.update_node(sw, size_log2);
+        let node = self.mem.find_node(
+            self.mem.get(sw).ne,
+            self.mem.get(se).nw,
+            self.mem.get(sw).se,
+            self.mem.get(se).sw,
+        );
+        let t21 = self.update_node(node, size_log2);
+        let t22 = self.update_node(se, size_log2);
+        if size_log2 > 3 {
+            let nw = self.mem.find_node(
+                self.mem.get(t00).se,
+                self.mem.get(t01).sw,
+                self.mem.get(t10).ne,
+                self.mem.get(t11).nw,
+            );
+            let ne = self.mem.find_node(
+                self.mem.get(t01).se,
+                self.mem.get(t02).sw,
+                self.mem.get(t11).ne,
+                self.mem.get(t12).nw,
+            );
+            let sw = self.mem.find_node(
+                self.mem.get(t10).se,
+                self.mem.get(t11).sw,
+                self.mem.get(t20).ne,
+                self.mem.get(t21).nw,
+            );
+            let se = self.mem.find_node(
+                self.mem.get(t11).se,
+                self.mem.get(t12).sw,
+                self.mem.get(t21).ne,
+                self.mem.get(t22).nw,
+            );
+            self.mem.find_node(nw, ne, sw, se)
+        } else {
+            // self.mem.find_node(
+            //     self.mem.find_leaf((t00).se, (t01).sw, (t10).ne, (t11).nw),
+            //     self.mem.find_leaf((t01).se, (t02).sw, (t11).ne, (t12).nw),
+            //     self.mem.find_leaf((t10).se, (t11).sw, (t20).ne, (t21).nw),
+            //     self.mem.find_leaf((t11).se, (t12).sw, (t21).ne, (t22).nw),
+            // )
+            unimplemented!("TODO: split leaves and combine parts")
+        }
+    }
+
+    #[cfg(not(feature = "prefetch"))]
+    #[inline(never)]
+    fn update_nodes_double(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> NodeIdx {
         let node = self.mem.find_node(
             self.mem.get(nw).se,
             self.mem.get(ne).sw,
@@ -156,7 +247,6 @@ impl HashLifeEngine {
         se: NodeIdx,
         mut size_log2: u32,
     ) -> NodeIdx {
-        size_log2 -= 1;
         let su2 = self.mem.setup_prefetch(
             self.mem.get(nw).se,
             self.mem.get(ne).sw,
@@ -216,17 +306,26 @@ impl HashLifeEngine {
         self.mem.find_node(t33, t34, t43, t44)
     }
 
-    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
-        let cache = n.cache;
-        if !cache.is_null() {
-            return cache;
+        if !n.cache.is_null() {
+            return n.cache;
         }
-        let [nw, ne, sw, se] = [n.nw, n.ne, n.sw, n.se];
-        let cache = if size_log2 == BASE_SIZE.ilog2() + 1 {
-            self.base_update(nw, ne, sw, se)
+
+        size_log2 -= 1;
+
+        let cache = if size_log2 < self.step_size_log2 + 2 {
+            if size_log2 == LEAF_SIZE.ilog2() {
+                self.update_leaves(n.nw, n.ne, n.sw, n.se, LEAF_SIZE / 2)
+            } else {
+                self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2)
+            }
         } else {
-            self.update_composite_sequential(nw, ne, sw, se, size_log2)
+            if size_log2 == LEAF_SIZE.ilog2() {
+                self.update_leaves(n.nw, n.ne, n.sw, n.se, 1 << self.step_size_log2)
+            } else {
+                self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2)
+            }
         };
         self.mem.get_mut(node).cache = cache;
         cache
@@ -266,15 +365,15 @@ impl HashLifeEngine {
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
-            for y in 0..OTCA_SIZE / BASE_SIZE {
-                for x in 0..OTCA_SIZE / BASE_SIZE {
+            for y in 0..OTCA_SIZE / LEAF_SIZE {
+                for x in 0..OTCA_SIZE / LEAF_SIZE {
                     let mut data = [0; CHUNKS_IN_LEAF as usize];
-                    for sy in 0..BASE_SIZE {
-                        for sx in 0..BASE_SIZE {
-                            let pos = (sx + sy * BASE_SIZE) / CELLS_IN_CHUNK;
-                            let mask = 1 << ((sx + sy * BASE_SIZE) % CELLS_IN_CHUNK);
+                    for sy in 0..LEAF_SIZE {
+                        for sx in 0..LEAF_SIZE {
+                            let pos = (sx + sy * LEAF_SIZE) / CELLS_IN_CHUNK;
+                            let mask = 1 << ((sx + sy * LEAF_SIZE) % CELLS_IN_CHUNK);
                             if otca_patterns[i]
-                                [((sx + x * BASE_SIZE) + (sy + y * BASE_SIZE) * OTCA_SIZE) as usize]
+                                [((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize]
                             {
                                 data[pos as usize] |= mask;
                             }
@@ -283,7 +382,7 @@ impl HashLifeEngine {
                     nodes_curr.push(hashtable.find_leaf(data));
                 }
             }
-            let mut t = OTCA_SIZE / BASE_SIZE;
+            let mut t = OTCA_SIZE / LEAF_SIZE;
             while t != 1 {
                 for y in (0..t).step_by(2) {
                     for x in (0..t).step_by(2) {
@@ -358,8 +457,9 @@ impl HashLifeEngine {
         let root = nodes_curr.pop().unwrap();
 
         Self {
-            root,
             n: OTCA_SIZE.pow(depth) * N as u64,
+            root,
+            step_size_log2: 0,
             mem: hashtable,
         }
     }
@@ -447,12 +547,13 @@ impl Engine for HashLifeEngine {
         assert!((7..64).contains(&n_log2));
         let mut hashtable = Manager::new();
         let mut node = hashtable.find_leaf([0; 8]);
-        for _ in BASE_SIZE.ilog2()..n_log2 {
+        for _ in LEAF_SIZE.ilog2()..n_log2 {
             node = hashtable.find_node(node, node, node, node);
         }
         Self {
-            root: node,
             n: 1 << n_log2,
+            root: node,
+            step_size_log2: n_log2 - 1,
             mem: hashtable,
         }
     }
@@ -468,9 +569,9 @@ impl Engine for HashLifeEngine {
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
         let mut node = self.root;
         let mut size = self.n;
-        while size >= BASE_SIZE {
+        while size >= LEAF_SIZE {
             if self.mem.get(node).nw.is_null() {
-                assert_eq!(size, BASE_SIZE);
+                assert_eq!(size, LEAF_SIZE);
                 let data = self.mem.get(node).cells();
                 return data[y as usize] >> x & 1 != 0;
             }
@@ -498,7 +599,7 @@ impl Engine for HashLifeEngine {
             state: bool,
             engine: &mut HashLifeEngine,
         ) -> NodeIdx {
-            if size == BASE_SIZE {
+            if size == LEAF_SIZE {
                 let mut data = engine.mem.get(node).cells();
                 let mask = 1 << x;
                 if state {
@@ -570,17 +671,17 @@ impl Engine for HashLifeEngine {
             }
             if node.nw.is_null() {
                 let data = node.cells();
-                let k = BASE_SIZE >> args.step_log2;
+                let k = LEAF_SIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
                 for sy in 0..k {
                     for sx in 0..k {
                         let mut sum = 0;
                         for dy in 0..step {
                             for dx in 0..step {
-                                let x = (sx * step + dx) & (BASE_SIZE - 1);
-                                let y = (sy * step + dy) & (BASE_SIZE - 1);
-                                let pos = (x + y * BASE_SIZE) / CELLS_IN_CHUNK;
-                                let offset = (x + y * BASE_SIZE) % CELLS_IN_CHUNK;
+                                let x = (sx * step + dx) & (LEAF_SIZE - 1);
+                                let y = (sy * step + dy) & (LEAF_SIZE - 1);
+                                let pos = (x + y * LEAF_SIZE) / CELLS_IN_CHUNK;
+                                let offset = (x + y * LEAF_SIZE) % CELLS_IN_CHUNK;
                                 sum += data[pos as usize] >> offset & 1;
                             }
                         }
@@ -610,7 +711,7 @@ impl Engine for HashLifeEngine {
 
         let step_log2 = ((*size / *resolution) as u64).max(1).ilog2();
         let step = 1 << step_log2;
-        let com_mul = step.max(BASE_SIZE);
+        let com_mul = step.max(LEAF_SIZE);
         let size_int = (*size as u64).next_multiple_of(com_mul) + com_mul;
         *size = size_int as f64;
         let resolution_int = size_int / step;
