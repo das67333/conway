@@ -53,7 +53,7 @@ impl Manager {
                 while !node.is_null() {
                     let next = self.get(node).next;
                     let hash = if self.get(node).nw.is_null() {
-                        QuadTreeNode::leaf_hash(self.get(node).cells())
+                        QuadTreeNode::leaf_hash(self.get(node).leaf_cells())
                     } else {
                         QuadTreeNode::node_hash(
                             self.get(node).nw,
@@ -80,13 +80,36 @@ impl Manager {
         &mut self.nodes[idx.get()]
     }
 
+    pub fn find_leaf_from_parts(&mut self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
+        let [mut nw, mut ne, mut sw, mut se] = [nw as u64, ne as u64, sw as u64, se as u64];
+        let mut cells = 0;
+        let mut shift = 0;
+        for _ in 0..4 {
+            cells |= (nw & 0xF) << shift;
+            nw >>= 4;
+            shift += 4;
+            cells |= (ne & 0xF) << shift;
+            ne >>= 4;
+            shift += 4;
+        }
+        for _ in 0..4 {
+            cells |= (sw & 0xF) << shift;
+            sw >>= 4;
+            shift += 4;
+            cells |= (se & 0xF) << shift;
+            se >>= 4;
+            shift += 4;
+        }
+        self.find_leaf(cells.to_le_bytes())
+    }
+
     pub fn find_leaf(&mut self, cells: [u8; 8]) -> NodeIdx {
         let index = QuadTreeNode::leaf_hash(cells) & (self.hashtable.len() - 1);
         let mut node = self.hashtable[index];
         let mut prev = NodeIdx::null();
         while !node.is_null() {
             let next = self.get(node).next;
-            if self.get(node).nw.is_null() && self.get(node).cells() == cells {
+            if self.get(node).nw.is_null() && self.get(node).leaf_cells() == cells {
                 // move the node to the front of the list
                 if !prev.is_null() {
                     self.get_mut(prev).next = self.get(node).next;

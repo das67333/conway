@@ -23,7 +23,7 @@ impl NodeIdx {
 #[derive(Clone)]
 pub struct QuadTreeNode {
     // 1) nw == null means that the node is a leaf
-    // then (ne + sw * 2^32) is the cells of the leaf
+    // then (ne + sw * 2^32) are the cells of the leaf
     // 2) nw != null means that the node is a composite
     // then nw, ne, sw, se are the pointers to the children
     pub nw: NodeIdx,
@@ -54,12 +54,42 @@ impl QuadTreeNode {
         h += h >> 11;
         h as usize
     }
-}
 
-impl QuadTreeNode {
     /// Returns the cells of a leaf node row by row.
-    pub fn cells(&self) -> [u8; 8] {
+    pub fn leaf_cells(&self) -> [u8; 8] {
         (self.ne.0 as u64 | (self.sw.0 as u64) << 32).to_le_bytes()
+    }
+
+    pub fn leaf_nw(&self) -> u16 {
+        let mut result = 0;
+        for i in 0..4 {
+            result |= (self.ne.0 >> (i * 8) & 0xF) << (i * 4);
+        }
+        result as u16
+    }
+
+    pub fn leaf_ne(&self) -> u16 {
+        let mut result = 0;
+        for i in 0..4 {
+            result |= (self.ne.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+        }
+        result as u16
+    }
+
+    pub fn leaf_sw(&self) -> u16 {
+        let mut result = 0;
+        for i in 0..4 {
+            result |= (self.sw.0 >> (i * 8) & 0xF) << (i * 4);
+        }
+        result as u16
+    }
+
+    pub fn leaf_se(&self) -> u16 {
+        let mut result = 0;
+        for i in 0..4 {
+            result |= (self.sw.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+        }
+        result as u16
     }
 }
 
