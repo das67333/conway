@@ -27,6 +27,7 @@ pub struct PrefetchedNode {
 }
 
 impl Manager {
+    /// Create a new memory manager.
     pub fn new() -> Self {
         assert!(std::mem::size_of::<usize>() >= 8, "64-bit system required");
         assert!(HASHTABLE_BUF_INITIAL_SIZE.is_power_of_two());
@@ -40,38 +41,6 @@ impl Manager {
         }
     }
 
-    // index must be hash(node) % buf.len(); node must not be present in the hashtable
-    fn insert(&mut self, index: usize, node: NodeIdx) {
-        self.ht_size += 1;
-        self.get_mut(node).next = self.hashtable[index];
-        self.hashtable[index] = node;
-        if self.ht_size as f64 > self.hashtable.len() as f64 * HASHTABLE_MAX_LOAD_FACTOR {
-            let new_size = self.hashtable.len() * 2;
-            let mut new_buf = vec![NodeIdx::null(); new_size];
-            for i in 0..self.hashtable.len() {
-                let mut node = self.hashtable[i];
-                while !node.is_null() {
-                    let next = self.get(node).next;
-                    let hash = if self.get(node).nw.is_null() {
-                        QuadTreeNode::leaf_hash(self.get(node).leaf_cells())
-                    } else {
-                        QuadTreeNode::node_hash(
-                            self.get(node).nw,
-                            self.get(node).ne,
-                            self.get(node).sw,
-                            self.get(node).se,
-                        )
-                    };
-                    let index = hash % new_size;
-                    self.get_mut(node).next = new_buf[index];
-                    new_buf[index] = node;
-                    node = next;
-                }
-            }
-            self.hashtable = new_buf;
-        }
-    }
-
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         &self.nodes[idx.get()]
     }
@@ -80,6 +49,10 @@ impl Manager {
         &mut self.nodes[idx.get()]
     }
 
+    /// Find a leaf node with the given parts.
+    /// If the node is not found, it is created.
+    ///
+    /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
     pub fn find_leaf_from_parts(&mut self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
         let [mut nw, mut ne, mut sw, mut se] = [nw as u64, ne as u64, sw as u64, se as u64];
         let mut cells = 0;
@@ -103,6 +76,10 @@ impl Manager {
         self.find_leaf(cells.to_le_bytes())
     }
 
+    /// Find a leaf node with the given cells.
+    /// If the node is not found, it is created.
+    ///
+    /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
     pub fn find_leaf(&mut self, cells: [u8; 8]) -> NodeIdx {
         let index = QuadTreeNode::leaf_hash(cells) & (self.hashtable.len() - 1);
         let mut node = self.hashtable[index];
@@ -124,16 +101,20 @@ impl Manager {
         }
         self.misses += 1;
         node = self.new_node();
-        let n = self.get_mut(node);
-        n.nw = NodeIdx::null();
-        let cells = u64::from_le_bytes(cells);
-        n.ne = NodeIdx::new(cells as u32);
-        n.sw = NodeIdx::new((cells >> 32) as u32);
-        n.population = cells.count_ones() as f64;
+        {
+            let n = self.get_mut(node);
+            n.nw = NodeIdx::null();
+            let cells = u64::from_le_bytes(cells);
+            n.ne = NodeIdx::new(cells as u32);
+            n.sw = NodeIdx::new((cells >> 32) as u32);
+            n.population = cells.count_ones() as f64;
+        }
         self.insert(index, node);
         node
     }
 
+    /// Find a node with the given parts.
+    /// If the node is not found, it is created.
     pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
         let index = QuadTreeNode::node_hash(nw, ne, sw, se) & (self.hashtable.len() - 1);
         let mut node = self.hashtable[index];
@@ -164,16 +145,19 @@ impl Manager {
             + (self.get(sw).population + self.get(se).population);
 
         node = self.new_node();
-        let n = self.get_mut(node);
-        n.nw = nw;
-        n.ne = ne;
-        n.sw = sw;
-        n.se = se;
-        n.population = population;
+        {
+            let n = self.get_mut(node);
+            n.nw = nw;
+            n.ne = ne;
+            n.sw = sw;
+            n.se = se;
+            n.population = population;
+        }
         self.insert(index, node);
         node
     }
 
+    /// Get statistics about the memory manager.
     pub fn stats(&self, verbose: bool) -> String {
         let mem = self.nodes.capacity() * std::mem::size_of::<QuadTreeNode>();
         let mut s = format!(
@@ -216,6 +200,7 @@ hashtable misses: {}
         s
     }
 
+    /// Prefetch the node with the given parts.
     #[cfg(feature = "prefetch")]
     pub fn setup_prefetch(
         &self,
@@ -240,6 +225,8 @@ hashtable misses: {}
         }
     }
 
+    /// Find a node with the given parts; use the prefetched node to speed up the search.
+    /// If the node is not found, it is created.
     #[cfg(feature = "prefetch")]
     pub fn find_node_prefetched(&mut self, prefetched: &PrefetchedNode) -> NodeIdx {
         let index = prefetched.hash & (self.hashtable.len() - 1);
@@ -287,5 +274,42 @@ hashtable misses: {}
                 .try_into()
                 .expect("Nodes storage overflowed u32"),
         )
+    }
+
+    /// Insert a node into the hashtable.
+    /// index must be hash(node) % buf.len(); node must not be present in the hashtable
+    fn insert(&mut self, index: usize, node: NodeIdx) {
+        self.ht_size += 1;
+        self.get_mut(node).next = self.hashtable[index];
+        self.hashtable[index] = node;
+        if self.ht_size as f64 > self.hashtable.len() as f64 * HASHTABLE_MAX_LOAD_FACTOR {
+            self.rehash();
+        }
+    }
+
+    fn rehash(&mut self) {
+        let new_size = self.hashtable.len() * 2;
+        let mut new_buf = vec![NodeIdx::null(); new_size];
+        for i in 0..self.hashtable.len() {
+            let mut node = self.hashtable[i];
+            while !node.is_null() {
+                let next = self.get(node).next;
+                let hash = if self.get(node).nw.is_null() {
+                    QuadTreeNode::leaf_hash(self.get(node).leaf_cells())
+                } else {
+                    QuadTreeNode::node_hash(
+                        self.get(node).nw,
+                        self.get(node).ne,
+                        self.get(node).sw,
+                        self.get(node).se,
+                    )
+                };
+                let index = hash % new_size;
+                self.get_mut(node).next = new_buf[index];
+                new_buf[index] = node;
+                node = next;
+            }
+        }
+        self.hashtable = new_buf;
     }
 }
