@@ -225,7 +225,7 @@ impl App {
         let vp = pos2(vp_x as f32, vp_y as f32);
         let vp_s = Vec2::splat((self.zoom * self.life_size / size_c) as f32);
 
-        let source = SizedTexture::new(self.texture.id(), [size_px as f32; 2]);
+        let source = SizedTexture::new(self.texture.id(), [size_px; 2]);
         let uv = Rect::from_points(&[vp, vp + vp_s]);
         let response = ui
             .vertical_centered(|ui: &mut Ui| Widget::ui(Image::new(source).uv(uv), ui))

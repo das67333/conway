@@ -1,11 +1,10 @@
-use crate::Engine;
+use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
 use std::path::Path;
 
 const LEAF_SIZE: u64 = 8;
 const CELLS_IN_CHUNK: u64 = 8;
-const CHUNKS_IN_LEAF: u64 = LEAF_SIZE * LEAF_SIZE / CELLS_IN_CHUNK;
 
 pub struct HashLifeEngine {
     n: u64,
@@ -327,6 +326,7 @@ impl HashLifeEngine {
         self.mem.find_node(t33, t34, t43, t44)
     }
 
+    #[allow(clippy::collapsible_else_if)]
     fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
         if !n.cache.is_null() {
@@ -365,15 +365,14 @@ impl HashLifeEngine {
         assert!(N.is_power_of_two());
 
         const OTCA_SIZE: u64 = 2048;
-        // dead and alive
-        let otca_patterns = ["res/otca_0.rle", "res/otca_1.rle"].map(|path| {
-            use std::fs::File;
-            use std::io::Read;
-            let mut buf = vec![];
-            File::open(path).unwrap().read_to_end(&mut buf).unwrap();
-            let (w, h, data) = crate::parse_rle(&buf);
-            assert_eq!(w, OTCA_SIZE);
-            assert_eq!(h, OTCA_SIZE);
+
+        let otca_patterns = [
+            include_bytes!("../../res/otca_0.rle").as_slice(),
+            include_bytes!("../../res/otca_1.rle").as_slice(),
+        ]
+        .map(|buf| {
+            let (n_log2, data) = crate::parse_rle(buf);
+            assert_eq!(1 << n_log2, OTCA_SIZE);
             data
         });
 
@@ -382,25 +381,25 @@ impl HashLifeEngine {
             unimplemented!()
         }
 
-        let mut hashtable = Manager::new();
+        let mut mem = Manager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
             for y in 0..OTCA_SIZE / LEAF_SIZE {
                 for x in 0..OTCA_SIZE / LEAF_SIZE {
-                    let mut data = [0; CHUNKS_IN_LEAF as usize];
+                    let mut data = [0; (LEAF_SIZE * LEAF_SIZE / 8) as usize];
                     for sy in 0..LEAF_SIZE {
                         for sx in 0..LEAF_SIZE {
                             let pos = (sx + sy * LEAF_SIZE) / CELLS_IN_CHUNK;
                             let mask = 1 << ((sx + sy * LEAF_SIZE) % CELLS_IN_CHUNK);
-                            if otca_patterns[i]
-                                [((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize]
-                            {
+                            let idx =
+                                ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize;
+                            if otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0 {
                                 data[pos as usize] |= mask;
                             }
                         }
                     }
-                    nodes_curr.push(hashtable.find_leaf(data));
+                    nodes_curr.push(mem.find_leaf(data));
                 }
             }
             let mut t = OTCA_SIZE / LEAF_SIZE;
@@ -411,7 +410,7 @@ impl HashLifeEngine {
                         let ne = nodes_curr[((x + 1) + y * t) as usize];
                         let sw = nodes_curr[(x + (y + 1) * t) as usize];
                         let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                        nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                        nodes_next.push(mem.find_node(nw, ne, sw, se));
                     }
                 }
                 std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -426,7 +425,8 @@ impl HashLifeEngine {
             let otca_nodes_next = [0, 1].map(|i| {
                 for y in 0..OTCA_SIZE {
                     for x in 0..OTCA_SIZE {
-                        let state = otca_patterns[i][(x + y * OTCA_SIZE) as usize] as usize;
+                        let idx = (x + y * OTCA_SIZE) as usize;
+                        let state = (otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0) as usize;
                         nodes_curr.push(otca_nodes[state]);
                     }
                 }
@@ -438,7 +438,7 @@ impl HashLifeEngine {
                             let ne = nodes_curr[((x + 1) + y * t) as usize];
                             let sw = nodes_curr[(x + (y + 1) * t) as usize];
                             let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                            nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                            nodes_next.push(mem.find_node(nw, ne, sw, se));
                         }
                     }
                     std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -451,7 +451,6 @@ impl HashLifeEngine {
             otca_nodes = otca_nodes_next;
         }
         // creating field from `top_pattern` using top-level OTCA nodes
-        assert!(N.is_power_of_two());
         for row in top_pattern {
             for state in row {
                 let state = state as usize;
@@ -467,7 +466,7 @@ impl HashLifeEngine {
                     let ne = nodes_curr[(x + 1) + y * t];
                     let sw = nodes_curr[x + (y + 1) * t];
                     let se = nodes_curr[(x + 1) + (y + 1) * t];
-                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                    nodes_next.push(mem.find_node(nw, ne, sw, se));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -481,7 +480,7 @@ impl HashLifeEngine {
             n: OTCA_SIZE.pow(depth) * N as u64,
             root,
             steps_per_update_log2: 0,
-            mem: hashtable,
+            mem,
         }
     }
 
@@ -565,7 +564,7 @@ impl HashLifeEngine {
 
 impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
-        assert!((7..64).contains(&n_log2));
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         let mut hashtable = Manager::new();
         let mut node = hashtable.find_leaf([0; 8]);
         for _ in LEAF_SIZE.ilog2()..n_log2 {
@@ -579,7 +578,54 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn parse_rle(_data: &[u8]) -> Self {
+    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
+        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
+        let mut hashtable = Manager::new();
+        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
+        let n = 1 << n_log2;
+
+        for y in 0..n / LEAF_SIZE {
+            for x in 0..n / LEAF_SIZE {
+                let mut data = [0; (LEAF_SIZE * LEAF_SIZE / 8) as usize];
+                for sy in 0..LEAF_SIZE {
+                    for sx in 0..LEAF_SIZE {
+                        let pos = (sx + sy * LEAF_SIZE) / CELLS_IN_CHUNK;
+                        let mask = 1 << ((sx + sy * LEAF_SIZE) % CELLS_IN_CHUNK);
+                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
+                        if cells[idx / 64] & (1 << (idx % 64)) != 0 {
+                            data[pos as usize] |= mask;
+                        }
+                    }
+                }
+                nodes_curr.push(hashtable.find_leaf(data));
+            }
+        }
+        let mut t = n / LEAF_SIZE;
+        while t != 1 {
+            for y in (0..t).step_by(2) {
+                for x in (0..t).step_by(2) {
+                    let nw = nodes_curr[(x + y * t) as usize];
+                    let ne = nodes_curr[((x + 1) + y * t) as usize];
+                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
+                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
+                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                }
+            }
+            std::mem::swap(&mut nodes_curr, &mut nodes_next);
+            nodes_next.clear();
+            t >>= 1;
+        }
+        assert_eq!(nodes_curr.len(), 1);
+        let root = nodes_curr.pop().unwrap();
+        Self {
+            n,
+            root,
+            steps_per_update_log2: 0,
+            mem: hashtable,
+        }
+    }
+
+    fn get_cells(&self) -> Vec<u64> {
         unimplemented!()
     }
 
@@ -608,7 +654,7 @@ impl Engine for HashLifeEngine {
                 _ => unreachable!(),
             };
         }
-        unreachable!("Size is smaller than the base size, which is impossible")
+        unreachable!("Size is smaller than the leaf size")
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {

@@ -2,25 +2,11 @@
 mod tests {
     use crate::{Engine, HashLifeEngine, PatternObliviousEngine};
 
-    fn randomly_filled(
-        n_log2: u32,
-        seed: u64,
-        fill_rate: f64,
-    ) -> (PatternObliviousEngine, HashLifeEngine) {
-        use rand::{Rng, SeedableRng};
+    const SEED: u64 = 42;
 
-        let mut life_simd = PatternObliviousEngine::blank(n_log2);
-        let mut life_hash = HashLifeEngine::blank(n_log2);
-
-        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-        let n = 1 << n_log2;
-        for y in 0..n {
-            for x in 0..n {
-                let state = rng.gen_bool(fill_rate);
-                life_simd.set_cell(x, y, state);
-                life_hash.set_cell(x, y, state);
-            }
-        }
+    fn randomly_filled(n_log2: u32, seed: u64) -> (PatternObliviousEngine, HashLifeEngine) {
+        let life_simd = PatternObliviousEngine::random(n_log2, Some(seed));
+        let life_hash = HashLifeEngine::random(n_log2, Some(seed));
 
         assert_fields_equal(&life_simd, &life_hash);
         (life_simd, life_hash)
@@ -29,6 +15,9 @@ mod tests {
     fn assert_fields_equal(life_simd: &PatternObliviousEngine, life_hash: &HashLifeEngine) {
         assert_eq!(life_simd.side_length_log2(), life_hash.side_length_log2());
         let n = 1 << life_simd.side_length_log2();
+        if life_simd.get_cells() == life_hash.get_cells() {
+            return;
+        }
         let (mut cells_simd, mut cells_hash) = (vec![], vec![]);
         for y in 0..n {
             for x in 0..n {
@@ -67,7 +56,7 @@ mod tests {
     fn test_update_nodes_double() {
         const N_LOG2: u32 = 9;
 
-        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, 42, 0.6);
+        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
         life_simd.update(N_LOG2 - 1);
         life_hash.update(N_LOG2 - 1);
@@ -79,7 +68,7 @@ mod tests {
     fn test_update_nodes_single() {
         const N_LOG2: u32 = 9;
 
-        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, 42, 0.6);
+        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
         life_simd.update(0);
         life_hash.update(0);
@@ -92,7 +81,7 @@ mod tests {
         const N_LOG2: u32 = 9;
 
         for step in 0..N_LOG2 {
-            let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, 42, 0.6);
+            let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
             life_simd.update(step);
             life_hash.update(step);

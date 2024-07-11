@@ -1,38 +1,47 @@
+pub const MIN_SIDE_LOG2: u32 = 7;
+pub const MAX_SIDE_LOG2: u32 = 63;
+
 pub trait Engine {
     /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`
     ///
-    /// `7 <= n_log2 < 64`
+    /// `MIN_SIDE_LOG2 <= n_log2 <= MAX_SIDE_LOG2`
     fn blank(n_log2: u32) -> Self
     where
         Self: Sized;
 
     /// Create a field with random cells
     ///
-    /// `fill_rate` - probability of cell being alive
     /// `seed` - random seed (if `None`, then random seed is generated)
-    fn random(n_log2: u32, fill_rate: f64, seed: Option<u64>) -> Self
+    fn random(n_log2: u32, seed: Option<u64>) -> Self
     where
         Self: Sized,
     {
         use rand::{Rng, SeedableRng};
-        let mut field = Self::blank(n_log2);
         let mut rng = if let Some(x) = seed {
             rand_chacha::ChaCha8Rng::seed_from_u64(x)
         } else {
             rand_chacha::ChaCha8Rng::from_entropy()
         };
-        for y in 0..(1 << n_log2) {
-            for x in 0..(1 << n_log2) {
-                field.set_cell(x, y, rng.gen::<f64>() < fill_rate);
-            }
-        }
-        field
+        let cells = (0..(1 << (n_log2 * 2 - 6)))
+            .map(|_| rng.gen::<u64>())
+            .collect();
+        Self::from_cells(n_log2, cells)
     }
 
     /// Parse RLE format into the field
     fn parse_rle(data: &[u8]) -> Self
     where
+        Self: Sized,
+    {
+        let (n_log2, cells) = crate::parse_rle(data);
+        Self::from_cells(n_log2, cells)
+    }
+
+    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
+    where
         Self: Sized;
+
+    fn get_cells(&self) -> Vec<u64>;
 
     /// Get the side length of the field in log2
     fn side_length_log2(&self) -> u32;

@@ -1,4 +1,4 @@
-use crate::Engine;
+use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub struct PatternObliviousEngine {
     data: Vec<u64>,
@@ -105,24 +105,30 @@ impl PatternObliviousEngine {
 
 impl Engine for PatternObliviousEngine {
     fn blank(n_log2: u32) -> Self {
-        assert!((7..64).contains(&n_log2));
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         let n: u64 = 1 << n_log2;
         Self {
-            data: vec![0; 1 << (2 * n_log2 - Self::CELLS_IN_CHUNK.ilog2())],
+            data: vec![0; 1 << (n_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())],
             n,
         }
     }
 
-    fn parse_rle(data: &[u8]) -> Self {
-        let (w, h, data) = crate::parse_rle(data);
-        let n_log2 = w.max(h).next_power_of_two().ilog2();
-        let mut result = Self::blank(n_log2);
-        for y in 0..h {
-            for x in 0..w {
-                result.set_cell(x, y, data[(x + y * w) as usize]);
-            }
+    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
+    where
+        Self: Sized,
+    {
+        assert_eq!(
+            cells.len(),
+            1 << (n_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())
+        );
+        Self {
+            data: cells,
+            n: 1 << n_log2,
         }
-        result
+    }
+
+    fn get_cells(&self) -> Vec<u64> {
+        self.data.clone()
     }
 
     fn side_length_log2(&self) -> u32 {
