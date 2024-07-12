@@ -29,7 +29,6 @@ pub struct PrefetchedNode {
 impl Manager {
     /// Create a new memory manager.
     pub fn new() -> Self {
-        assert!(std::mem::size_of::<usize>() >= 8, "64-bit system required");
         assert!(HASHTABLE_BUF_INITIAL_SIZE.is_power_of_two());
         Self {
             // first node must be reserved for null

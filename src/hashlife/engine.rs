@@ -4,7 +4,6 @@ use super::memory::{Manager, NodeIdx, QuadTreeNode};
 use std::path::Path;
 
 const LEAF_SIZE: u64 = 8;
-const CELLS_IN_CHUNK: u64 = 8;
 
 pub struct HashLifeEngine {
     n: u64,
@@ -387,11 +386,11 @@ impl HashLifeEngine {
         let mut otca_nodes = [0, 1].map(|i| {
             for y in 0..OTCA_SIZE / LEAF_SIZE {
                 for x in 0..OTCA_SIZE / LEAF_SIZE {
-                    let mut data = [0; (LEAF_SIZE * LEAF_SIZE / 8) as usize];
+                    let mut data = [0; LEAF_SIZE as usize];
                     for sy in 0..LEAF_SIZE {
                         for sx in 0..LEAF_SIZE {
-                            let pos = (sx + sy * LEAF_SIZE) / CELLS_IN_CHUNK;
-                            let mask = 1 << ((sx + sy * LEAF_SIZE) % CELLS_IN_CHUNK);
+                            let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
+                            let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
                             let idx =
                                 ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize;
                             if otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0 {
@@ -566,7 +565,7 @@ impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         let mut hashtable = Manager::new();
-        let mut node = hashtable.find_leaf([0; 8]);
+        let mut node = hashtable.find_leaf([0; LEAF_SIZE as usize]);
         for _ in LEAF_SIZE.ilog2()..n_log2 {
             node = hashtable.find_node(node, node, node, node);
         }
@@ -586,11 +585,11 @@ impl Engine for HashLifeEngine {
 
         for y in 0..n / LEAF_SIZE {
             for x in 0..n / LEAF_SIZE {
-                let mut data = [0; (LEAF_SIZE * LEAF_SIZE / 8) as usize];
+                let mut data = [0; LEAF_SIZE as usize];
                 for sy in 0..LEAF_SIZE {
                     for sx in 0..LEAF_SIZE {
-                        let pos = (sx + sy * LEAF_SIZE) / CELLS_IN_CHUNK;
-                        let mask = 1 << ((sx + sy * LEAF_SIZE) % CELLS_IN_CHUNK);
+                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
+                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
                         let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
                         if cells[idx / 64] & (1 << (idx % 64)) != 0 {
                             data[pos as usize] |= mask;
@@ -626,7 +625,35 @@ impl Engine for HashLifeEngine {
     }
 
     fn get_cells(&self) -> Vec<u64> {
-        unimplemented!()
+        fn inner(
+            x: u64,
+            y: u64,
+            curr_size: u64,
+            root_size: u64,
+            node: NodeIdx,
+            mem: &Manager,
+            result: &mut Vec<u64>,
+        ) {
+            if curr_size == LEAF_SIZE {
+                let mut idx = x + y * root_size;
+                for row in mem.get(node).leaf_cells() {
+                    result[idx as usize / 64] |= (row as u64) << (idx % 64);
+                    idx += root_size;
+                }
+            } else {
+                let curr_size = curr_size / 2;
+                let n = mem.get(node);
+                for (i, &child) in [n.nw, n.ne, n.sw, n.se].iter().enumerate() {
+                    let x = x + curr_size * (i & 1 != 0) as u64;
+                    let y = y + curr_size * (i & 2 != 0) as u64;
+                    inner(x, y, curr_size, root_size, child, mem, result);
+                }
+            }
+        }
+
+        let mut result = vec![0; (self.n * self.n / 64) as usize];
+        inner(0, 0, self.n, self.n, self.root, &self.mem, &mut result);
+        result
     }
 
     fn side_length_log2(&self) -> u32 {
@@ -664,34 +691,34 @@ impl Engine for HashLifeEngine {
             mut size: u64,
             node: NodeIdx,
             state: bool,
-            engine: &mut HashLifeEngine,
+            mem: &mut Manager,
         ) -> NodeIdx {
             if size == LEAF_SIZE {
-                let mut data = engine.mem.get(node).leaf_cells();
+                let mut data = mem.get(node).leaf_cells();
                 let mask = 1 << x;
                 if state {
                     data[y as usize] |= mask;
                 } else {
                     data[y as usize] &= !mask;
                 }
-                engine.mem.find_leaf(data)
+                mem.find_leaf(data)
             } else {
                 let mut arr = [
-                    engine.mem.get(node).nw,
-                    engine.mem.get(node).ne,
-                    engine.mem.get(node).sw,
-                    engine.mem.get(node).se,
+                    mem.get(node).nw,
+                    mem.get(node).ne,
+                    mem.get(node).sw,
+                    mem.get(node).se,
                 ];
                 size >>= 1;
                 let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
                 x -= (x >= size) as u64 * size;
                 y -= (y >= size) as u64 * size;
-                arr[idx] = inner(x, y, size, arr[idx], state, engine);
-                engine.mem.find_node(arr[0], arr[1], arr[2], arr[3])
+                arr[idx] = inner(x, y, size, arr[idx], state, mem);
+                mem.find_node(arr[0], arr[1], arr[2], arr[3])
             }
         }
 
-        self.root = inner(x, y, self.n, self.root, state, self);
+        self.root = inner(x, y, self.n, self.root, state, &mut self.mem);
     }
 
     fn update(&mut self, steps_log2: u32) {
@@ -748,10 +775,10 @@ impl Engine for HashLifeEngine {
                         let mut sum = 0;
                         for dy in 0..step {
                             for dx in 0..step {
-                                let x = (sx * step + dx) & (LEAF_SIZE - 1);
-                                let y = (sy * step + dy) & (LEAF_SIZE - 1);
-                                let pos = (x + y * LEAF_SIZE) / CELLS_IN_CHUNK;
-                                let offset = (x + y * LEAF_SIZE) % CELLS_IN_CHUNK;
+                                let x = (sx * step + dx) % LEAF_SIZE;
+                                let y = (sy * step + dy) % LEAF_SIZE;
+                                let pos = (x + y * LEAF_SIZE) / LEAF_SIZE;
+                                let offset = (x + y * LEAF_SIZE) % LEAF_SIZE;
                                 sum += data[pos as usize] >> offset & 1;
                             }
                         }
