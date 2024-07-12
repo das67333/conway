@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{Engine, HashLifeEngine, PatternObliviousEngine};
+    use conway::{Engine, HashLifeEngine, PatternObliviousEngine};
 
     const SEED: u64 = 42;
 
