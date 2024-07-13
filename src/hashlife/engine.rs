@@ -382,7 +382,7 @@ impl HashLifeEngine {
 
         if depth == 0 {
             // TODO
-            unimplemented!()
+            unimplemented!("Use `from_cells` instead");
         }
 
         let mut mem = Manager::new();
@@ -830,9 +830,9 @@ impl Engine for HashLifeEngine {
         format!(
             "
 \tHashLifeEngine:
-n: {}
+n: 2^{}
 {}",
-            self.n,
+            self.n.ilog2(),
             self.mem.stats(verbose)
         )
     }

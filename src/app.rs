@@ -1,4 +1,4 @@
-use crate::{Engine, FpsLimiter, HashLifeEngine};
+use crate::{Config, Engine, FpsLimiter, HashLifeEngine};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
     DragValue, Frame, Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui,
@@ -50,25 +50,9 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 }
 
 impl App {
-    const MAX_FPS: f64 = 30.;
-
-    const ZOOM_STEP: f32 = 1.1;
-    const SCROLL_SCALE: f32 = -50.;
-    const SUPERSAMPLING: f64 = 0.7;
-
-    const FRAME_MARGIN: f32 = 20.;
-    const CONTROL_PANEL_WIDTH: f32 = 400.;
-    const TEXT_SIZE: f32 = 16.;
-    const TEXT_COLOR: Color32 = Color32::BLACK;
-    const BUTTON_STROKE_WIDTH: f32 = 3.;
-    const BUTTON_STROKE_COLOR: Color32 = Color32::DARK_GRAY;
-    const BUTTON_FILL_COLOR: Color32 = Color32::LIGHT_GRAY;
-
-    const GAP_ABOVE_STATS: f32 = 50.;
-
     pub fn new(ctx: &Context) -> Self {
         let life = HashLifeEngine::from_recursive_otca_metapixel(
-            2,
+            Config::otca_depth(),
             [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
         );
         // let life = PatternObliviousEngine::random(7, 0.5, None);
@@ -93,7 +77,7 @@ impl App {
             do_one_step: false,
             pause_after_updates: false,
             updates_before_pause: 0,
-            fps_limiter: FpsLimiter::new(Self::MAX_FPS),
+            fps_limiter: FpsLimiter::new(Config::MAX_FPS),
             show_verbose_stats: false,
             adaptive_field_brightness: true,
         }
@@ -123,16 +107,16 @@ impl App {
     fn draw_control_panel(&mut self, ui: &mut Ui) {
         let new_text = |text: &str| {
             RichText::new(text)
-                .color(Self::TEXT_COLOR)
-                .size(Self::TEXT_SIZE)
+                .color(Config::TEXT_COLOR)
+                .size(Config::TEXT_SIZE)
         };
 
         let new_button = |text: &str| {
             Button::new(new_text(text))
-                .fill(Self::BUTTON_FILL_COLOR)
+                .fill(Config::BUTTON_FILL_COLOR)
                 .stroke(Stroke::new(
-                    Self::BUTTON_STROKE_WIDTH,
-                    Self::BUTTON_STROKE_COLOR,
+                    Config::BUTTON_STROKE_WIDTH,
+                    Config::BUTTON_STROKE_COLOR,
                 ))
         };
 
@@ -169,9 +153,16 @@ impl App {
                         )
                     });
 
-                    if ui.add(new_button("Reset")).clicked() {
-                        *self = Self::new(&self.ctx);
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.add(new_button("Reset")).clicked() {
+                            *self = Self::new(&self.ctx);
+                        }
+
+                        ui.label(new_text("OTCA depth: "));
+                        let mut new_depth = Config::otca_depth();
+                        ui.add(DragValue::new(&mut new_depth).clamp_range(1..=5));
+                        Config::set_otca_depth(new_depth);
+                    });
 
                     ui.label(new_text(&format!(
                         "Last field update: {:.3} ms",
@@ -186,7 +177,7 @@ impl App {
                         &mut self.adaptive_field_brightness,
                         new_text("Adaptive field brightness"),
                     ));
-                    ui.add_space(Self::GAP_ABOVE_STATS);
+                    ui.add_space(Config::GAP_ABOVE_STATS);
 
                     ui.add(Checkbox::new(
                         &mut self.show_verbose_stats,
@@ -196,14 +187,14 @@ impl App {
                 });
             });
             // to adjust the bounds of the control panel
-            ui.add_space((Self::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
+            ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
         });
     }
 
     fn draw_gol_field(&mut self, ui: &mut Ui, size_px: f32) {
         // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
         // desired size of texture in pixels
-        let mut resolution = size_px as f64 * Self::SUPERSAMPLING;
+        let mut resolution = size_px as f64 * Config::SUPERSAMPLING;
         // top left viewport coordinate in cells
         let mut x = self.life_size * self.viewport_pos_x;
         let mut y = self.life_size * self.viewport_pos_y;
@@ -245,7 +236,7 @@ impl App {
                 if life_rect.contains(pos) {
                     if input.raw_scroll_delta.y != 0. {
                         let zoom_change =
-                            Self::ZOOM_STEP.powf(input.raw_scroll_delta.y / Self::SCROLL_SCALE);
+                            Config::ZOOM_STEP.powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         self.viewport_pos_x += self.zoom
                             * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
                                 / life_rect.size().x) as f64;
@@ -279,7 +270,7 @@ impl eframe::App for App {
         CentralPanel::default()
             .frame(
                 Frame::default()
-                    .inner_margin(Margin::same(Self::FRAME_MARGIN))
+                    .inner_margin(Margin::same(Config::FRAME_MARGIN))
                     .fill(Color32::LIGHT_GRAY),
             )
             .show(ctx, |ui| {
@@ -294,7 +285,7 @@ impl eframe::App for App {
                 let area = ui.available_size();
                 let size_px = area
                     .y
-                    .min(area.x - Self::CONTROL_PANEL_WIDTH - Self::FRAME_MARGIN);
+                    .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN);
                 ui.horizontal(|ui| {
                     self.draw_control_panel(ui);
                     ui.add_space(ui.available_width() - size_px);
