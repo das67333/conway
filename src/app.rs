@@ -8,12 +8,12 @@ use std::time::Instant;
 
 pub struct App {
     ctx: Context,
-    life_size: f64, // Side length of Conway's square field; edges are stitched together.
+    life_size: f64,             // Side length of Conway's square field.
     simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
-    zoom: f64,      // Current zoom rate.
-    life: Box<dyn Engine>, // Conway's GoL engine.
-    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
-    texture: TextureHandle, // Texture handle of Conway's GoL field.
+    zoom: f64,                  // Current zoom rate.
+    life: Box<dyn Engine>,      // Conway's GoL engine.
+    life_rect: Option<Rect>,    // Part of the window displaying Conway's GoL field.
+    texture: TextureHandle,     // Texture handle of Conway's GoL field.
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
@@ -25,6 +25,7 @@ pub struct App {
     updates_before_pause: u64, // Number of updates left before stopping.
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
     show_verbose_stats: bool,
+    adaptive_field_brightness: bool,
 }
 
 #[inline(never)]
@@ -94,6 +95,7 @@ impl App {
             updates_before_pause: 0,
             fps_limiter: FpsLimiter::new(Self::MAX_FPS),
             show_verbose_stats: false,
+            adaptive_field_brightness: true,
         }
     }
 
@@ -180,6 +182,10 @@ impl App {
                         "FPS:  {:3}",
                         self.fps_limiter.fps().round() as u32
                     )));
+                    ui.add(Checkbox::new(
+                        &mut self.adaptive_field_brightness,
+                        new_text("Adaptive field brightness"),
+                    ));
                     ui.add_space(Self::GAP_ABOVE_STATS);
 
                     ui.add(Checkbox::new(

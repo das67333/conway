@@ -1,6 +1,7 @@
 pub const MIN_SIDE_LOG2: u32 = 7;
 pub const MAX_SIDE_LOG2: u32 = 63;
 
+/// Engine trait for Game of Life with edges stitched together.
 pub trait Engine {
     /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`
     ///
