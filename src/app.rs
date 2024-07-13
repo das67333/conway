@@ -149,7 +149,7 @@ impl App {
                         ui.label(new_text("Step size: 2^"));
                         ui.add(
                             DragValue::new(&mut self.simulation_steps_log2)
-                                .clamp_range(0..=self.life.side_length_log2() - 1),
+                                .range(0..=self.life.side_length_log2() - 1),
                         )
                     })
                     .inner
@@ -162,7 +162,7 @@ impl App {
 
                     ui.label(new_text("with OTCA depth: "));
                     let mut depth = Config::get_otca_depth();
-                    ui.add(DragValue::new(&mut depth).clamp_range(1..=5));
+                    ui.add(DragValue::new(&mut depth).range(1..=5));
                     Config::set_otca_depth(depth);
                 });
 

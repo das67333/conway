@@ -12,7 +12,7 @@ fn main() {
     eframe::run_native(
         "Conway's Game of Life",
         options,
-        Box::new(move |cc| Box::new(conway::App::new(&cc.egui_ctx))),
+        Box::new(move |cc| Ok(Box::new(conway::App::new(&cc.egui_ctx)))),
     )
     .unwrap();
 }
