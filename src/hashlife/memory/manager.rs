@@ -121,14 +121,11 @@ impl Manager {
         // search for the node in the linked list
         while !node.is_null() {
             let next = self.get(node).next;
-            if self.get(node).nw == nw
-                && self.get(node).ne == ne
-                && self.get(node).sw == sw
-                && self.get(node).se == se
-            {
+            let n = self.get(node);
+            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if !prev.is_null() {
-                    self.get_mut(prev).next = self.get(node).next;
+                    self.get_mut(prev).next = n.next;
                     self.get_mut(node).next = self.hashtable[index];
                     self.hashtable[index] = node;
                 }
@@ -212,7 +209,7 @@ hashtable misses: {}
         let idx = hash & (self.hashtable.len() - 1);
         unsafe {
             std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(
-                &(self.get(self.hashtable[idx]).cache) as *const NodeIdx as *const i8,
+                self.get(self.hashtable[idx]) as *const QuadTreeNode as *const i8,
             );
         }
         PrefetchedNode {
@@ -234,15 +231,18 @@ hashtable misses: {}
         let mut prev = NodeIdx::null();
         // search for the node in the linked list
         while !node.is_null() {
-            let next = self.get(node).next;
-            if self.get(node).nw == nw
-                && self.get(node).ne == ne
-                && self.get(node).sw == sw
-                && self.get(node).se == se
-            {
+            let n = self.get(node);
+            let next = n.next;
+            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+                // // prefetch cache
+                // unsafe {
+                //     std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(
+                //         self.get(n.cache) as *const QuadTreeNode as *const i8,
+                //     );
+                // }
                 // move the node to the front of the list
                 if !prev.is_null() {
-                    self.get_mut(prev).next = self.get(node).next;
+                    self.get_mut(prev).next = n.next;
                     self.get_mut(node).next = self.hashtable[index];
                     self.hashtable[index] = node;
                 }
@@ -292,17 +292,13 @@ hashtable misses: {}
         for i in 0..self.hashtable.len() {
             let mut node = self.hashtable[i];
             while !node.is_null() {
-                let next = self.get(node).next;
-                let hash = if self.get(node).nw.is_null() {
-                    QuadTreeNode::leaf_hash(self.get(node).leaf_cells())
+                let n = self.get(node);
+                let hash = if n.nw.is_null() {
+                    QuadTreeNode::leaf_hash(n.leaf_cells())
                 } else {
-                    QuadTreeNode::node_hash(
-                        self.get(node).nw,
-                        self.get(node).ne,
-                        self.get(node).sw,
-                        self.get(node).se,
-                    )
+                    QuadTreeNode::node_hash(n.nw, n.ne, n.sw, n.se)
                 };
+                let next = n.next;
                 let index = hash % new_size;
                 self.get_mut(node).next = new_buf[index];
                 new_buf[index] = node;
