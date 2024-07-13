@@ -1,8 +1,8 @@
-use crate::{Config, Engine, FpsLimiter, HashLifeEngine};
+use crate::{Config, Engine, FpsLimiter};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
-    DragValue, Frame, Image, Margin, Rect, RichText, Stroke, TextureHandle, TextureOptions, Ui,
-    Vec2, Widget,
+    DragValue, Frame, Image, Margin, Rect, RichText, Slider, Stroke, TextureHandle, TextureOptions,
+    Ui, Vec2, Widget,
 };
 use std::time::Instant;
 
@@ -51,11 +51,11 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 
 impl App {
     pub fn new(ctx: &Context) -> Self {
-        let life = HashLifeEngine::from_recursive_otca_metapixel(
-            Config::otca_depth(),
+        let life = crate::HashLifeEngine::from_recursive_otca_metapixel(
+            Config::get_otca_depth(),
             [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
         );
-        // let life = PatternObliviousEngine::random(7, 0.5, None);
+        // let life = crate::PatternObliviousEngine::random(7, None);
         App {
             ctx: ctx.clone(),
             life_size: 2f64.powi(life.side_length_log2() as i32),
@@ -146,45 +146,59 @@ impl App {
                         self.do_one_step = true;
                     }
                     ui.horizontal(|ui: &mut Ui| {
-                        ui.label(new_text("Step size:  2^"));
+                        ui.label(new_text("Step size: 2^"));
                         ui.add(
                             DragValue::new(&mut self.simulation_steps_log2)
                                 .clamp_range(0..=self.life.side_length_log2() - 1),
                         )
-                    });
-
-                    ui.horizontal(|ui| {
-                        if ui.add(new_button("Reset")).clicked() {
-                            *self = Self::new(&self.ctx);
-                        }
-
-                        ui.label(new_text("OTCA depth: "));
-                        let mut new_depth = Config::otca_depth();
-                        ui.add(DragValue::new(&mut new_depth).clamp_range(1..=5));
-                        Config::set_otca_depth(new_depth);
-                    });
-
-                    ui.label(new_text(&format!(
-                        "Last field update: {:.3} ms",
-                        self.last_update_duration * 1e3
-                    )));
-
-                    ui.label(new_text(&format!(
-                        "FPS:  {:3}",
-                        self.fps_limiter.fps().round() as u32
-                    )));
-                    ui.add(Checkbox::new(
-                        &mut self.adaptive_field_brightness,
-                        new_text("Adaptive field brightness"),
-                    ));
-                    ui.add_space(Config::GAP_ABOVE_STATS);
-
-                    ui.add(Checkbox::new(
-                        &mut self.show_verbose_stats,
-                        new_text("Verbose stats (can drop FPS)"),
-                    ));
-                    ui.label(new_text(&self.life.stats(self.show_verbose_stats)))
+                    })
+                    .inner
                 });
+
+                ui.horizontal(|ui| {
+                    if ui.add(new_button("Reset all")).clicked() {
+                        *self = Self::new(&self.ctx);
+                    }
+
+                    ui.label(new_text("with OTCA depth: "));
+                    let mut depth = Config::get_otca_depth();
+                    ui.add(DragValue::new(&mut depth).clamp_range(1..=5));
+                    Config::set_otca_depth(depth);
+                });
+
+                ui.label(new_text(&format!(
+                    "Last field update: {:.3} ms",
+                    self.last_update_duration * 1e3
+                )));
+
+                ui.label(new_text(&format!(
+                    "FPS: {:3}",
+                    self.fps_limiter.fps().round() as u32
+                )));
+                ui.horizontal(|ui| {
+                    ui.label(new_text("Max FPS: "));
+                    ui.add(
+                        Slider::new(self.fps_limiter.max_fps_mut(), 5.0..=480.0).logarithmic(true),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label(new_text("Zoom step: "));
+                    let mut step = Config::get_zoom_step();
+                    ui.add(Slider::new(&mut step, 1.0..=2.0));
+                    Config::set_zoom_step(step);
+                });
+
+                ui.add(Checkbox::new(
+                    &mut self.adaptive_field_brightness,
+                    new_text("Adaptive field brightness"),
+                ));
+                ui.add_space(Config::GAP_ABOVE_STATS);
+
+                ui.add(Checkbox::new(
+                    &mut self.show_verbose_stats,
+                    new_text("Verbose stats (can drop FPS)"),
+                ));
+                ui.label(new_text(&self.life.stats(self.show_verbose_stats)));
             });
             // to adjust the bounds of the control panel
             ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
@@ -235,8 +249,8 @@ impl App {
             if let Some(pos) = input.pointer.latest_pos() {
                 if life_rect.contains(pos) {
                     if input.raw_scroll_delta.y != 0. {
-                        let zoom_change =
-                            Config::ZOOM_STEP.powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
+                        let zoom_change = Config::get_zoom_step()
+                            .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         self.viewport_pos_x += self.zoom
                             * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
                                 / life_rect.size().x) as f64;

@@ -330,7 +330,6 @@ impl HashLifeEngine {
         self.mem.find_node(t_nw, t_ne, t_sw, t_se)
     }
 
-    #[allow(clippy::collapsible_else_if)]
     fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
         if !n.cache.is_null() {
@@ -339,18 +338,18 @@ impl HashLifeEngine {
 
         size_log2 -= 1;
 
-        let cache = if self.steps_per_update_log2 + 1 >= size_log2 {
-            if size_log2 == LEAF_SIZE.ilog2() {
-                self.update_leaves(n.nw, n.ne, n.sw, n.se, LEAF_SIZE / 2)
+        let do_full_step = self.steps_per_update_log2 + 1 >= size_log2;
+        let cache = if size_log2 == LEAF_SIZE.ilog2() {
+            let steps = if do_full_step {
+                LEAF_SIZE / 2
             } else {
-                self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2)
-            }
+                1 << self.steps_per_update_log2
+            };
+            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+        } else if do_full_step {
+            self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2)
         } else {
-            if size_log2 == LEAF_SIZE.ilog2() {
-                self.update_leaves(n.nw, n.ne, n.sw, n.se, 1 << self.steps_per_update_log2)
-            } else {
-                self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2)
-            }
+            self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2)
         };
         self.mem.get_mut(node).cache = cache;
         cache
@@ -828,10 +827,7 @@ impl Engine for HashLifeEngine {
 
     fn stats(&self, verbose: bool) -> String {
         format!(
-            "
-\tHashLifeEngine:
-n: 2^{}
-{}",
+            "Engine: Hashlife\nn: 2^{}\n{}",
             self.n.ilog2(),
             self.mem.stats(verbose)
         )

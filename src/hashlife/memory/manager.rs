@@ -155,22 +155,26 @@ impl Manager {
 
     /// Get statistics about the memory manager.
     pub fn stats(&self, verbose: bool) -> String {
+        let mut s = String::new();
+
         let mem = self.nodes.capacity() * std::mem::size_of::<QuadTreeNode>();
-        let mut s = format!(
-            "
-memory on nodes: {} MB
-memory on hashtable: {} MB
-hashtable elements / buckets: {} / {}
-hashtable hits: {}
-hashtable misses: {}
-",
-            mem >> 20,
-            (self.hashtable.len() * std::mem::size_of::<usize>()) >> 20,
+        s.push_str(&format!("memory on nodes: {} MB\n", mem >> 20));
+
+        s.push_str(&format!(
+            "memory on hashtable: {} MB\n",
+            (self.hashtable.len() * 4) >> 20
+        ));
+
+        s.push_str(&format!(
+            "hashtable elements / buckets: {} / {}\n",
             self.ht_size,
-            self.hashtable.len(),
-            self.hits,
-            self.misses,
-        );
+            self.hashtable.len()
+        ));
+
+        s.push_str(&format!(
+            "hashtable misses / hits: {} / {}\n",
+            self.misses, self.hits
+        ));
 
         if verbose {
             let mut lengths = vec![];
@@ -189,7 +193,7 @@ hashtable misses: {}
 
             for (i, count) in lengths.iter().enumerate() {
                 if *count > 0 {
-                    s.extend(format!("buckets of size {}: {}\n", i, count).chars());
+                    s.push_str(&format!("buckets of size {}: {}\n", i, count));
                 }
             }
         }
