@@ -102,7 +102,7 @@ impl Default for QuadTreeNode {
             se: NodeIdx::null(),
             next: NodeIdx::null(),
             cache: NodeIdx::null(),
-            population: 0.0,
+            population: 0.,
         }
     }
 }

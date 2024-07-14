@@ -4,6 +4,7 @@ use eframe::egui::Color32;
 
 pub struct Config {
     otca_depth: u32,
+    max_fps: f64,
     zoom_step: f32,
 }
 
@@ -11,14 +12,13 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             otca_depth: 2,
-            zoom_step: 1.1,
+            max_fps: 60.,
+            zoom_step: 1.2,
         }
     }
 }
 
 impl Config {
-    pub const MAX_FPS: f64 = 60.;
-
     pub const SCROLL_SCALE: f32 = -50.;
     pub const SUPERSAMPLING: f64 = 0.7;
 
@@ -43,6 +43,14 @@ impl Config {
 
     pub fn set_otca_depth(depth: u32) {
         Self::get().lock().unwrap().otca_depth = depth;
+    }
+
+    pub fn get_max_fps() -> f64 {
+        Self::get().lock().unwrap().max_fps
+    }
+
+    pub fn set_max_fps(fps: f64) {
+        Self::get().lock().unwrap().max_fps = fps;
     }
 
     pub fn get_zoom_step() -> f32 {

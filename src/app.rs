@@ -77,7 +77,7 @@ impl App {
             do_one_step: false,
             pause_after_updates: false,
             updates_before_pause: 0,
-            fps_limiter: FpsLimiter::new(Config::MAX_FPS),
+            fps_limiter: FpsLimiter::default(),
             show_verbose_stats: false,
             adaptive_field_brightness: true,
         }
@@ -177,9 +177,10 @@ impl App {
                 )));
                 ui.horizontal(|ui| {
                     ui.label(new_text("Max FPS: "));
-                    ui.add(
-                        Slider::new(self.fps_limiter.max_fps_mut(), 5.0..=480.0).logarithmic(true),
-                    );
+                    let mut max_fps = Config::get_max_fps();
+                    ui.add(Slider::new(&mut max_fps, 5.0..=480.0).logarithmic(true));
+                    Config::set_max_fps(max_fps);
+                    self.fps_limiter.set_max_fps(max_fps);
                 });
                 ui.horizontal(|ui| {
                     ui.label(new_text("Zoom step: "));

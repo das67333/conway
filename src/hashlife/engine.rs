@@ -533,7 +533,7 @@ impl HashLifeEngine {
                     codes.get(&n.se).unwrap(),
                 );
             }
-            let v = if mem.get(node).population != 0.0 {
+            let v = if mem.get(node).population != 0. {
                 result.push(s);
                 result.len()
             } else {
