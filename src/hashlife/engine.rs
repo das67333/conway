@@ -1,7 +1,5 @@
-use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
-
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
-use std::path::Path;
+use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 const LEAF_SIZE: u64 = 8;
 
@@ -486,8 +484,72 @@ impl HashLifeEngine {
             mem,
         }
     }
+}
 
-    pub fn into_mc<P: AsRef<Path>>(&self, path: P) {
+impl Engine for HashLifeEngine {
+    fn blank(n_log2: u32) -> Self {
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
+        let mut hashtable = Manager::new();
+        let mut node = hashtable.find_leaf([0; LEAF_SIZE as usize]);
+        for _ in LEAF_SIZE.ilog2()..n_log2 {
+            node = hashtable.find_node(node, node, node, node);
+        }
+        Self {
+            n: 1 << n_log2,
+            root: node,
+            steps_per_update_log2: 0,
+            mem: hashtable,
+        }
+    }
+
+    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
+        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
+        let mut hashtable = Manager::new();
+        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
+        let n = 1 << n_log2;
+
+        for y in 0..n / LEAF_SIZE {
+            for x in 0..n / LEAF_SIZE {
+                let mut data = [0; LEAF_SIZE as usize];
+                for sy in 0..LEAF_SIZE {
+                    for sx in 0..LEAF_SIZE {
+                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
+                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
+                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
+                        if cells[idx / 64] & (1 << (idx % 64)) != 0 {
+                            data[pos as usize] |= mask;
+                        }
+                    }
+                }
+                nodes_curr.push(hashtable.find_leaf(data));
+            }
+        }
+        let mut t = n / LEAF_SIZE;
+        while t != 1 {
+            for y in (0..t).step_by(2) {
+                for x in (0..t).step_by(2) {
+                    let nw = nodes_curr[(x + y * t) as usize];
+                    let ne = nodes_curr[((x + 1) + y * t) as usize];
+                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
+                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
+                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                }
+            }
+            std::mem::swap(&mut nodes_curr, &mut nodes_next);
+            nodes_next.clear();
+            t >>= 1;
+        }
+        assert_eq!(nodes_curr.len(), 1);
+        let root = nodes_curr.pop().unwrap();
+        Self {
+            n,
+            root,
+            steps_per_update_log2: 0,
+            mem: hashtable,
+        }
+    }
+
+    fn save_to_file_mc(&self, path: &str) {
         use std::collections::HashMap;
         use std::fs::File;
         use std::io::Write;
@@ -558,70 +620,6 @@ impl HashLifeEngine {
             writeln!(file, "{}", s).unwrap();
         }
     }
-}
-
-impl Engine for HashLifeEngine {
-    fn blank(n_log2: u32) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        let mut hashtable = Manager::new();
-        let mut node = hashtable.find_leaf([0; LEAF_SIZE as usize]);
-        for _ in LEAF_SIZE.ilog2()..n_log2 {
-            node = hashtable.find_node(node, node, node, node);
-        }
-        Self {
-            n: 1 << n_log2,
-            root: node,
-            steps_per_update_log2: 0,
-            mem: hashtable,
-        }
-    }
-
-    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
-        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
-        let mut hashtable = Manager::new();
-        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
-        let n = 1 << n_log2;
-
-        for y in 0..n / LEAF_SIZE {
-            for x in 0..n / LEAF_SIZE {
-                let mut data = [0; LEAF_SIZE as usize];
-                for sy in 0..LEAF_SIZE {
-                    for sx in 0..LEAF_SIZE {
-                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
-                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
-                        if cells[idx / 64] & (1 << (idx % 64)) != 0 {
-                            data[pos as usize] |= mask;
-                        }
-                    }
-                }
-                nodes_curr.push(hashtable.find_leaf(data));
-            }
-        }
-        let mut t = n / LEAF_SIZE;
-        while t != 1 {
-            for y in (0..t).step_by(2) {
-                for x in (0..t).step_by(2) {
-                    let nw = nodes_curr[(x + y * t) as usize];
-                    let ne = nodes_curr[((x + 1) + y * t) as usize];
-                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
-                }
-            }
-            std::mem::swap(&mut nodes_curr, &mut nodes_next);
-            nodes_next.clear();
-            t >>= 1;
-        }
-        assert_eq!(nodes_curr.len(), 1);
-        let root = nodes_curr.pop().unwrap();
-        Self {
-            n,
-            root,
-            steps_per_update_log2: 0,
-            mem: hashtable,
-        }
-    }
 
     fn get_cells(&self) -> Vec<u64> {
         fn inner(
@@ -657,6 +655,10 @@ impl Engine for HashLifeEngine {
 
     fn side_length_log2(&self) -> u32 {
         self.n.ilog2()
+    }
+
+    fn population(&self) -> f64 {
+        self.mem.get(self.root).population
     }
 
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
@@ -740,7 +742,7 @@ impl Engine for HashLifeEngine {
         size: &mut f64,
         resolution: &mut f64,
         dst: &mut Vec<f64>,
-    ) {
+    ) -> u32 {
         struct Args<'a> {
             curr_size_log2: u32,
             viewport_x: u64,
@@ -823,6 +825,7 @@ impl Engine for HashLifeEngine {
             mem: &self.mem,
         };
         inner(self.mem.get(self.root), 0, 0, &mut args);
+        step_log2
     }
 
     fn stats(&self, verbose: bool) -> String {

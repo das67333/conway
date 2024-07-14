@@ -1,10 +1,10 @@
+use crate::Config;
 use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
 
 pub struct FpsLimiter {
-    target_frametime: Duration,
     frame_timer: Instant,
     frametime_smoothed: f64,
 }
@@ -12,7 +12,6 @@ pub struct FpsLimiter {
 impl Default for FpsLimiter {
     fn default() -> Self {
         Self {
-            target_frametime: Duration::ZERO,
             frame_timer: Instant::now(),
             frametime_smoothed: 0.,
         }
@@ -24,15 +23,12 @@ impl FpsLimiter {
         1. / self.frametime_smoothed
     }
 
-    pub fn set_max_fps(&mut self, max_fps: f64) {
-        self.target_frametime = Duration::from_secs_f64(1. / max_fps);
-    }
-
     pub fn delay(&mut self) {
         let before_wait = self.frame_timer.elapsed();
 
-        if self.target_frametime > before_wait {
-            sleep(self.target_frametime - before_wait);
+        let target_frametime = Duration::from_secs_f64(1. / Config::get().max_fps);
+        if target_frametime > before_wait {
+            sleep(target_frametime - before_wait);
         }
 
         let after_wait = self.frame_timer.elapsed();

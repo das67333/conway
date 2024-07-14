@@ -1,7 +1,7 @@
 use crate::{Config, Engine, FpsLimiter};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
-    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextureHandle,
+    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextEdit, TextureHandle,
     TextureOptions, Ui, Vec2, Widget,
 };
 use std::time::Instant;
@@ -24,26 +24,52 @@ pub struct App {
     pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
     updates_before_pause: u64, // Number of updates left before stopping.
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
+    filename_save: String,     // The name of the file to save the field to.
 }
 
 #[inline(never)]
-fn normalize_brightness(v: &[f64]) -> Vec<u8> {
-    // TODO: improve performance
-    let u = v
-        .iter()
-        .filter_map(|&x| if x == 0. { None } else { Some(x) })
-        .collect::<Vec<_>>();
-    if u.iter().all(|&x| x == u[0]) {
-        let mut k = 1.;
-        if !u.is_empty() {
-            k = 1. / u[0];
-        }
-        return v.iter().map(|&x| (x / k) as u8 * u8::MAX).collect();
-    }
-    let m = u.iter().sum::<f64>() / u.len() as f64;
-    let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
+fn normalize_brightness(v: &[f64], step_log2: u32) -> Vec<u8> {
+    // // TODO: improve performance
+    // let u = v
+    //     .iter()
+    //     .filter_map(|&x| if x == 0. { None } else { Some(x) })
+    //     .collect::<Vec<_>>();
+    // if u.iter().all(|&x| x == u[0]) {
+    //     let mut k = 1.;
+    //     if !u.is_empty() {
+    //         k = 1. / u[0];
+    //     }
+    //     return v.iter().map(|&x| (x / k) as u8 * u8::MAX).collect();
+    // }
+    // let m = u.iter().sum::<f64>() / u.len() as f64;
+    // let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
+    // v.iter()
+    //     .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
+    //     .collect()
+    // let h: f64 = 65116. / 2f64.powi(22); // proportion of alive cells in alive OTCA metacell
+    // let l: f64 = 22823. / 2f64.powi(22); // proportion of alive cells in dead OTCA metacell
+    let h: f64 = 66190. / 2f64.powi(22); // proportion of alive cells in alive OTCA metacell
+    let l: f64 = 23907. / 2f64.powi(22); // proportion of alive cells in dead OTCA metacell
+
+    let n = step_log2 as f64 / 11.;
+
+    let a = (l + (1. - h) * (h - l).powf(n)) / (1. + l - h);
+    let b = (l - l * (h - l).powf(n)) / (1. + l - h);
+
+    let max = v.iter().copied().fold(0., f64::max);
+    let min = v.iter().copied().fold(f64::INFINITY, f64::min);
+    let step_area = 2f64.powi(step_log2 as i32 * 2);
+    // eprintln!(
+    //     "step_log2: {}, a: {:.5}, b: {:.5}, max: {:.5}, min: {:.5}",
+    //     step_log2,
+    //     a,
+    //     b,
+    //     max / step_area,
+    //     min / step_area,
+    // );
+
     v.iter()
-        .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
+        .map(|&x| (((x / step_area - b) / (a - b)).clamp(0., 1.) * u8::MAX as f64) as u8)
         .collect()
 }
 
@@ -76,6 +102,7 @@ impl App {
             pause_after_updates: false,
             updates_before_pause: 0,
             fps_limiter: FpsLimiter::default(),
+            filename_save: "conway.mc".to_string(),
         }
     }
 
@@ -160,6 +187,18 @@ impl App {
                     ui.add(DragValue::new(&mut Config::get().otca_depth).range(1..=5));
                 });
 
+                ui.horizontal(|ui| {
+                    if ui.add(new_button("Save to file")).clicked() {
+                        self.life.save_to_file_mc(&self.filename_save);
+                    }
+
+                    ui.label(new_text("named: "));
+                    ui.add_sized(
+                        Config::FILENAME_INPUT_FIELD_SIZE,
+                        TextEdit::singleline(&mut self.filename_save),
+                    );
+                });
+
                 ui.label(new_text(&format!(
                     "\nLast field update: {:.3} ms",
                     self.last_update_duration * 1e3
@@ -213,7 +252,8 @@ impl App {
         let mut y = self.life_size * self.viewport_pos_y;
         // size of viewport in cells
         let mut size_c = self.life_size * self.zoom;
-        self.life.fill_texture(
+        // `step_size` is the number of cells per pixel side
+        let step_log2 = self.life.fill_texture(
             &mut x,
             &mut y,
             &mut size_c,
@@ -221,7 +261,7 @@ impl App {
             &mut self.viewport_buf,
         );
 
-        let gray = normalize_brightness(&self.viewport_buf);
+        let gray = normalize_brightness(&self.viewport_buf, step_log2);
         let ci = ColorImage::from_gray([resolution as usize; 2], &gray);
         // TODO: NEAREST when close, LINEAR when far away
         let texture_options = if size_c > resolution {

@@ -34,6 +34,7 @@ impl Config {
     pub const BUTTON_STROKE_WIDTH: f32 = 3.;
     pub const BUTTON_STROKE_COLOR: Color32 = Color32::DARK_GRAY;
     pub const BUTTON_FILL_COLOR: Color32 = Color32::LIGHT_GRAY;
+    pub const FILENAME_INPUT_FIELD_SIZE: [f32; 2] = [80., 20.];
 
     pub const GAP_ABOVE_STATS: f32 = 50.;
 
