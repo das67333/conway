@@ -16,7 +16,7 @@ impl Default for Config {
         Self {
             otca_depth: 2,
             max_fps: 60.,
-            zoom_step: 1.2,
+            zoom_step: 2.,
             supersampling: 0.7,
             adaptive_field_brightness: true,
             show_verbose_stats: false,

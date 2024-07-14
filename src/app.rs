@@ -1,8 +1,8 @@
 use crate::{Config, Engine, FpsLimiter};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
-    DragValue, Frame, Image, Margin, Rect, RichText, Slider, Stroke, TextureHandle, TextureOptions,
-    Ui, Vec2, Widget,
+    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextureHandle,
+    TextureOptions, Ui, Vec2, Widget,
 };
 use std::time::Instant;
 
@@ -175,7 +175,7 @@ impl App {
                 });
                 ui.horizontal(|ui| {
                     ui.label(new_text("Zoom step: "));
-                    ui.add(Slider::new(&mut Config::get().zoom_step, 1.0..=2.0));
+                    ui.add(Slider::new(&mut Config::get().zoom_step, 1.0..=4.0));
                 });
                 ui.horizontal(|ui| {
                     ui.label(new_text("Supersampling: "));
@@ -251,29 +251,29 @@ impl App {
                         let zoom_change = Config::get()
                             .zoom_step
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
-                        self.viewport_pos_x += self.zoom
-                            * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
-                                / life_rect.size().x) as f64;
-                        self.viewport_pos_y += self.zoom
-                            * ((pos.y - life_rect.left_top().y) * (1. - zoom_change)
-                                / life_rect.size().y) as f64;
+                        let p =
+                            (pos - life_rect.left_top()) * (1. - zoom_change) / life_rect.size();
+                        self.viewport_pos_x += self.zoom * p.x as f64;
+                        self.viewport_pos_y += self.zoom * p.y as f64;
                         self.zoom *= zoom_change as f64;
                     }
 
-                    if input.pointer.primary_down() && input.pointer.delta() != Vec2::ZERO {
-                        self.viewport_pos_x -=
-                            input.pointer.delta().x as f64 / life_rect.size().x as f64 * self.zoom;
-                        self.viewport_pos_y -=
-                            input.pointer.delta().y as f64 / life_rect.size().y as f64 * self.zoom;
+                    if input.pointer.primary_down() {
+                        let p = input.pointer.delta() / life_rect.size();
+                        self.viewport_pos_x -= p.x as f64 * self.zoom;
+                        self.viewport_pos_y -= p.y as f64 * self.zoom;
                     }
                     self.viewport_pos_x = self.viewport_pos_x.min(1. - self.zoom).max(0.);
                     self.viewport_pos_y = self.viewport_pos_y.min(1. - self.zoom).max(0.);
                     self.zoom = self.zoom.min(1.);
                 }
             }
-            // if input.key_pressed(Key::Space) {
-            //     self.state = !self.state;
-            // }
+            if input.key_pressed(Key::Space) {
+                self.do_one_step = true;
+            }
+            if input.key_pressed(Key::E) && !input.modifiers.ctrl {
+                self.is_paused = !self.is_paused;
+            }
         });
     }
 }
