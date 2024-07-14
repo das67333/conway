@@ -1,11 +1,14 @@
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use eframe::egui::Color32;
 
 pub struct Config {
-    otca_depth: u32,
-    max_fps: f64,
-    zoom_step: f32,
+    pub otca_depth: u32,
+    pub max_fps: f64,
+    pub zoom_step: f32,
+    pub supersampling: f32,
+    pub adaptive_field_brightness: bool,
+    pub show_verbose_stats: bool,
 }
 
 impl Default for Config {
@@ -14,13 +17,15 @@ impl Default for Config {
             otca_depth: 2,
             max_fps: 60.,
             zoom_step: 1.2,
+            supersampling: 0.7,
+            adaptive_field_brightness: true,
+            show_verbose_stats: false,
         }
     }
 }
 
 impl Config {
     pub const SCROLL_SCALE: f32 = -50.;
-    pub const SUPERSAMPLING: f64 = 0.7;
 
     pub const FRAME_MARGIN: f32 = 20.;
     pub const CONTROL_PANEL_WIDTH: f32 = 400.;
@@ -32,32 +37,15 @@ impl Config {
 
     pub const GAP_ABOVE_STATS: f32 = 50.;
 
-    fn get() -> &'static Mutex<Config> {
+    pub fn get<'a>() -> MutexGuard<'a, Config> {
         static CONFIG: OnceLock<Mutex<Config>> = OnceLock::new();
-        CONFIG.get_or_init(|| Mutex::new(Config::default()))
+        CONFIG
+            .get_or_init(|| Mutex::new(Config::default()))
+            .lock()
+            .unwrap()
     }
 
-    pub fn get_otca_depth() -> u32 {
-        Self::get().lock().unwrap().otca_depth
-    }
-
-    pub fn set_otca_depth(depth: u32) {
-        Self::get().lock().unwrap().otca_depth = depth;
-    }
-
-    pub fn get_max_fps() -> f64 {
-        Self::get().lock().unwrap().max_fps
-    }
-
-    pub fn set_max_fps(fps: f64) {
-        Self::get().lock().unwrap().max_fps = fps;
-    }
-
-    pub fn get_zoom_step() -> f32 {
-        Self::get().lock().unwrap().zoom_step
-    }
-
-    pub fn set_zoom_step(step: f32) {
-        Self::get().lock().unwrap().zoom_step = step;
+    pub fn reset() {
+        *Self::get() = Config::default();
     }
 }

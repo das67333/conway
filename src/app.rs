@@ -24,8 +24,6 @@ pub struct App {
     pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
     updates_before_pause: u64, // Number of updates left before stopping.
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
-    show_verbose_stats: bool,
-    adaptive_field_brightness: bool,
 }
 
 #[inline(never)]
@@ -52,7 +50,7 @@ fn normalize_brightness(v: &[f64]) -> Vec<u8> {
 impl App {
     pub fn new(ctx: &Context) -> Self {
         let life = crate::HashLifeEngine::from_recursive_otca_metapixel(
-            Config::get_otca_depth(),
+            Config::get().otca_depth,
             [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
         );
         // let life = crate::PatternObliviousEngine::random(7, None);
@@ -78,8 +76,6 @@ impl App {
             pause_after_updates: false,
             updates_before_pause: 0,
             fps_limiter: FpsLimiter::default(),
-            show_verbose_stats: false,
-            adaptive_field_brightness: true,
         }
     }
 
@@ -156,18 +152,16 @@ impl App {
                 });
 
                 ui.horizontal(|ui| {
-                    if ui.add(new_button("Reset all")).clicked() {
+                    if ui.add(new_button("Reset field")).clicked() {
                         *self = Self::new(&self.ctx);
                     }
 
                     ui.label(new_text("with OTCA depth: "));
-                    let mut depth = Config::get_otca_depth();
-                    ui.add(DragValue::new(&mut depth).range(1..=5));
-                    Config::set_otca_depth(depth);
+                    ui.add(DragValue::new(&mut Config::get().otca_depth).range(1..=5));
                 });
 
                 ui.label(new_text(&format!(
-                    "Last field update: {:.3} ms",
+                    "\nLast field update: {:.3} ms",
                     self.last_update_duration * 1e3
                 )));
 
@@ -177,29 +171,33 @@ impl App {
                 )));
                 ui.horizontal(|ui| {
                     ui.label(new_text("Max FPS: "));
-                    let mut max_fps = Config::get_max_fps();
-                    ui.add(Slider::new(&mut max_fps, 5.0..=480.0).logarithmic(true));
-                    Config::set_max_fps(max_fps);
-                    self.fps_limiter.set_max_fps(max_fps);
+                    ui.add(Slider::new(&mut Config::get().max_fps, 5.0..=480.0).logarithmic(true));
                 });
                 ui.horizontal(|ui| {
                     ui.label(new_text("Zoom step: "));
-                    let mut step = Config::get_zoom_step();
-                    ui.add(Slider::new(&mut step, 1.0..=2.0));
-                    Config::set_zoom_step(step);
+                    ui.add(Slider::new(&mut Config::get().zoom_step, 1.0..=2.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label(new_text("Supersampling: "));
+                    ui.add(Slider::new(&mut Config::get().supersampling, 0.1..=2.0));
                 });
 
                 ui.add(Checkbox::new(
-                    &mut self.adaptive_field_brightness,
+                    &mut Config::get().adaptive_field_brightness,
                     new_text("Adaptive field brightness"),
                 ));
+
+                if ui.add(new_button("Reset config")).clicked() {
+                    Config::reset();
+                }
+
                 ui.add_space(Config::GAP_ABOVE_STATS);
 
                 ui.add(Checkbox::new(
-                    &mut self.show_verbose_stats,
+                    &mut Config::get().show_verbose_stats,
                     new_text("Verbose stats (can drop FPS)"),
                 ));
-                ui.label(new_text(&self.life.stats(self.show_verbose_stats)));
+                ui.label(new_text(&self.life.stats(Config::get().show_verbose_stats)));
             });
             // to adjust the bounds of the control panel
             ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
@@ -209,7 +207,7 @@ impl App {
     fn draw_gol_field(&mut self, ui: &mut Ui, size_px: f32) {
         // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
         // desired size of texture in pixels
-        let mut resolution = size_px as f64 * Config::SUPERSAMPLING;
+        let mut resolution = (size_px * Config::get().supersampling) as f64;
         // top left viewport coordinate in cells
         let mut x = self.life_size * self.viewport_pos_x;
         let mut y = self.life_size * self.viewport_pos_y;
@@ -250,7 +248,8 @@ impl App {
             if let Some(pos) = input.pointer.latest_pos() {
                 if life_rect.contains(pos) {
                     if input.raw_scroll_delta.y != 0. {
-                        let zoom_change = Config::get_zoom_step()
+                        let zoom_change = Config::get()
+                            .zoom_step
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         self.viewport_pos_x += self.zoom
                             * ((pos.x - life_rect.left_top().x) * (1. - zoom_change)
