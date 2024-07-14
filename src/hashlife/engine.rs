@@ -359,11 +359,10 @@ impl HashLifeEngine {
     /// an OTCA build from regular cells and so on.
     ///
     /// `top_pattern` must consist of zeros and ones.
-    pub fn from_recursive_otca_metapixel<const N: usize>(
-        depth: u32,
-        top_pattern: [[u8; N]; N],
-    ) -> Self {
-        assert!(N.is_power_of_two());
+    pub fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
+        let k = top_pattern.len();
+        assert!(top_pattern.iter().all(|row| row.len() == k));
+        assert!(k.is_power_of_two());
 
         const OTCA_SIZE: u64 = 2048;
 
@@ -454,12 +453,12 @@ impl HashLifeEngine {
         // creating field from `top_pattern` using top-level OTCA nodes
         for row in top_pattern {
             for state in row {
-                let state = state as usize;
                 assert!(state == 0 || state == 1);
+                let state = state as usize;
                 nodes_curr.push(otca_nodes[state]);
             }
         }
-        let mut t = N;
+        let mut t = k;
         while t != 1 {
             for y in (0..t).step_by(2) {
                 for x in (0..t).step_by(2) {
@@ -478,7 +477,7 @@ impl HashLifeEngine {
         let root = nodes_curr.pop().unwrap();
 
         Self {
-            n: OTCA_SIZE.pow(depth) * N as u64,
+            n: OTCA_SIZE.pow(depth) * k as u64,
             root,
             steps_per_update_log2: 0,
             mem,

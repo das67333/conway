@@ -9,6 +9,7 @@ pub struct Config {
     pub supersampling: f32,
     pub adaptive_field_brightness: bool,
     pub show_verbose_stats: bool,
+    pub top_pattern: Vec<Vec<u8>>,
 }
 
 impl Default for Config {
@@ -20,6 +21,13 @@ impl Default for Config {
             supersampling: 0.7,
             adaptive_field_brightness: true,
             show_verbose_stats: false,
+            top_pattern: /* vec![
+                vec![0, 1, 0, 0],
+                vec![0, 0, 1, 0],
+                vec![1, 1, 1, 0],
+                vec![0, 0, 0, 0],
+            ] */
+            vec![vec![0; 4], vec![1, 1, 1, 0], vec![0; 4], vec![0; 4]],
         }
     }
 }

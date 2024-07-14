@@ -75,10 +75,10 @@ fn normalize_brightness(v: &[f64], step_log2: u32) -> Vec<u8> {
 
 impl App {
     pub fn new(ctx: &Context) -> Self {
-        let life = crate::HashLifeEngine::from_recursive_otca_metapixel(
-            Config::get().otca_depth,
-            [[0; 4], [1, 1, 1, 0], [0; 4], [0; 4]],
-        );
+        // be careful with deadlocks
+        let depth = Config::get().otca_depth;
+        let top_pattern = Config::get().top_pattern.clone();
+        let life = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);
         // let life = crate::PatternObliviousEngine::random(7, None);
         App {
             ctx: ctx.clone(),
