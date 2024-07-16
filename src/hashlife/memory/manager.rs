@@ -2,11 +2,14 @@ use super::{NodeIdx, QuadTreeNode};
 
 const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
 const HASHTABLE_MAX_LOAD_FACTOR: f64 = 1.2;
+const CHUNK_SIZE: usize = 1 << 16;
 
 /// Hashtable for finding nodes (to avoid duplicates)
 pub struct Manager {
     // all allocated nodes
-    nodes: Vec<QuadTreeNode>,
+    storage: Vec<Box<[QuadTreeNode; CHUNK_SIZE]>>,
+    // total number of initiallized nodes in the storage
+    storage_size: usize,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // total number of elements in the hashtable
@@ -32,7 +35,8 @@ impl Manager {
         assert!(HASHTABLE_BUF_INITIAL_SIZE.is_power_of_two());
         Self {
             // first node must be reserved for null
-            nodes: vec![QuadTreeNode::default()],
+            storage: vec![Box::new(std::array::from_fn(|_| QuadTreeNode::default()))],
+            storage_size: 1,
             hashtable: vec![NodeIdx::null(); HASHTABLE_BUF_INITIAL_SIZE],
             ht_size: 0,
             hits: 0,
@@ -41,11 +45,13 @@ impl Manager {
     }
 
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
-        &self.nodes[idx.get()]
+        let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
+        &self.storage[i][j]
     }
 
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
-        &mut self.nodes[idx.get()]
+        let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
+        &mut self.storage[i][j]
     }
 
     /// Find a leaf node with the given parts.
@@ -157,7 +163,7 @@ impl Manager {
     pub fn stats(&self, verbose: bool) -> String {
         let mut s = String::new();
 
-        let mem = self.nodes.capacity() * std::mem::size_of::<QuadTreeNode>();
+        let mem = self.storage.len() * CHUNK_SIZE * std::mem::size_of::<QuadTreeNode>();
         s.push_str(&format!("memory on nodes: {} MB\n", mem >> 20));
 
         s.push_str(&format!(
@@ -271,9 +277,13 @@ impl Manager {
     }
 
     fn new_node(&mut self) -> NodeIdx {
-        self.nodes.push(QuadTreeNode::default());
+        if self.storage_size % CHUNK_SIZE == 0 {
+            self.storage
+                .push(Box::new(std::array::from_fn(|_| QuadTreeNode::default())));
+        }
+        self.storage_size += 1;
         NodeIdx::new(
-            (self.nodes.len() - 1)
+            (self.storage_size - 1)
                 .try_into()
                 .expect("Nodes storage overflowed u32"),
         )
