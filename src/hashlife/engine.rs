@@ -483,6 +483,15 @@ impl HashLifeEngine {
             mem,
         }
     }
+
+    pub fn get_blank_node(&mut self, size_log2: u32) -> NodeIdx {
+        assert!(size_log2 >= LEAF_SIZE.ilog2());
+        let mut node = self.mem.find_leaf([0; 8]);
+        for _ in LEAF_SIZE.ilog2()..size_log2 {
+            node = self.mem.find_node(node, node, node, node);
+        }
+        node
+    }
 }
 
 impl Engine for HashLifeEngine {
@@ -718,20 +727,58 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, self.n, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32) {
+    fn update(&mut self, steps_log2: u32, unbounded: bool) {
         if self.steps_per_update_log2 != steps_log2 {
             self.steps_per_update_log2 = steps_log2;
             // todo!("implement changing steps per update");
         }
-        let top = self.root;
-        let size_log2 = self.n.ilog2();
+        if unbounded {
+            // add frame of blank cells around the field
+            let r = self.mem.get(self.root).clone();
+            let b = self.get_blank_node(self.n.ilog2() - 1);
+            let nw = self.mem.find_node(b, b, b, r.nw);
+            let ne = self.mem.find_node(b, b, r.ne, b);
+            let sw = self.mem.find_node(b, r.sw, b, b);
+            let se = self.mem.find_node(r.se, b, b, b);
+            self.root = self.mem.find_node(nw, ne, sw, se);
+            self.n <<= 1;
+        }
+        let top = {
+            let r = self.mem.get(self.root).clone();
+            let q = self.mem.find_node(r.se, r.sw, r.ne, r.nw);
+            self.mem.find_node(q, q, q, q)
+        };
         let q = {
-            let temp = self.mem.find_node(top, top, top, top);
-            let q = self.update_node(temp, size_log2 + 1);
+            let q = self.update_node(top, self.n.ilog2() + 1);
             self.mem.get(q)
         };
-        let [nw, ne, sw, se] = [q.nw, q.ne, q.sw, q.se];
-        self.root = self.mem.find_node(se, sw, ne, nw);
+        self.root = self.mem.find_node(q.nw, q.ne, q.sw, q.se);
+
+        let root = self.mem.get(self.root).clone();
+        let [nw, ne, sw, se] = [
+            self.mem.get(root.nw).clone(),
+            self.mem.get(root.ne).clone(),
+            self.mem.get(root.sw).clone(),
+            self.mem.get(root.se).clone(),
+        ];
+        if unbounded
+            && self.n.ilog2() > MIN_SIDE_LOG2
+            && self.mem.get(nw.sw).population == 0.
+            && self.mem.get(nw.nw).population == 0.
+            && self.mem.get(nw.ne).population == 0.
+            && self.mem.get(ne.nw).population == 0.
+            && self.mem.get(ne.ne).population == 0.
+            && self.mem.get(ne.se).population == 0.
+            && self.mem.get(se.ne).population == 0.
+            && self.mem.get(se.se).population == 0.
+            && self.mem.get(se.sw).population == 0.
+            && self.mem.get(sw.se).population == 0.
+            && self.mem.get(sw.sw).population == 0.
+            && self.mem.get(sw.nw).population == 0.
+        {
+            self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw);
+            self.n >>= 1;
+        }
     }
 
     fn fill_texture(

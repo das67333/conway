@@ -8,15 +8,14 @@ use std::time::Instant;
 
 pub struct App {
     ctx: Context,
-    life_size: f64,             // Side length of Conway's square field.
     simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
     zoom: f64,                  // Current zoom rate.
     life: Box<dyn Engine>,      // Conway's GoL engine.
     life_rect: Option<Rect>,    // Part of the window displaying Conway's GoL field.
     texture: TextureHandle,     // Texture handle of Conway's GoL field.
     viewport_buf: Vec<f64>,
-    viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
-    viewport_pos_y: f64,
+    viewport_center_x: f64, // Position (in the Conway's GoL field) of the center of the viewport.
+    viewport_center_y: f64,
     last_update_duration: f64, // Duration of the last life update in seconds.
     is_paused: bool,           // Flag indicating whether the simulation is paused.
     generation: u64,           // Current generation number.
@@ -25,6 +24,7 @@ pub struct App {
     updates_before_pause: u64, // Number of updates left before stopping.
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
     filename_save: String,     // The name of the file to save the field to.
+    unbounded_field: bool,     // Flag indicating whether the field is unbounded.
 }
 
 #[inline(never)]
@@ -55,9 +55,9 @@ impl App {
         let top_pattern = Config::get().top_pattern.clone();
         let life = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);
         // let life = crate::PatternObliviousEngine::random(7, None);
+        let life_size = 2f64.powi(life.side_length_log2() as i32);
         App {
             ctx: ctx.clone(),
-            life_size: 2f64.powi(life.side_length_log2() as i32),
             simulation_steps_log2: 0,
             zoom: 1.,
             life: Box::new(life),
@@ -68,8 +68,8 @@ impl App {
                 TextureOptions::default(),
             ),
             viewport_buf: vec![],
-            viewport_pos_x: 0.,
-            viewport_pos_y: 0.,
+            viewport_center_x: life_size * 0.5,
+            viewport_center_y: life_size * 0.5,
             last_update_duration: 0.,
             is_paused: true,
             generation: 0,
@@ -78,6 +78,7 @@ impl App {
             updates_before_pause: 0,
             fps_limiter: FpsLimiter::default(),
             filename_save: "conway.mc".to_string(),
+            unbounded_field: false,
         }
     }
 
@@ -91,7 +92,8 @@ impl App {
         }
 
         let timer = Instant::now();
-        self.life.update(self.simulation_steps_log2);
+        self.life
+            .update(self.simulation_steps_log2, self.unbounded_field);
         // updating frame counter
         self.last_update_duration = timer.elapsed().as_secs_f64();
 
@@ -121,10 +123,9 @@ impl App {
         let aw = ui.available_width();
         ui.group(|ui| {
             ui.vertical(|ui| {
-                ui.label(new_text(&format!(
-                    "Generation: {:>10e}",
-                    self.generation as f64
-                )));
+                ui.label(new_text(&format!("Generation: {}", self.generation as f64)));
+
+                ui.label(new_text(&format!("Population: {}", self.life.population())));
 
                 let text = if self.is_paused { "Play" } else { "Pause" };
                 if ui.add(new_button(text)).clicked() {
@@ -149,8 +150,9 @@ impl App {
                             DragValue::new(&mut self.simulation_steps_log2)
                                 .range(0..=self.life.side_length_log2() - 1),
                         )
-                    })
-                    .inner
+                    });
+
+                    ui.checkbox(&mut self.unbounded_field, new_text("Unbounded field"))
                 });
 
                 ui.horizontal(|ui| {
@@ -223,10 +225,13 @@ impl App {
         // desired size of texture in pixels
         let mut resolution = (size_px * Config::get().supersampling) as f64;
         // top left viewport coordinate in cells
-        let mut x = self.life_size * self.viewport_pos_x;
-        let mut y = self.life_size * self.viewport_pos_y;
+        let life_size = 2f64.powi(self.life.side_length_log2() as i32);
+        let viewport_pos_x = self.viewport_center_x - 0.5 * life_size;
+        let viewport_pos_y = self.viewport_center_y - 0.5 * life_size;
+        let mut x = life_size * viewport_pos_x;
+        let mut y = life_size * viewport_pos_y;
         // size of viewport in cells
-        let mut size_c = self.life_size * self.zoom;
+        let mut size_c = life_size * self.zoom;
         // `step_size` is the number of cells per pixel side
         self.life.fill_texture(
             &mut x,
@@ -245,10 +250,10 @@ impl App {
             TextureOptions::NEAREST
         };
         self.texture.set(ci, texture_options);
-        let vp_x = (self.viewport_pos_x * self.life_size - x) / size_c;
-        let vp_y = (self.viewport_pos_y * self.life_size - y) / size_c;
+        let vp_x = (viewport_pos_x * life_size - x) / size_c;
+        let vp_y = (viewport_pos_y * life_size - y) / size_c;
         let vp = pos2(vp_x as f32, vp_y as f32);
-        let vp_s = Vec2::splat((self.zoom * self.life_size / size_c) as f32);
+        let vp_s = Vec2::splat((self.zoom * life_size / size_c) as f32);
 
         let source = SizedTexture::new(self.texture.id(), [size_px; 2]);
         let uv = Rect::from_points(&[vp, vp + vp_s]);
@@ -268,18 +273,19 @@ impl App {
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         let p =
                             (pos - life_rect.left_top()) * (1. - zoom_change) / life_rect.size();
-                        self.viewport_pos_x += self.zoom * p.x as f64;
-                        self.viewport_pos_y += self.zoom * p.y as f64;
+                        self.viewport_center_x += self.zoom * p.x as f64;
+                        self.viewport_center_y += self.zoom * p.y as f64;
+                        //////////////////////////
                         self.zoom *= zoom_change as f64;
                     }
 
                     if input.pointer.primary_down() {
                         let p = input.pointer.delta() / life_rect.size();
-                        self.viewport_pos_x -= p.x as f64 * self.zoom;
-                        self.viewport_pos_y -= p.y as f64 * self.zoom;
+                        self.viewport_center_x -= p.x as f64 * self.zoom;
+                        self.viewport_center_y -= p.y as f64 * self.zoom;
                     }
-                    self.viewport_pos_x = self.viewport_pos_x.min(1. - self.zoom).max(0.);
-                    self.viewport_pos_y = self.viewport_pos_y.min(1. - self.zoom).max(0.);
+                    // self.viewport_pos_x = self.viewport_pos_x.min(1. - self.zoom).max(0.);
+                    // self.viewport_pos_y = self.viewport_pos_y.min(1. - self.zoom).max(0.);
                     self.zoom = self.zoom.min(1.);
                 }
             }

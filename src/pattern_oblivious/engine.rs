@@ -155,7 +155,10 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn update(&mut self, steps_log2: u32) {
+    fn update(&mut self, steps_log2: u32, unbounded: bool) {
+        if unbounded {
+            unimplemented!()
+        }
         for _ in 0..1u64 << steps_log2 {
             self.update_inner();
         }

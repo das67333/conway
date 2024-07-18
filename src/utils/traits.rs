@@ -61,7 +61,9 @@ pub trait Engine {
     fn set_cell(&mut self, x: u64, y: u64, state: bool);
 
     /// Update the field `2^{iters_log2}` times
-    fn update(&mut self, steps_log2: u32);
+    /// 
+    /// If `unbounded` is `false`, then the field's topology is a torus.
+    fn update(&mut self, steps_log2: u32, unbounded: bool);
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`)
