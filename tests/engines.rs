@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use conway::{Engine, HashLifeEngine, PatternObliviousEngine};
+    use conway::{Engine, HashLifeEngine, PatternObliviousEngine, Topology};
 
     const SEED: u64 = 42;
 
@@ -58,8 +58,8 @@ mod tests {
 
         let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
-        life_simd.update(N_LOG2 - 1);
-        life_hash.update(N_LOG2 - 1);
+        life_simd.update(N_LOG2 - 1, Topology::Torus);
+        life_hash.update(N_LOG2 - 1, Topology::Torus);
 
         assert_fields_equal(&life_simd, &life_hash);
     }
@@ -70,8 +70,8 @@ mod tests {
 
         let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
-        life_simd.update(0);
-        life_hash.update(0);
+        life_simd.update(0, Topology::Torus);
+        life_hash.update(0, Topology::Torus);
 
         assert_fields_equal(&life_simd, &life_hash);
     }
@@ -83,8 +83,8 @@ mod tests {
         for step in 0..N_LOG2 {
             let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
 
-            life_simd.update(step);
-            life_hash.update(step);
+            life_simd.update(step, Topology::Torus);
+            life_hash.update(step, Topology::Torus);
 
             assert_fields_equal(&life_simd, &life_hash);
         }

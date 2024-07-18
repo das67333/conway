@@ -1,5 +1,5 @@
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
-use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 const LEAF_SIZE: u64 = 8;
 
@@ -727,12 +727,14 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, self.n, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, unbounded: bool) {
+    fn update(&mut self, steps_log2: u32, topology: Topology) {
         if self.steps_per_update_log2 != steps_log2 {
+            if self.steps_per_update_log2 != 0 {
+                unimplemented!()
+            }
             self.steps_per_update_log2 = steps_log2;
-            // todo!("implement changing steps per update");
         }
-        if unbounded {
+        if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
             let b = self.get_blank_node(self.n.ilog2() - 1);
@@ -761,7 +763,7 @@ impl Engine for HashLifeEngine {
             self.mem.get(root.sw).clone(),
             self.mem.get(root.se).clone(),
         ];
-        if unbounded
+        if matches!(topology, Topology::Unbounded)
             && self.n.ilog2() > MIN_SIDE_LOG2
             && self.mem.get(nw.sw).population == 0.
             && self.mem.get(nw.nw).population == 0.

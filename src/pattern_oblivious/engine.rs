@@ -1,4 +1,4 @@
-use crate::{Engine, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub struct PatternObliviousEngine {
     data: Vec<u64>,
@@ -155,10 +155,11 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn update(&mut self, steps_log2: u32, unbounded: bool) {
-        if unbounded {
-            unimplemented!()
-        }
+    fn update(&mut self, steps_log2: u32, topology: Topology) {
+        assert!(
+            matches!(topology, Topology::Torus),
+            "not supported ty this engine"
+        );
         for _ in 0..1u64 << steps_log2 {
             self.update_inner();
         }

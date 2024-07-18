@@ -1,6 +1,8 @@
 pub const MIN_SIDE_LOG2: u32 = 7;
 pub const MAX_SIDE_LOG2: u32 = 63;
 
+use super::Topology;
+
 /// Engine trait for Game of Life with edges stitched together.
 pub trait Engine {
     /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`
@@ -61,9 +63,9 @@ pub trait Engine {
     fn set_cell(&mut self, x: u64, y: u64, state: bool);
 
     /// Update the field `2^{iters_log2}` times
-    /// 
+    ///
     /// If `unbounded` is `false`, then the field's topology is a torus.
-    fn update(&mut self, steps_log2: u32, unbounded: bool);
+    fn update(&mut self, steps_log2: u32, topology: Topology);
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`)
