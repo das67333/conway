@@ -175,7 +175,7 @@ impl App {
 
                 ui.horizontal(|ui| {
                     if ui.add(new_button("Save to file")).clicked() {
-                        self.life.save_to_file_mc(&self.filename_save);
+                        self.life.save_as_mc(&self.filename_save);
                     }
 
                     ui.label(new_text("named: "));

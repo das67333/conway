@@ -32,7 +32,7 @@ pub trait Engine {
     }
 
     /// Parse RLE format into the field
-    fn parse_rle(data: &[u8]) -> Self
+    fn from_rle(data: &[u8]) -> Self
     where
         Self: Sized,
     {
@@ -46,7 +46,7 @@ pub trait Engine {
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn save_to_file_mc(&self, _path: &str) {
+    fn save_as_mc(&self, _path: &str) {
         unimplemented!()
     }
 

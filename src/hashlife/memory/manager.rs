@@ -2,7 +2,7 @@ use super::{NodeIdx, QuadTreeNode};
 
 const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
 const HASHTABLE_MAX_LOAD_FACTOR: f64 = 1.2;
-const CHUNK_SIZE: usize = 1 << 16;
+const CHUNK_SIZE: usize = (1 << 18) / std::mem::size_of::<QuadTreeNode>();
 
 /// Hashtable for finding nodes (to avoid duplicates)
 pub struct Manager {

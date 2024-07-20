@@ -4,7 +4,7 @@ use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 const LEAF_SIZE: u64 = 8;
 
 pub struct HashLifeEngine {
-    n: u64,
+    n_log2: u32,
     root: NodeIdx,
     steps_per_update_log2: u32,
     mem: Manager,
@@ -477,7 +477,7 @@ impl HashLifeEngine {
         let root = nodes_curr.pop().unwrap();
 
         Self {
-            n: OTCA_SIZE.pow(depth) * k as u64,
+            n_log2: OTCA_SIZE.ilog2() * depth + k.ilog2(),
             root,
             steps_per_update_log2: 0,
             mem,
@@ -503,7 +503,7 @@ impl Engine for HashLifeEngine {
             node = hashtable.find_node(node, node, node, node);
         }
         Self {
-            n: 1 << n_log2,
+            n_log2,
             root: node,
             steps_per_update_log2: 0,
             mem: hashtable,
@@ -550,14 +550,14 @@ impl Engine for HashLifeEngine {
         assert_eq!(nodes_curr.len(), 1);
         let root = nodes_curr.pop().unwrap();
         Self {
-            n,
+            n_log2,
             root,
             steps_per_update_log2: 0,
             mem: hashtable,
         }
     }
 
-    fn save_to_file_mc(&self, path: &str) {
+    fn save_as_mc(&self, path: &str) {
         use std::collections::HashMap;
         use std::fs::File;
         use std::io::Write;
@@ -614,13 +614,7 @@ impl Engine for HashLifeEngine {
 
         let mut codes = HashMap::new();
         let mut result = vec![];
-        inner(
-            self.root,
-            self.n.ilog2(),
-            &self.mem,
-            &mut codes,
-            &mut result,
-        );
+        inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
 
         let mut file = File::create(path).unwrap();
         write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
@@ -656,13 +650,14 @@ impl Engine for HashLifeEngine {
             }
         }
 
-        let mut result = vec![0; (self.n * self.n / 64) as usize];
-        inner(0, 0, self.n, self.n, self.root, &self.mem, &mut result);
+        let mut result = vec![0; 1 << (self.n_log2 * 2 - 6)];
+        let n = 1 << self.n_log2;
+        inner(0, 0, n, n, self.root, &self.mem, &mut result);
         result
     }
 
     fn side_length_log2(&self) -> u32 {
-        self.n.ilog2()
+        self.n_log2
     }
 
     fn population(&self) -> f64 {
@@ -671,7 +666,7 @@ impl Engine for HashLifeEngine {
 
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
         let mut node = self.root;
-        let mut size = self.n;
+        let mut size = 1 << self.n_log2;
         while size >= LEAF_SIZE {
             let n = self.mem.get(node);
             if size == LEAF_SIZE {
@@ -724,7 +719,7 @@ impl Engine for HashLifeEngine {
             }
         }
 
-        self.root = inner(x, y, self.n, self.root, state, &mut self.mem);
+        self.root = inner(x, y, 1 << self.n_log2, self.root, state, &mut self.mem);
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) {
@@ -737,13 +732,13 @@ impl Engine for HashLifeEngine {
         if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
-            let b = self.get_blank_node(self.n.ilog2() - 1);
+            let b = self.get_blank_node(self.n_log2 - 1);
             let nw = self.mem.find_node(b, b, b, r.nw);
             let ne = self.mem.find_node(b, b, r.ne, b);
             let sw = self.mem.find_node(b, r.sw, b, b);
             let se = self.mem.find_node(r.se, b, b, b);
             self.root = self.mem.find_node(nw, ne, sw, se);
-            self.n <<= 1;
+            self.n_log2 += 1;
         }
         let top = {
             let r = self.mem.get(self.root).clone();
@@ -751,7 +746,7 @@ impl Engine for HashLifeEngine {
             self.mem.find_node(q, q, q, q)
         };
         let q = {
-            let q = self.update_node(top, self.n.ilog2() + 1);
+            let q = self.update_node(top, self.n_log2 + 1);
             self.mem.get(q)
         };
         self.root = self.mem.find_node(q.nw, q.ne, q.sw, q.se);
@@ -764,7 +759,7 @@ impl Engine for HashLifeEngine {
             self.mem.get(root.se).clone(),
         ];
         if matches!(topology, Topology::Unbounded)
-            && self.n.ilog2() > MIN_SIDE_LOG2
+            && self.n_log2 > MIN_SIDE_LOG2
             && self.mem.get(nw.sw).population == 0.
             && self.mem.get(nw.nw).population == 0.
             && self.mem.get(nw.ne).population == 0.
@@ -779,7 +774,7 @@ impl Engine for HashLifeEngine {
             && self.mem.get(sw.nw).population == 0.
         {
             self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw);
-            self.n >>= 1;
+            self.n_log2 -= 1;
         }
     }
 
@@ -792,24 +787,28 @@ impl Engine for HashLifeEngine {
         dst: &mut Vec<f64>,
     ) -> u32 {
         struct Args<'a> {
-            curr_size_log2: u32,
+            node: &'a QuadTreeNode,
+            x: u64,
+            y: u64,
+            size_log2: u32,
+            dst: &'a mut Vec<f64>,
             viewport_x: u64,
             viewport_y: u64,
             resolution: u64,
             viewport_size: u64,
             step_log2: u32,
-            dst: &'a mut Vec<f64>,
             mem: &'a Manager,
         }
-        fn inner(node: &QuadTreeNode, curr_x: u64, curr_y: u64, args: &mut Args) {
-            if args.step_log2 == args.curr_size_log2 {
-                let j = (curr_x - args.viewport_x) >> args.step_log2;
-                let i = (curr_y - args.viewport_y) >> args.step_log2;
-                args.dst[(j + i * args.resolution) as usize] = node.population;
+
+        fn inner(args: &mut Args) {
+            if args.step_log2 == args.size_log2 {
+                let j = (args.x - args.viewport_x) >> args.step_log2;
+                let i = (args.y - args.viewport_y) >> args.step_log2;
+                args.dst[(j + i * args.resolution) as usize] = args.node.population;
                 return;
             }
-            if args.curr_size_log2 == LEAF_SIZE.ilog2() {
-                let data = node.leaf_cells();
+            if args.size_log2 == LEAF_SIZE.ilog2() {
+                let data = args.node.leaf_cells();
                 let k = LEAF_SIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
                 for sy in 0..k {
@@ -824,27 +823,34 @@ impl Engine for HashLifeEngine {
                                 sum += data[pos as usize] >> offset & 1;
                             }
                         }
-                        let j = sx + ((curr_x - args.viewport_x) >> args.step_log2);
-                        let i = sy + ((curr_y - args.viewport_y) >> args.step_log2);
+                        let j = sx + ((args.x - args.viewport_x) >> args.step_log2);
+                        let i = sy + ((args.y - args.viewport_y) >> args.step_log2);
                         args.dst[(j + i * args.resolution) as usize] = sum as f64;
                     }
                 }
             } else {
-                args.curr_size_log2 -= 1;
-                let half = 1 << args.curr_size_log2;
-                for (i, &child) in [node.nw, node.ne, node.sw, node.se].iter().enumerate() {
-                    let x = curr_x + half * (i & 1 != 0) as u64;
-                    let y = curr_y + half * (i & 2 != 0) as u64;
-                    let child = args.mem.get(child);
+                args.size_log2 -= 1;
+                let half = 1 << args.size_log2;
+                let n = args.node;
+                for (i, &child) in [n.nw, n.ne, n.sw, n.se].iter().enumerate() {
+                    let mut x = args.x + half * (i & 1 != 0) as u64;
+                    let mut y = args.y + half * (i & 2 != 0) as u64;
+                    let mut node = args.mem.get(child);
                     if x + half > args.viewport_x
                         && x < args.viewport_x + args.viewport_size
                         && y + half > args.viewport_y
                         && y < args.viewport_y + args.viewport_size
                     {
-                        inner(child, x, y, args);
+                        std::mem::swap(&mut x, &mut args.x);
+                        std::mem::swap(&mut y, &mut args.y);
+                        std::mem::swap(&mut node, &mut args.node);
+                        inner(args);
+                        std::mem::swap(&mut x, &mut args.x);
+                        std::mem::swap(&mut y, &mut args.y);
+                        std::mem::swap(&mut node, &mut args.node);
                     }
                 }
-                args.curr_size_log2 += 1;
+                args.size_log2 += 1;
             }
         }
 
@@ -863,23 +869,26 @@ impl Engine for HashLifeEngine {
         dst.clear();
         dst.resize((resolution_int * resolution_int) as usize, 0.);
         let mut args = Args {
-            curr_size_log2: self.n.ilog2(),
+            node: self.mem.get(self.root),
+            x: 0,
+            y: 0,
+            size_log2: self.n_log2,
+            dst,
             viewport_x: x_int,
             viewport_y: y_int,
             resolution: resolution_int,
             viewport_size: size_int,
             step_log2,
-            dst,
             mem: &self.mem,
         };
-        inner(self.mem.get(self.root), 0, 0, &mut args);
+        inner(&mut args);
         step_log2
     }
 
     fn stats(&self, verbose: bool) -> String {
         format!(
             "Engine: Hashlife\nn: 2^{}\n{}",
-            self.n.ilog2(),
+            self.n_log2,
             self.mem.stats(verbose)
         )
     }
