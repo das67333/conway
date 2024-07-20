@@ -1,9 +1,11 @@
+mod brightness;
 mod config;
 mod fps_limit;
 mod parse_rle;
 mod topology;
 mod traits;
 
+pub use brightness::BrightnessStrategy;
 pub use config::Config;
 pub use fps_limit::FpsLimiter;
 pub use parse_rle::parse_rle;

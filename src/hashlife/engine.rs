@@ -722,13 +722,14 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, 1 << self.n_log2, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 3] {
         if self.steps_per_update_log2 != steps_log2 {
             if self.steps_per_update_log2 != 0 {
                 unimplemented!()
             }
             self.steps_per_update_log2 = steps_log2;
         }
+        let (mut dx, mut dy, mut dsize) = (0, 0, 0);
         if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
@@ -739,6 +740,9 @@ impl Engine for HashLifeEngine {
             let se = self.mem.find_node(r.se, b, b, b);
             self.root = self.mem.find_node(nw, ne, sw, se);
             self.n_log2 += 1;
+            dx += 1 << (self.n_log2 - 2);
+            dy += 1 << (self.n_log2 - 2);
+            dsize += 1 << (self.n_log2 - 1);
         }
         let top = {
             let r = self.mem.get(self.root).clone();
@@ -773,9 +777,13 @@ impl Engine for HashLifeEngine {
             && self.mem.get(sw.sw).population == 0.
             && self.mem.get(sw.nw).population == 0.
         {
+            dx -= 1 << (self.n_log2 - 2);
+            dy -= 1 << (self.n_log2 - 2);
+            dsize -= 1 << (self.n_log2 - 1);
             self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw);
             self.n_log2 -= 1;
         }
+        [dx, dy, dsize]
     }
 
     fn fill_texture(
@@ -788,14 +796,14 @@ impl Engine for HashLifeEngine {
     ) -> u32 {
         struct Args<'a> {
             node: &'a QuadTreeNode,
-            x: u64,
-            y: u64,
+            x: i64,
+            y: i64,
             size_log2: u32,
             dst: &'a mut Vec<f64>,
-            viewport_x: u64,
-            viewport_y: u64,
-            resolution: u64,
-            viewport_size: u64,
+            viewport_x: i64,
+            viewport_y: i64,
+            resolution: i64,
+            viewport_size: i64,
             step_log2: u32,
             mem: &'a Manager,
         }
@@ -807,19 +815,20 @@ impl Engine for HashLifeEngine {
                 args.dst[(j + i * args.resolution) as usize] = args.node.population;
                 return;
             }
-            if args.size_log2 == LEAF_SIZE.ilog2() {
+            const LEAF_ISIZE: i64 = LEAF_SIZE as i64;
+            if args.size_log2 == LEAF_ISIZE.ilog2() {
                 let data = args.node.leaf_cells();
-                let k = LEAF_SIZE >> args.step_log2;
+                let k = LEAF_ISIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
                 for sy in 0..k {
                     for sx in 0..k {
                         let mut sum = 0;
                         for dy in 0..step {
                             for dx in 0..step {
-                                let x = (sx * step + dx) % LEAF_SIZE;
-                                let y = (sy * step + dy) % LEAF_SIZE;
-                                let pos = (x + y * LEAF_SIZE) / LEAF_SIZE;
-                                let offset = (x + y * LEAF_SIZE) % LEAF_SIZE;
+                                let x = (sx * step + dx) % LEAF_ISIZE;
+                                let y = (sy * step + dy) % LEAF_ISIZE;
+                                let pos = (x + y * LEAF_ISIZE) / LEAF_ISIZE;
+                                let offset = (x + y * LEAF_ISIZE) % LEAF_ISIZE;
                                 sum += data[pos as usize] >> offset & 1;
                             }
                         }
@@ -833,8 +842,8 @@ impl Engine for HashLifeEngine {
                 let half = 1 << args.size_log2;
                 let n = args.node;
                 for (i, &child) in [n.nw, n.ne, n.sw, n.se].iter().enumerate() {
-                    let mut x = args.x + half * (i & 1 != 0) as u64;
-                    let mut y = args.y + half * (i & 2 != 0) as u64;
+                    let mut x = args.x + half * (i & 1 != 0) as i64;
+                    let mut y = args.y + half * (i & 2 != 0) as i64;
                     let mut node = args.mem.get(child);
                     if x + half > args.viewport_x
                         && x < args.viewport_x + args.viewport_size
@@ -855,15 +864,15 @@ impl Engine for HashLifeEngine {
         }
 
         let step_log2 = ((*size / *resolution) as u64).max(1).ilog2();
-        let step = 1 << step_log2;
+        let step: u64 = 1 << step_log2;
         let com_mul = step.max(LEAF_SIZE);
-        let size_int = (*size as u64).next_multiple_of(com_mul) + com_mul;
+        let size_int = (*size as u64).next_multiple_of(com_mul) as i64 + com_mul as i64 * 2;
         *size = size_int as f64;
-        let resolution_int = size_int / step;
+        let resolution_int = size_int / step as i64;
         *resolution = resolution_int as f64;
-        let x_int = (*viewport_x as u64 + 1).next_multiple_of(com_mul) - com_mul;
+        let x_int = (*viewport_x as u64 + 1).next_multiple_of(com_mul) as i64 - com_mul as i64 * 2;
         *viewport_x = x_int as f64;
-        let y_int = (*viewport_y as u64 + 1).next_multiple_of(com_mul) - com_mul;
+        let y_int = (*viewport_y as u64 + 1).next_multiple_of(com_mul) as i64 - com_mul as i64 * 2;
         *viewport_y = y_int as f64;
 
         dst.clear();

@@ -155,7 +155,7 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 3] {
         assert!(
             matches!(topology, Topology::Torus),
             "not supported ty this engine"
@@ -163,6 +163,7 @@ impl Engine for PatternObliviousEngine {
         for _ in 0..1u64 << steps_log2 {
             self.update_inner();
         }
+        [0; 3]
     }
 
     fn fill_texture(

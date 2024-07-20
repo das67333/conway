@@ -1,8 +1,8 @@
-use crate::{Config, Engine, FpsLimiter, Topology};
+use crate::{BrightnessStrategy, Config, Engine, FpsLimiter, Topology};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
-    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextEdit, TextureHandle,
-    TextureOptions, Ui, Vec2, Widget,
+    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextEdit, TextureFilter,
+    TextureHandle, TextureOptions, TextureWrapMode, Ui, Vec2,
 };
 use std::time::Instant;
 
@@ -26,27 +26,7 @@ pub struct App {
     fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
     filename_save: String,     // The name of the file to save the field to.
     topology: Topology,        // Topology of the field.
-}
-
-#[inline(never)]
-fn normalize_brightness(v: &[f64]) -> Vec<u8> {
-    // TODO: improve performance
-    let u = v
-        .iter()
-        .filter_map(|&x| if x == 0. { None } else { Some(x) })
-        .collect::<Vec<_>>();
-    if u.iter().all(|&x| x == u[0]) {
-        let mut k = 1.;
-        if !u.is_empty() {
-            k = 1. / u[0];
-        }
-        return v.iter().map(|&x| (x / k) as u8 * u8::MAX).collect();
-    }
-    let m = u.iter().sum::<f64>() / u.len() as f64;
-    let dev = (u.iter().map(|&x| (x - m) * (x - m)).sum::<f64>() / (u.len() - 1) as f64).sqrt();
-    v.iter()
-        .map(|&x| (((x - m + dev * 0.5) / dev).clamp(0., 1.) * u8::MAX as f64) as u8)
-        .collect()
+    brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
 }
 
 impl App {
@@ -80,10 +60,11 @@ impl App {
             fps_limiter: FpsLimiter::default(),
             filename_save: "conway.mc".to_string(),
             topology: Topology::Unbounded,
+            brightness_strategy: BrightnessStrategy::Linear,
         }
     }
 
-    fn update_field(&mut self) {
+    fn update_engine(&mut self) {
         if self.pause_after_updates && self.updates_before_pause == 0 {
             self.is_paused = true;
             self.do_one_step = false;
@@ -93,7 +74,14 @@ impl App {
         }
 
         let timer = Instant::now();
-        self.life.update(self.simulation_steps_log2, self.topology);
+        {
+            let [dx, dy, dsize] = self.life.update(self.simulation_steps_log2, self.topology);
+            self.viewport_pos_x += dx as f64;
+            self.viewport_pos_y += dy as f64;
+            let new_size = self.life_size + dsize as f64;
+            self.zoom *= self.life_size / new_size;
+            self.life_size = new_size;
+        }
         // updating frame counter
         self.last_update_duration = timer.elapsed().as_secs_f64();
 
@@ -207,10 +195,24 @@ impl App {
                     ui.add(Slider::new(&mut Config::get().supersampling, 0.1..=2.0));
                 });
 
-                ui.add(Checkbox::new(
-                    &mut Config::get().adaptive_field_brightness,
-                    new_text("Adaptive field brightness"),
-                ));
+                ui.horizontal(|ui| {
+                    ui.label(new_text("Brightness: "));
+                    ui.radio_value(
+                        &mut self.brightness_strategy,
+                        BrightnessStrategy::Linear,
+                        new_text("Linear"),
+                    );
+                    ui.radio_value(
+                        &mut self.brightness_strategy,
+                        BrightnessStrategy::Golly,
+                        new_text("Golly"),
+                    );
+                    ui.radio_value(
+                        &mut self.brightness_strategy,
+                        BrightnessStrategy::Custom,
+                        new_text("Custom"),
+                    );
+                });
 
                 if ui.add(new_button("Reset config")).clicked() {
                     Config::reset();
@@ -230,42 +232,42 @@ impl App {
     }
 
     fn draw_gol_field(&mut self, ui: &mut Ui, size_px: f32) {
-        // RETRIEVING A PART OF THE FIELD THAT SLIGHTLY EXCEEDS VIEWPORT
+        // Retrieving a part of the field that slightly exceeds viewport.
         // desired size of texture in pixels
         let mut resolution = (size_px * Config::get().supersampling) as f64;
         // top left viewport coordinate in cells
-        let mut x = self.life_size * self.viewport_pos_x;
-        let mut y = self.life_size * self.viewport_pos_y;
+        let (mut x, mut y) = (self.viewport_pos_x, self.viewport_pos_y);
         // size of viewport in cells
-        let mut size_c = self.life_size * self.zoom;
+        let mut size = self.life_size * self.zoom;
         // `step_size` is the number of cells per pixel side
         self.life.fill_texture(
             &mut x,
             &mut y,
-            &mut size_c,
+            &mut size,
             &mut resolution,
             &mut self.viewport_buf,
         );
 
-        let gray = normalize_brightness(&self.viewport_buf);
+        let gray = self
+            .brightness_strategy
+            .transform(resolution as usize, &self.viewport_buf);
+
         let ci = ColorImage::from_gray([resolution as usize; 2], &gray);
-        // TODO: NEAREST when close, LINEAR when far away
-        let texture_options = if size_c > resolution {
-            TextureOptions::LINEAR
-        } else {
-            TextureOptions::NEAREST
+        let texture_options = TextureOptions {
+            magnification: TextureFilter::Nearest,
+            minification: TextureFilter::Linear,
+            wrap_mode: TextureWrapMode::ClampToEdge,
         };
         self.texture.set(ci, texture_options);
-        let vp_x = (self.viewport_pos_x * self.life_size - x) / size_c;
-        let vp_y = (self.viewport_pos_y * self.life_size - y) / size_c;
+        let vp_x = (self.viewport_pos_x - x) / size;
+        let vp_y = (self.viewport_pos_y - y) / size;
         let vp = pos2(vp_x as f32, vp_y as f32);
-        let vp_s = Vec2::splat((self.zoom * self.life_size / size_c) as f32);
+        let vp_s = Vec2::splat((self.zoom * self.life_size / size) as f32);
 
         let source = SizedTexture::new(self.texture.id(), [size_px; 2]);
         let uv = Rect::from_points(&[vp, vp + vp_s]);
-        let response = ui
-            .vertical_centered(|ui: &mut Ui| Widget::ui(Image::new(source).uv(uv), ui))
-            .response;
+        let image = Image::from_texture(source).uv(uv);
+        let response = ui.vertical_centered(|ui| ui.add(image)).response;
         self.life_rect.replace(response.rect);
     }
 
@@ -273,25 +275,29 @@ impl App {
         ctx.input(|input| {
             if let Some(pos) = input.pointer.latest_pos() {
                 if life_rect.contains(pos) {
+                    if input.pointer.primary_down() {
+                        let p = input.pointer.delta() / life_rect.size();
+                        self.viewport_pos_x -= self.zoom * self.life_size * p.x as f64;
+                        self.viewport_pos_y -= self.zoom * self.life_size * p.y as f64;
+                    }
+
                     if input.raw_scroll_delta.y != 0. {
                         let zoom_change = Config::get()
                             .zoom_step
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         let p =
                             (pos - life_rect.left_top()) * (1. - zoom_change) / life_rect.size();
-                        self.viewport_pos_x += self.zoom * p.x as f64;
-                        self.viewport_pos_y += self.zoom * p.y as f64;
+                        self.viewport_pos_x += self.zoom * self.life_size * p.x as f64;
+                        self.viewport_pos_y += self.zoom * self.life_size * p.y as f64;
                         self.zoom *= zoom_change as f64;
                     }
 
-                    if input.pointer.primary_down() {
-                        let p = input.pointer.delta() / life_rect.size();
-                        self.viewport_pos_x -= p.x as f64 * self.zoom;
-                        self.viewport_pos_y -= p.y as f64 * self.zoom;
+                    if !matches!(self.topology, Topology::Unbounded) {
+                        self.zoom = self.zoom.min(1.);
+                        let lim = self.life_size * (1. - self.zoom);
+                        self.viewport_pos_x = self.viewport_pos_x.min(lim).max(0.);
+                        self.viewport_pos_y = self.viewport_pos_y.min(lim).max(0.);
                     }
-                    self.viewport_pos_x = self.viewport_pos_x.min(1. - self.zoom).max(0.);
-                    self.viewport_pos_y = self.viewport_pos_y.min(1. - self.zoom).max(0.);
-                    self.zoom = self.zoom.min(1.);
                 }
             }
             if input.key_pressed(Key::Space) {
@@ -332,9 +338,9 @@ impl eframe::App for App {
                     self.draw_gol_field(ui, size_px);
                 });
 
-                self.update_field();
+                self.update_engine();
             });
 
-        self.fps_limiter.delay();
+        self.fps_limiter.sleep();
     }
 }

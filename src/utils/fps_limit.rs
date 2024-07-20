@@ -23,7 +23,7 @@ impl FpsLimiter {
         1. / self.frametime_smoothed
     }
 
-    pub fn delay(&mut self) {
+    pub fn sleep(&mut self) {
         let before_wait = self.frame_timer.elapsed();
 
         let target_frametime = Duration::from_secs_f64(1. / Config::get().max_fps);
