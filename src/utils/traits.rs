@@ -1,5 +1,5 @@
 pub const MIN_SIDE_LOG2: u32 = 7;
-pub const MAX_SIDE_LOG2: u32 = 63;
+pub const MAX_SIDE_LOG2: u32 = 62;
 
 use super::Topology;
 
@@ -66,8 +66,8 @@ pub trait Engine {
     ///
     /// If `unbounded` is `false`, then the field's topology is a torus.
     ///
-    /// Returns the coordinate offset after updating in x, y, and size increase.
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 3];
+    /// Returns the coordinate offset after the update.
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`)

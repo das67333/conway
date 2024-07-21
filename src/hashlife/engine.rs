@@ -476,8 +476,10 @@ impl HashLifeEngine {
         assert_eq!(nodes_curr.len(), 1);
         let root = nodes_curr.pop().unwrap();
 
+        let n_log2 = OTCA_SIZE.ilog2() * depth + k.ilog2();
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         Self {
-            n_log2: OTCA_SIZE.ilog2() * depth + k.ilog2(),
+            n_log2,
             root,
             steps_per_update_log2: 0,
             mem,
@@ -511,6 +513,7 @@ impl Engine for HashLifeEngine {
     }
 
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
         let mut hashtable = Manager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
@@ -722,14 +725,14 @@ impl Engine for HashLifeEngine {
         self.root = inner(x, y, 1 << self.n_log2, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 3] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
         if self.steps_per_update_log2 != steps_log2 {
             if self.steps_per_update_log2 != 0 {
                 unimplemented!()
             }
             self.steps_per_update_log2 = steps_log2;
         }
-        let (mut dx, mut dy, mut dsize) = (0, 0, 0);
+        let (mut dx, mut dy) = (0, 0);
         if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
@@ -740,9 +743,9 @@ impl Engine for HashLifeEngine {
             let se = self.mem.find_node(r.se, b, b, b);
             self.root = self.mem.find_node(nw, ne, sw, se);
             self.n_log2 += 1;
+            assert!(self.n_log2 <= MAX_SIDE_LOG2);
             dx += 1 << (self.n_log2 - 2);
             dy += 1 << (self.n_log2 - 2);
-            dsize += 1 << (self.n_log2 - 1);
         }
         let top = {
             let r = self.mem.get(self.root).clone();
@@ -779,11 +782,10 @@ impl Engine for HashLifeEngine {
         {
             dx -= 1 << (self.n_log2 - 2);
             dy -= 1 << (self.n_log2 - 2);
-            dsize -= 1 << (self.n_log2 - 1);
             self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw);
             self.n_log2 -= 1;
         }
-        [dx, dy, dsize]
+        [dx, dy]
     }
 
     fn fill_texture(

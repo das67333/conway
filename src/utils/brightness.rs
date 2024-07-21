@@ -22,6 +22,7 @@ impl BrightnessStrategy {
                 .map(|&x| if x != 0.0 { u8::MAX } else { 0 })
                 .collect::<Vec<_>>(),
             Self::Custom => {
+                // TODO: it is broken
                 let u = data
                     .iter()
                     .cloned()

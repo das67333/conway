@@ -75,10 +75,10 @@ impl App {
 
         let timer = Instant::now();
         {
-            let [dx, dy, dsize] = self.life.update(self.simulation_steps_log2, self.topology);
+            let [dx, dy] = self.life.update(self.simulation_steps_log2, self.topology);
             self.viewport_pos_x += dx as f64;
             self.viewport_pos_y += dy as f64;
-            let new_size = self.life_size + dsize as f64;
+            let new_size = 2f64.powi(self.life.side_length_log2() as i32);
             self.zoom *= self.life_size / new_size;
             self.life_size = new_size;
         }
