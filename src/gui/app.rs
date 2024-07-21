@@ -1,4 +1,4 @@
-use super::{BrightnessStrategy, Config, FpsLimiter};
+use super::{BrightnessStrategy, Config, FieldSource, FpsLimiter};
 use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
     CentralPanel, Color32, ColorImage, Context, Frame, Key, Margin, Rect, TextureHandle,
@@ -26,7 +26,9 @@ pub struct App {
     pub(super) fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
     pub(super) brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
 
-    pub(super) otca_depth: u32,
+    pub(super) field_source: FieldSource,
+    pub(super) field_source_otca_depth: u32,
+    pub(super) field_source_filename_open: String,
     pub(super) max_fps: f64,
     pub(super) zoom_step: f32,
     pub(super) supersampling: f64,
@@ -61,7 +63,9 @@ impl App {
             life_rect: None,
             fps_limiter: FpsLimiter::default(),
             brightness_strategy: BrightnessStrategy::Linear,
-            otca_depth: Config::OTCA_DEPTH,
+            field_source: FieldSource::RecursiveOTCA,
+            field_source_otca_depth: Config::OTCA_DEPTH,
+            field_source_filename_open: "filename".to_string(),
             max_fps: Config::MAX_FPS,
             zoom_step: Config::ZOOM_STEP,
             supersampling: Config::SUPERSAMPLING,
@@ -70,10 +74,24 @@ impl App {
     }
 
     pub fn reset_viewport(&mut self) {
-        self.life_engine = Box::new(HashLifeEngine::from_recursive_otca_metapixel(
-            self.otca_depth,
-            Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
-        ));
+        self.life_engine = Box::new(
+            match self.field_source {
+                FieldSource::FileMacroCell => {
+                    let data = std::fs::read(&self.field_source_filename_open).unwrap();
+                    HashLifeEngine::from_macrocell(&data)
+                }
+                FieldSource::FileRLE => {
+                    let data = std::fs::read(&self.field_source_filename_open).unwrap();
+                    HashLifeEngine::from_rle(&data)
+                }
+                FieldSource::RecursiveOTCA => HashLifeEngine::from_recursive_otca_metapixel(
+                    self.field_source_otca_depth,
+                    Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
+                ),
+            }, //  HashLifeEngine::from_recursive_otca_metapixel(
+               // self.otca_depth,
+               // Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
+        );
 
         self.is_paused = true;
         self.pause_after_updates = false;

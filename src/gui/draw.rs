@@ -1,4 +1,4 @@
-use super::{App, BrightnessStrategy, Config};
+use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
 use crate::Topology;
 use eframe::egui::{
     load::SizedTexture, pos2, Button, Checkbox, ColorImage, DragValue, Image, Rect, RichText,
@@ -63,10 +63,11 @@ impl App {
 
             ui.horizontal(|ui| {
                 if ui.add(Self::new_button("Save to file")).clicked() {
-                    self.life_engine.save_as_mc(&self.filename_save);
+                    let data = self.life_engine.into_macrocell();
+                    std::fs::write(&self.filename_save, &data).unwrap();
                 }
 
-                ui.label(Self::new_text("named: "));
+                ui.label(Self::new_text("at "));
                 ui.add_sized(
                     Config::FILENAME_INPUT_FIELD_SIZE,
                     TextEdit::singleline(&mut self.filename_save),
@@ -75,14 +76,44 @@ impl App {
             .inner
         });
 
-        ui.horizontal(|ui| {
-            if ui.add(Self::new_button("Reset field")).clicked() {
-                self.reset_viewport();
-            }
+        ui.add_space(Config::WIDGET_GAP);
 
-            ui.label(Self::new_text("with OTCA depth: "));
-            ui.add(DragValue::new(&mut self.otca_depth).range(1..=5));
+        if ui.add(Self::new_button("Recreate field")).clicked() {
+            self.reset_viewport();
+        }
+        ui.horizontal(|ui| {
+            ui.radio_value(
+                &mut self.field_source,
+                FieldSource::RecursiveOTCA,
+                Self::new_text("Recursive OTCA"),
+            );
+            // ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
+            ui.radio_value(
+                &mut self.field_source,
+                FieldSource::FileMacroCell,
+                Self::new_text("MacroCell"),
+            );
+            ui.radio_value(
+                &mut self.field_source,
+                FieldSource::FileRLE,
+                Self::new_text("RLE"),
+            );
         });
+        ui.horizontal(|ui| match self.field_source {
+            FieldSource::RecursiveOTCA => {
+                ui.label(Self::new_text("with depth: "));
+                ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
+            }
+            FieldSource::FileMacroCell | FieldSource::FileRLE => {
+                ui.label(Self::new_text("from file: "));
+                ui.add_sized(
+                    Config::FILENAME_INPUT_FIELD_SIZE,
+                    TextEdit::singleline(&mut self.field_source_filename_open),
+                );
+            }
+        });
+
+        ui.add_space(Config::WIDGET_GAP);
 
         ui.label(Self::new_text(&format!(
             "Generation: {}",
@@ -171,7 +202,7 @@ impl App {
                     ui.vertical(|ui| {
                         self.draw_appearance_controls(ui);
 
-                        ui.add_space(Config::GAP_ABOVE_STATS);
+                        ui.add_space(Config::WIDGET_GAP);
 
                         self.draw_stats(ui);
                     });

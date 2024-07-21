@@ -560,10 +560,8 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn save_as_mc(&self, path: &str) {
+    fn into_macrocell(&self) -> Vec<u8> {
         use std::collections::HashMap;
-        use std::fs::File;
-        use std::io::Write;
 
         fn inner(
             node: NodeIdx,
@@ -616,14 +614,10 @@ impl Engine for HashLifeEngine {
         }
 
         let mut codes = HashMap::new();
-        let mut result = vec![];
+        let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
         inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
 
-        let mut file = File::create(path).unwrap();
-        write!(file, "[M2] (hi)\n#R B3/S23\n").unwrap();
-        for s in result {
-            writeln!(file, "{}", s).unwrap();
-        }
+        result.join("\n").into_bytes()
     }
 
     fn get_cells(&self) -> Vec<u64> {

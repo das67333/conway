@@ -14,7 +14,7 @@ impl Config {
     pub const BUTTON_FILL_COLOR: Color32 = Color32::LIGHT_GRAY;
     pub const FILENAME_INPUT_FIELD_SIZE: [f32; 2] = [80., 20.];
 
-    pub const GAP_ABOVE_STATS: f32 = 50.;
+    pub const WIDGET_GAP: f32 = 20.;
 
     pub const OTCA_DEPTH: u32 = 2;
     pub const MAX_FPS: f64 = 60.;

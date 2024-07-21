@@ -40,13 +40,20 @@ pub trait Engine {
         Self::from_cells(n_log2, cells)
     }
 
+    fn from_macrocell(_data: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        unimplemented!()
+    }
+
     /// Create a square field from a vector of cells
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn save_as_mc(&self, _path: &str) {
+    fn into_macrocell(&self) -> Vec<u8> {
         unimplemented!()
     }
 
