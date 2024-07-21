@@ -53,40 +53,16 @@ mod tests {
     }
 
     #[test]
-    fn test_update_nodes_double() {
-        const N_LOG2: u32 = 9;
+    fn test_update_nodes() {
+        for n_log2 in [7, 9] {
+            for step in 0..n_log2 {
+                let (mut life_simd, mut life_hash) = randomly_filled(n_log2, SEED);
 
-        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
+                life_simd.update(step, Topology::Torus);
+                life_hash.update(step, Topology::Torus);
 
-        life_simd.update(N_LOG2 - 1, Topology::Torus);
-        life_hash.update(N_LOG2 - 1, Topology::Torus);
-
-        assert_fields_equal(&life_simd, &life_hash);
-    }
-
-    #[test]
-    fn test_update_nodes_single() {
-        const N_LOG2: u32 = 9;
-
-        let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
-
-        life_simd.update(0, Topology::Torus);
-        life_hash.update(0, Topology::Torus);
-
-        assert_fields_equal(&life_simd, &life_hash);
-    }
-
-    #[test]
-    fn test_update_nodes_different_steps() {
-        const N_LOG2: u32 = 9;
-
-        for step in 0..N_LOG2 {
-            let (mut life_simd, mut life_hash) = randomly_filled(N_LOG2, SEED);
-
-            life_simd.update(step, Topology::Torus);
-            life_hash.update(step, Topology::Torus);
-
-            assert_fields_equal(&life_simd, &life_hash);
+                assert_fields_equal(&life_simd, &life_hash);
+            }
         }
     }
 }
