@@ -1,68 +1,100 @@
-use super::{brightness::BrightnessStrategy, config::Config, fps_limit::FpsLimiter};
-use crate::{Engine, Topology};
+use super::{BrightnessStrategy, Config, FpsLimiter};
+use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
-    DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextEdit, TextureFilter,
-    TextureHandle, TextureOptions, TextureWrapMode, Ui, Vec2,
+    CentralPanel, Color32, ColorImage, Context, Frame, Key, Margin, Rect, TextureHandle,
+    TextureOptions,
 };
 use std::time::Instant;
 
 pub struct App {
-    ////////////////////////////////////////////////////////////////
-    generation: u64,              // Current generation number.
-    life_engine: Box<dyn Engine>, // Conway's GoL engine.
-    is_paused: bool,              // Flag indicating whether the simulation is paused.
-    pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
-    updates_before_pause: u64, // Number of updates left before stopping.
-    do_one_step: bool,         // Do one step and pause.
-    simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
-    topology: Topology,        // Topology of the field.
-    filename_save: String,     // The name of the file to save the field to.
-    last_update_duration: f64, // Duration of the last life update in seconds.
-    ////////////////////////////////////////////////////////////////
-    viewport_size: f64,      // Size of the viewport in cells.
-    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
-    ctx: Context,
-    texture: TextureHandle, // Texture handle of Conway's GoL field.
-    viewport_buf: Vec<f64>,
-    viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
-    viewport_pos_y: f64,
-    fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
-    brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
+    pub(super) life_engine: Box<dyn Engine>, // Conway's GoL engine.
+    pub(super) is_paused: bool,              // Flag indicating whether the simulation is paused.
+    pub(super) pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
+    pub(super) updates_before_pause: u64, // Number of updates left before stopping.
+    pub(super) do_one_step: bool,         // Do one step and pause.
+    pub(super) simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
+    pub(super) topology: Topology,        // Topology of the field.
+    pub(super) filename_save: String,     // The name of the file to save the field to.
+    pub(super) generation: u64,           // Current generation number.
+    pub(super) last_update_duration: f64, // Duration of the last life update in seconds.
+    pub(super) viewport_size: f64,        // Size of the viewport in cells.
+    pub(super) viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
+    pub(super) viewport_pos_y: f64,
+    pub(super) viewport_buf: Vec<f64>,
+    pub(super) texture: TextureHandle, // Texture handle of Conway's GoL field.
+    pub(super) life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
+    pub(super) fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
+    pub(super) brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
+
+    pub(super) otca_depth: u32,
+    pub(super) max_fps: f64,
+    pub(super) zoom_step: f32,
+    pub(super) supersampling: f64,
+    pub(super) show_verbose_stats: bool,
 }
 
 impl App {
     pub fn new(ctx: &Context) -> Self {
-        // be careful with deadlocks
-        let depth = Config::get().otca_depth;
-        let top_pattern = Config::get().top_pattern.clone();
-        let life = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);
+        let top_pattern = Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect();
+        let life = HashLifeEngine::from_recursive_otca_metapixel(Config::OTCA_DEPTH, top_pattern);
         // let life = crate::PatternObliviousEngine::random(7, None);
-        App {
-            simulation_steps_log2: 0,
+        Self {
             viewport_size: 2f64.powi(life.side_length_log2() as i32),
             life_engine: Box::new(life),
-            life_rect: None,
-            ctx: ctx.clone(),
+            is_paused: true,
+            pause_after_updates: false,
+            updates_before_pause: 0,
+            do_one_step: false,
+            simulation_steps_log2: 0,
+            topology: Topology::Unbounded,
+            filename_save: "conway.mc".to_string(),
+            generation: 0,
+            last_update_duration: 0.,
+            viewport_pos_x: 0.,
+            viewport_pos_y: 0.,
+            viewport_buf: vec![],
             texture: ctx.load_texture(
                 "Conway's GoL field",
                 ColorImage::default(),
                 TextureOptions::default(),
             ),
-            viewport_buf: vec![],
-            viewport_pos_x: 0.,
-            viewport_pos_y: 0.,
-            last_update_duration: 0.,
-            is_paused: true,
-            generation: 0,
-            do_one_step: false,
-            pause_after_updates: false,
-            updates_before_pause: 0,
+            life_rect: None,
             fps_limiter: FpsLimiter::default(),
-            filename_save: "conway.mc".to_string(),
-            topology: Topology::Unbounded,
             brightness_strategy: BrightnessStrategy::Linear,
+            otca_depth: Config::OTCA_DEPTH,
+            max_fps: Config::MAX_FPS,
+            zoom_step: Config::ZOOM_STEP,
+            supersampling: Config::SUPERSAMPLING,
+            show_verbose_stats: false,
         }
+    }
+
+    pub fn reset_viewport(&mut self) {
+        self.life_engine = Box::new(HashLifeEngine::from_recursive_otca_metapixel(
+            self.otca_depth,
+            Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
+        ));
+
+        self.is_paused = true;
+        self.pause_after_updates = false;
+        self.updates_before_pause = 0;
+        self.do_one_step = false;
+        self.simulation_steps_log2 = 0;
+        self.topology = Topology::Unbounded;
+        self.filename_save = "conway.mc".to_string();
+        self.generation = 0;
+        self.last_update_duration = 0.;
+        self.viewport_size = 2f64.powi(self.life_engine.side_length_log2() as i32);
+        self.viewport_pos_x = 0.;
+        self.viewport_pos_y = 0.;
+    }
+
+    pub fn reset_appearance(&mut self) {
+        self.brightness_strategy = BrightnessStrategy::Linear;
+        self.max_fps = Config::MAX_FPS;
+        self.zoom_step = Config::ZOOM_STEP;
+        self.supersampling = Config::SUPERSAMPLING;
+        self.show_verbose_stats = false;
     }
 
     fn update_engine(&mut self) {
@@ -93,186 +125,6 @@ impl App {
         self.do_one_step = false;
     }
 
-    fn draw_control_panel(&mut self, ui: &mut Ui) {
-        let new_text = |text: &str| {
-            RichText::new(text)
-                .color(Config::TEXT_COLOR)
-                .size(Config::TEXT_SIZE)
-        };
-
-        let new_button = |text: &str| {
-            Button::new(new_text(text))
-                .fill(Config::BUTTON_FILL_COLOR)
-                .stroke(Stroke::new(
-                    Config::BUTTON_STROKE_WIDTH,
-                    Config::BUTTON_STROKE_COLOR,
-                ))
-        };
-
-        let aw = ui.available_width();
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                ui.label(new_text(&format!("Generation: {}", self.generation as f64)));
-
-                let text = if self.is_paused { "Play" } else { "Pause" };
-                if ui.add(new_button(text)).clicked() {
-                    self.is_paused = !self.is_paused;
-                }
-
-                ui.add_enabled(self.is_paused, |ui: &mut Ui| {
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.pause_after_updates, new_text("Pause after "));
-                        ui.add_enabled(self.pause_after_updates, |ui: &mut Ui| {
-                            ui.add(DragValue::new(&mut self.updates_before_pause));
-                            ui.label(new_text(" updates"))
-                        });
-                    });
-
-                    if ui.add(new_button("Next step")).clicked() {
-                        self.do_one_step = true;
-                    }
-                    ui.horizontal(|ui: &mut Ui| {
-                        ui.label(new_text("Step size: 2^"));
-                        ui.add(
-                            DragValue::new(&mut self.simulation_steps_log2)
-                                .range(0..=self.life_engine.side_length_log2() - 1),
-                        )
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label(new_text("Topology: "));
-                        ui.radio_value(
-                            &mut self.topology,
-                            Topology::Unbounded,
-                            new_text("Unbounded"),
-                        );
-                        ui.radio_value(&mut self.topology, Topology::Torus, new_text("Torus"))
-                    });
-
-                    ui.horizontal(|ui| {
-                        if ui.add(new_button("Save to file")).clicked() {
-                            self.life_engine.save_as_mc(&self.filename_save);
-                        }
-
-                        ui.label(new_text("named: "));
-                        ui.add_sized(
-                            Config::FILENAME_INPUT_FIELD_SIZE,
-                            TextEdit::singleline(&mut self.filename_save),
-                        )
-                    })
-                    .inner
-                });
-
-                ui.horizontal(|ui| {
-                    if ui.add(new_button("Reset field")).clicked() {
-                        *self = Self::new(&self.ctx);
-                    }
-
-                    ui.label(new_text("with OTCA depth: "));
-                    ui.add(DragValue::new(&mut Config::get().otca_depth).range(1..=5));
-                });
-
-                ui.label(new_text(&format!(
-                    "\nLast field update: {:.3} ms",
-                    self.last_update_duration * 1e3
-                )));
-
-                ui.label(new_text(&format!(
-                    "FPS: {:3}",
-                    self.fps_limiter.fps().round() as u32
-                )));
-                ui.horizontal(|ui| {
-                    ui.label(new_text("Max FPS: "));
-                    ui.add(Slider::new(&mut Config::get().max_fps, 5.0..=480.0).logarithmic(true));
-                });
-                ui.horizontal(|ui| {
-                    ui.label(new_text("Zoom step: "));
-                    ui.add(Slider::new(&mut Config::get().zoom_step, 1.0..=4.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label(new_text("Supersampling: "));
-                    ui.add(Slider::new(&mut Config::get().supersampling, 0.1..=2.0));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label(new_text("Brightness: "));
-                    ui.radio_value(
-                        &mut self.brightness_strategy,
-                        BrightnessStrategy::Linear,
-                        new_text("Linear"),
-                    );
-                    ui.radio_value(
-                        &mut self.brightness_strategy,
-                        BrightnessStrategy::Golly,
-                        new_text("Golly"),
-                    );
-                    ui.radio_value(
-                        &mut self.brightness_strategy,
-                        BrightnessStrategy::Custom,
-                        new_text("Custom"),
-                    );
-                });
-
-                if ui.add(new_button("Reset config")).clicked() {
-                    Config::reset();
-                }
-
-                ui.add_space(Config::GAP_ABOVE_STATS);
-
-                ui.add(Checkbox::new(
-                    &mut Config::get().show_verbose_stats,
-                    new_text("Verbose stats (can drop FPS)"),
-                ));
-                ui.label(new_text(
-                    &self.life_engine.stats(Config::get().show_verbose_stats),
-                ));
-            });
-            // to adjust the bounds of the control panel
-            ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
-        });
-    }
-
-    fn draw_gol_field(&mut self, ui: &mut Ui, size_px: f32) {
-        // Retrieving a part of the field that slightly exceeds viewport.
-        // desired size of texture in pixels
-        let mut resolution = (size_px * Config::get().supersampling) as f64;
-        // top left viewport coordinate in cells
-        let (mut x, mut y) = (self.viewport_pos_x, self.viewport_pos_y);
-        // size of the subregion of the field that will be retrieved;
-        // is going to be increased from `viewport_size`
-        let mut size = self.viewport_size;
-        // `step_size` is the number of cells per pixel side
-        self.life_engine.fill_texture(
-            &mut x,
-            &mut y,
-            &mut size,
-            &mut resolution,
-            &mut self.viewport_buf,
-        );
-
-        let gray = self
-            .brightness_strategy
-            .transform(resolution as usize, &self.viewport_buf);
-
-        let ci = ColorImage::from_gray([resolution as usize; 2], &gray);
-        let texture_options = TextureOptions {
-            magnification: TextureFilter::Nearest,
-            minification: TextureFilter::Linear,
-            wrap_mode: TextureWrapMode::ClampToEdge,
-        };
-        self.texture.set(ci, texture_options);
-        let vp_x = (self.viewport_pos_x - x) / size;
-        let vp_y = (self.viewport_pos_y - y) / size;
-        let vp = pos2(vp_x as f32, vp_y as f32);
-        let vp_s = Vec2::splat((self.viewport_size / size) as f32);
-
-        let source = SizedTexture::new(self.texture.id(), [size_px; 2]);
-        let uv = Rect::from_points(&[vp, vp + vp_s]);
-        let image = Image::from_texture(source).uv(uv);
-        let response = ui.vertical_centered(|ui| ui.add(image)).response;
-        self.life_rect.replace(response.rect);
-    }
-
     fn update_viewport(&mut self, ctx: &Context, life_rect: Rect) {
         ctx.input(|input| {
             if let Some(pos) = input.pointer.latest_pos() {
@@ -284,7 +136,7 @@ impl App {
                     }
 
                     if input.raw_scroll_delta.y != 0. {
-                        let zoom_change = Config::get()
+                        let zoom_change = self
                             .zoom_step
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         let p =
@@ -331,19 +183,11 @@ impl eframe::App for App {
                     self.update_viewport(ctx, life_rect);
                 }
 
-                let area = ui.available_size();
-                let size_px = area
-                    .y
-                    .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN);
-                ui.horizontal(|ui| {
-                    self.draw_control_panel(ui);
-                    ui.add_space(ui.available_width() - size_px);
-                    self.draw_gol_field(ui, size_px);
-                });
+                self.draw(ui);
 
                 self.update_engine();
             });
 
-        self.fps_limiter.sleep();
+        self.fps_limiter.sleep(self.max_fps);
     }
 }

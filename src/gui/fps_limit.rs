@@ -1,4 +1,3 @@
-use super::config::Config;
 use std::{
     thread::sleep,
     time::{Duration, Instant},
@@ -23,10 +22,10 @@ impl FpsLimiter {
         1. / self.frametime_smoothed
     }
 
-    pub fn sleep(&mut self) {
+    pub fn sleep(&mut self, max_fps: f64) {
         let before_wait = self.frame_timer.elapsed();
 
-        let target_frametime = Duration::from_secs_f64(1. / Config::get().max_fps);
+        let target_frametime = Duration::from_secs_f64(1. / max_fps);
         if target_frametime > before_wait {
             sleep(target_frametime - before_wait);
         }

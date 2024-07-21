@@ -1,36 +1,6 @@
-use std::sync::{Mutex, MutexGuard, OnceLock};
-
 use eframe::egui::Color32;
 
-pub struct Config {
-    pub otca_depth: u32,
-    pub max_fps: f64,
-    pub zoom_step: f32,
-    pub supersampling: f32,
-    pub adaptive_field_brightness: bool,
-    pub show_verbose_stats: bool,
-    pub top_pattern: Vec<Vec<u8>>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            otca_depth: 2,
-            max_fps: 60.,
-            zoom_step: 2.,
-            supersampling: 0.7,
-            adaptive_field_brightness: true,
-            show_verbose_stats: false,
-            top_pattern: /* vec![
-                vec![0, 1, 0, 0],
-                vec![0, 0, 1, 0],
-                vec![1, 1, 1, 0],
-                vec![0, 0, 0, 0],
-            ] */
-            vec![vec![0; 4], vec![1, 1, 1, 0], vec![0; 4], vec![0; 4]],
-        }
-    }
-}
+pub struct Config;
 
 impl Config {
     pub const SCROLL_SCALE: f32 = -50.;
@@ -46,15 +16,9 @@ impl Config {
 
     pub const GAP_ABOVE_STATS: f32 = 50.;
 
-    pub fn get<'a>() -> MutexGuard<'a, Config> {
-        static CONFIG: OnceLock<Mutex<Config>> = OnceLock::new();
-        CONFIG
-            .get_or_init(|| Mutex::new(Config::default()))
-            .lock()
-            .unwrap()
-    }
-
-    pub fn reset() {
-        *Self::get() = Config::default();
-    }
+    pub const OTCA_DEPTH: u32 = 2;
+    pub const MAX_FPS: f64 = 60.;
+    pub const ZOOM_STEP: f32 = 2.;
+    pub const SUPERSAMPLING: f64 = 0.7;
+    pub const TOP_PATTERN: [[u8; 4]; 4] = [[0, 1, 0, 0], [0, 0, 1, 0], [1, 1, 1, 0], [0, 0, 0, 0]];
 }
