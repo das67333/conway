@@ -1,4 +1,5 @@
-use crate::{BrightnessStrategy, Config, Engine, FpsLimiter, Topology};
+use super::{brightness::BrightnessStrategy, config::Config, fps_limit::FpsLimiter};
+use crate::{Engine, Topology};
 use eframe::egui::{
     load::SizedTexture, pos2, Button, CentralPanel, Checkbox, Color32, ColorImage, Context,
     DragValue, Frame, Image, Key, Margin, Rect, RichText, Slider, Stroke, TextEdit, TextureFilter,
@@ -7,25 +8,26 @@ use eframe::egui::{
 use std::time::Instant;
 
 pub struct App {
-    ctx: Context,
-    life_size: f64,             // Side length of Conway's square field.
+    ////////////////////////////////////////////////////////////////
+    generation: u64,              // Current generation number.
+    life_engine: Box<dyn Engine>, // Conway's GoL engine.
+    is_paused: bool,              // Flag indicating whether the simulation is paused.
+    pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
+    updates_before_pause: u64, // Number of updates left before stopping.
+    do_one_step: bool,         // Do one step and pause.
     simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
-    zoom: f64,                  // Current zoom rate.
-    life: Box<dyn Engine>,      // Conway's GoL engine.
-    life_rect: Option<Rect>,    // Part of the window displaying Conway's GoL field.
-    texture: TextureHandle,     // Texture handle of Conway's GoL field.
+    topology: Topology,        // Topology of the field.
+    filename_save: String,     // The name of the file to save the field to.
+    last_update_duration: f64, // Duration of the last life update in seconds.
+    ////////////////////////////////////////////////////////////////
+    viewport_size: f64,      // Size of the viewport in cells.
+    life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
+    ctx: Context,
+    texture: TextureHandle, // Texture handle of Conway's GoL field.
     viewport_buf: Vec<f64>,
     viewport_pos_x: f64, // Position (in the Conway's GoL field) of the left top corner of the viewport.
     viewport_pos_y: f64,
-    last_update_duration: f64, // Duration of the last life update in seconds.
-    is_paused: bool,           // Flag indicating whether the simulation is paused.
-    generation: u64,           // Current generation number.
-    do_one_step: bool,         // Do one step and pause.
-    pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
-    updates_before_pause: u64, // Number of updates left before stopping.
-    fps_limiter: FpsLimiter,   // Limits the frame rate to a certain value.
-    filename_save: String,     // The name of the file to save the field to.
-    topology: Topology,        // Topology of the field.
+    fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
     brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
 }
 
@@ -37,12 +39,11 @@ impl App {
         let life = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);
         // let life = crate::PatternObliviousEngine::random(7, None);
         App {
-            ctx: ctx.clone(),
-            life_size: 2f64.powi(life.side_length_log2() as i32),
             simulation_steps_log2: 0,
-            zoom: 1.,
-            life: Box::new(life),
+            viewport_size: 2f64.powi(life.side_length_log2() as i32),
+            life_engine: Box::new(life),
             life_rect: None,
+            ctx: ctx.clone(),
             texture: ctx.load_texture(
                 "Conway's GoL field",
                 ColorImage::default(),
@@ -75,12 +76,12 @@ impl App {
 
         let timer = Instant::now();
         {
-            let [dx, dy] = self.life.update(self.simulation_steps_log2, self.topology);
+            let [dx, dy] = self
+                .life_engine
+                .update(self.simulation_steps_log2, self.topology);
+
             self.viewport_pos_x += dx as f64;
             self.viewport_pos_y += dy as f64;
-            let new_size = 2f64.powi(self.life.side_length_log2() as i32);
-            self.zoom *= self.life_size / new_size;
-            self.life_size = new_size;
         }
         // updating frame counter
         self.last_update_duration = timer.elapsed().as_secs_f64();
@@ -113,7 +114,10 @@ impl App {
             ui.vertical(|ui| {
                 ui.label(new_text(&format!("Generation: {}", self.generation as f64)));
 
-                ui.label(new_text(&format!("Population: {}", self.life.population())));
+                ui.label(new_text(&format!(
+                    "Population: {}",
+                    self.life_engine.population()
+                )));
 
                 let text = if self.is_paused { "Play" } else { "Pause" };
                 if ui.add(new_button(text)).clicked() {
@@ -136,7 +140,7 @@ impl App {
                         ui.label(new_text("Step size: 2^"));
                         ui.add(
                             DragValue::new(&mut self.simulation_steps_log2)
-                                .range(0..=self.life.side_length_log2() - 1),
+                                .range(0..=self.life_engine.side_length_log2() - 1),
                         )
                     });
 
@@ -148,6 +152,18 @@ impl App {
                             new_text("Unbounded"),
                         );
                         ui.radio_value(&mut self.topology, Topology::Torus, new_text("Torus"))
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.add(new_button("Save to file")).clicked() {
+                            self.life_engine.save_as_mc(&self.filename_save);
+                        }
+
+                        ui.label(new_text("named: "));
+                        ui.add_sized(
+                            Config::FILENAME_INPUT_FIELD_SIZE,
+                            TextEdit::singleline(&mut self.filename_save),
+                        )
                     })
                     .inner
                 });
@@ -159,18 +175,6 @@ impl App {
 
                     ui.label(new_text("with OTCA depth: "));
                     ui.add(DragValue::new(&mut Config::get().otca_depth).range(1..=5));
-                });
-
-                ui.horizontal(|ui| {
-                    if ui.add(new_button("Save to file")).clicked() {
-                        self.life.save_as_mc(&self.filename_save);
-                    }
-
-                    ui.label(new_text("named: "));
-                    ui.add_sized(
-                        Config::FILENAME_INPUT_FIELD_SIZE,
-                        TextEdit::singleline(&mut self.filename_save),
-                    );
                 });
 
                 ui.label(new_text(&format!(
@@ -224,7 +228,9 @@ impl App {
                     &mut Config::get().show_verbose_stats,
                     new_text("Verbose stats (can drop FPS)"),
                 ));
-                ui.label(new_text(&self.life.stats(Config::get().show_verbose_stats)));
+                ui.label(new_text(
+                    &self.life_engine.stats(Config::get().show_verbose_stats),
+                ));
             });
             // to adjust the bounds of the control panel
             ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
@@ -237,10 +243,11 @@ impl App {
         let mut resolution = (size_px * Config::get().supersampling) as f64;
         // top left viewport coordinate in cells
         let (mut x, mut y) = (self.viewport_pos_x, self.viewport_pos_y);
-        // size of viewport in cells
-        let mut size = self.life_size * self.zoom;
+        // size of the subregion of the field that will be retrieved;
+        // is going to be increased from `viewport_size`
+        let mut size = self.viewport_size;
         // `step_size` is the number of cells per pixel side
-        self.life.fill_texture(
+        self.life_engine.fill_texture(
             &mut x,
             &mut y,
             &mut size,
@@ -262,7 +269,7 @@ impl App {
         let vp_x = (self.viewport_pos_x - x) / size;
         let vp_y = (self.viewport_pos_y - y) / size;
         let vp = pos2(vp_x as f32, vp_y as f32);
-        let vp_s = Vec2::splat((self.zoom * self.life_size / size) as f32);
+        let vp_s = Vec2::splat((self.viewport_size / size) as f32);
 
         let source = SizedTexture::new(self.texture.id(), [size_px; 2]);
         let uv = Rect::from_points(&[vp, vp + vp_s]);
@@ -277,8 +284,8 @@ impl App {
                 if life_rect.contains(pos) {
                     if input.pointer.primary_down() {
                         let p = input.pointer.delta() / life_rect.size();
-                        self.viewport_pos_x -= self.zoom * self.life_size * p.x as f64;
-                        self.viewport_pos_y -= self.zoom * self.life_size * p.y as f64;
+                        self.viewport_pos_x -= self.viewport_size * p.x as f64;
+                        self.viewport_pos_y -= self.viewport_size * p.y as f64;
                     }
 
                     if input.raw_scroll_delta.y != 0. {
@@ -287,14 +294,15 @@ impl App {
                             .powf(input.raw_scroll_delta.y / Config::SCROLL_SCALE);
                         let p =
                             (pos - life_rect.left_top()) * (1. - zoom_change) / life_rect.size();
-                        self.viewport_pos_x += self.zoom * self.life_size * p.x as f64;
-                        self.viewport_pos_y += self.zoom * self.life_size * p.y as f64;
-                        self.zoom *= zoom_change as f64;
+                        self.viewport_pos_x += self.viewport_size * p.x as f64;
+                        self.viewport_pos_y += self.viewport_size * p.y as f64;
+                        self.viewport_size *= zoom_change as f64;
                     }
 
                     if !matches!(self.topology, Topology::Unbounded) {
-                        self.zoom = self.zoom.min(1.);
-                        let lim = self.life_size * (1. - self.zoom);
+                        let life_size = 2f64.powi(self.life_engine.side_length_log2() as i32);
+                        self.viewport_size = self.viewport_size.min(life_size);
+                        let lim = life_size - self.viewport_size;
                         self.viewport_pos_x = self.viewport_pos_x.min(lim).max(0.);
                         self.viewport_pos_y = self.viewport_pos_y.min(lim).max(0.);
                     }

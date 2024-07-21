@@ -1,4 +1,4 @@
-use crate::Config;
+use super::config::Config;
 use std::{
     thread::sleep,
     time::{Duration, Instant},
