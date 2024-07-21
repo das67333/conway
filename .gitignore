@@ -1,7 +1,6 @@
 target/
 Cargo.lock
-.vscode/
+.*
 golly-4.3-src/
 lifealg/
-.venv/
 lifelib/
