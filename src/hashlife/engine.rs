@@ -560,7 +560,7 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn into_macrocell(&self) -> Vec<u8> {
+    fn save_into_macrocell(&self) -> Vec<u8> {
         use std::collections::HashMap;
 
         fn inner(
@@ -605,8 +605,9 @@ impl Engine for HashLifeEngine {
                 );
             }
             let v = if mem.get(node).population != 0. {
+                s.push('\n');
                 result.push(s);
-                result.len()
+                result.len() - 1
             } else {
                 0
             };
@@ -617,7 +618,7 @@ impl Engine for HashLifeEngine {
         let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
         inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
 
-        result.join("\n").into_bytes()
+        result.iter().flat_map(|s| s.bytes()).collect()
     }
 
     fn get_cells(&self) -> Vec<u64> {

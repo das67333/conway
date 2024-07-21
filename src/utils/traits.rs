@@ -53,7 +53,7 @@ pub trait Engine {
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn into_macrocell(&self) -> Vec<u8> {
+    fn save_into_macrocell(&self) -> Vec<u8> {
         unimplemented!()
     }
 

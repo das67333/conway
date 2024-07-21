@@ -63,8 +63,8 @@ impl App {
 
             ui.horizontal(|ui| {
                 if ui.add(Self::new_button("Save to file")).clicked() {
-                    let data = self.life_engine.into_macrocell();
-                    std::fs::write(&self.filename_save, &data).unwrap();
+                    let data = self.life_engine.save_into_macrocell();
+                    std::fs::write(&self.filename_save, data).unwrap();
                 }
 
                 ui.label(Self::new_text("at "));
