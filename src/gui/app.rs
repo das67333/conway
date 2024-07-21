@@ -4,7 +4,8 @@ use eframe::egui::{
     CentralPanel, Color32, ColorImage, Context, Frame, Key, Margin, Rect, TextureHandle,
     TextureOptions,
 };
-use std::time::Instant;
+use egui_file::FileDialog;
+use std::{path::PathBuf, time::Instant};
 
 pub struct App {
     pub(super) life_engine: Box<dyn Engine>, // Conway's GoL engine.
@@ -14,7 +15,6 @@ pub struct App {
     pub(super) do_one_step: bool,         // Do one step and pause.
     pub(super) simulation_steps_log2: u32, // Number of Conway's GoL updates per frame.
     pub(super) topology: Topology,        // Topology of the field.
-    pub(super) filename_save: String,     // The name of the file to save the field to.
     pub(super) generation: u64,           // Current generation number.
     pub(super) last_update_duration: f64, // Duration of the last life update in seconds.
     pub(super) viewport_size: f64,        // Size of the viewport in cells.
@@ -26,9 +26,13 @@ pub struct App {
     pub(super) fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
     pub(super) brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
 
+    pub(super) saved_file: Option<PathBuf>,
+    pub(super) save_file_dialog: Option<FileDialog>,
+    pub(super) opened_file: Option<PathBuf>,
+    pub(super) open_file_dialog: Option<FileDialog>,
+
     pub(super) field_source: FieldSource,
     pub(super) field_source_otca_depth: u32,
-    pub(super) field_source_filename_open: String,
     pub(super) max_fps: f64,
     pub(super) zoom_step: f32,
     pub(super) supersampling: f64,
@@ -49,7 +53,6 @@ impl App {
             do_one_step: false,
             simulation_steps_log2: 0,
             topology: Topology::Unbounded,
-            filename_save: "conway.mc".to_string(),
             generation: 0,
             last_update_duration: 0.,
             viewport_pos_x: 0.,
@@ -62,10 +65,15 @@ impl App {
             ),
             life_rect: None,
             fps_limiter: FpsLimiter::default(),
+
+            saved_file: None,
+            save_file_dialog: None,
+            opened_file: None,
+            open_file_dialog: None,
+
             brightness_strategy: BrightnessStrategy::Linear,
             field_source: FieldSource::RecursiveOTCA,
             field_source_otca_depth: Config::OTCA_DEPTH,
-            field_source_filename_open: "filename".to_string(),
             max_fps: Config::MAX_FPS,
             zoom_step: Config::ZOOM_STEP,
             supersampling: Config::SUPERSAMPLING,
@@ -74,32 +82,12 @@ impl App {
     }
 
     pub fn reset_viewport(&mut self) {
-        self.life_engine = Box::new(
-            match self.field_source {
-                FieldSource::FileMacroCell => {
-                    let data = std::fs::read(&self.field_source_filename_open).unwrap();
-                    HashLifeEngine::from_macrocell(&data)
-                }
-                FieldSource::FileRLE => {
-                    let data = std::fs::read(&self.field_source_filename_open).unwrap();
-                    HashLifeEngine::from_rle(&data)
-                }
-                FieldSource::RecursiveOTCA => HashLifeEngine::from_recursive_otca_metapixel(
-                    self.field_source_otca_depth,
-                    Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
-                ),
-            }, //  HashLifeEngine::from_recursive_otca_metapixel(
-               // self.otca_depth,
-               // Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
-        );
-
         self.is_paused = true;
         self.pause_after_updates = false;
         self.updates_before_pause = 0;
         self.do_one_step = false;
         self.simulation_steps_log2 = 0;
         self.topology = Topology::Unbounded;
-        self.filename_save = "conway.mc".to_string();
         self.generation = 0;
         self.last_update_duration = 0.;
         self.viewport_size = 2f64.powi(self.life_engine.side_length_log2() as i32);
@@ -201,7 +189,7 @@ impl eframe::App for App {
                     self.update_viewport(ctx, life_rect);
                 }
 
-                self.draw(ui);
+                self.draw(ctx, ui);
 
                 self.update_engine();
             });

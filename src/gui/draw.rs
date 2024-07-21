@@ -1,8 +1,13 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
-use crate::Topology;
+use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    load::SizedTexture, pos2, Button, Checkbox, ColorImage, DragValue, Image, Rect, RichText,
-    Slider, Stroke, TextEdit, TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
+    load::SizedTexture, pos2, Button, Checkbox, ColorImage, Context, DragValue, Image, Rect,
+    Response, RichText, Slider, Stroke, TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
+};
+use egui_file::FileDialog;
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
 };
 
 impl App {
@@ -21,7 +26,44 @@ impl App {
             ))
     }
 
-    fn draw_viewport_controls(&mut self, ui: &mut Ui) {
+    fn draw_file_dialog(
+        ctx: &Context,
+        ui: &mut Ui,
+        button_text: &str,
+        file_path: &mut Option<PathBuf>,
+        file_dialog: &mut Option<FileDialog>,
+        extension: &'static str,
+    ) -> Response {
+        let response = ui
+            .horizontal(|ui| {
+                // let data = self.life_engine.save_into_macrocell();
+                // std::fs::write(&self.filename_save, data).unwrap();
+                let response = ui.add(Self::new_button(button_text));
+                if response.clicked() {
+                    let filter = Box::new({
+                        let ext = Some(OsStr::new(extension));
+                        move |path: &Path| -> bool { path.extension() == ext }
+                    });
+                    let mut dialog =
+                        FileDialog::open_file(file_path.clone()).show_files_filter(filter);
+                    dialog.open();
+                    *file_dialog = Some(dialog);
+                }
+
+                if let Some(dialog) = file_dialog {
+                    if dialog.show(ctx).selected() {
+                        if let Some(file) = dialog.path() {
+                            *file_path = Some(file.to_path_buf());
+                        }
+                    }
+                }
+                response
+            })
+            .inner;
+        response
+    }
+
+    fn draw_viewport_controls(&mut self, ctx: &Context, ui: &mut Ui) {
         let text = if self.is_paused { "Play" } else { "Pause" };
         if ui.add(Self::new_button(text)).clicked() {
             self.is_paused = !self.is_paused;
@@ -61,24 +103,24 @@ impl App {
                 ui.radio_value(&mut self.topology, Topology::Torus, Self::new_text("Torus"))
             });
 
-            ui.horizontal(|ui| {
-                if ui.add(Self::new_button("Save to file")).clicked() {
-                    let data = self.life_engine.save_into_macrocell();
-                    std::fs::write(&self.filename_save, data).unwrap();
-                }
-
-                ui.label(Self::new_text("at "));
-                ui.add_sized(
-                    Config::FILENAME_INPUT_FIELD_SIZE,
-                    TextEdit::singleline(&mut self.filename_save),
-                )
-            })
-            .inner
+            let response = Self::draw_file_dialog(
+                ctx,
+                ui,
+                "Save as MacroCell",
+                &mut self.saved_file,
+                &mut self.save_file_dialog,
+                "mc",
+            );
+            if let Some(file_path) = self.saved_file.take() {
+                let data = self.life_engine.save_into_macrocell();
+                std::fs::write(file_path, data).unwrap();
+            }
+            response
         });
 
         ui.add_space(Config::WIDGET_GAP);
 
-        if ui.add(Self::new_button("Recreate field")).clicked() {
+        if ui.add(Self::new_button("Reset viewport")).clicked() {
             self.reset_viewport();
         }
         ui.horizontal(|ui| {
@@ -104,12 +146,32 @@ impl App {
                 ui.label(Self::new_text("with depth: "));
                 ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
             }
-            FieldSource::FileMacroCell | FieldSource::FileRLE => {
-                ui.label(Self::new_text("from file: "));
-                ui.add_sized(
-                    Config::FILENAME_INPUT_FIELD_SIZE,
-                    TextEdit::singleline(&mut self.field_source_filename_open),
+            FieldSource::FileMacroCell => {
+                Self::draw_file_dialog(
+                    ctx,
+                    ui,
+                    "Open MacroCell",
+                    &mut self.opened_file,
+                    &mut self.open_file_dialog,
+                    "mc",
                 );
+                if let Some(file_path) = self.opened_file.take() {
+                    let data = std::fs::read(file_path).unwrap();
+                    self.life_engine = Box::new(HashLifeEngine::from_macrocell(&data));
+                }
+            }
+            FieldSource::FileRLE => {
+                Self::draw_file_dialog(
+                    ctx,
+                    ui,
+                    "Open RLE",
+                    &mut self.opened_file,
+                    &mut self.open_file_dialog,
+                    "rle",
+                );
+                if let Some(_file_path) = self.opened_file.take() {
+                    todo!()
+                }
             }
         });
 
@@ -182,14 +244,14 @@ impl App {
         ));
     }
 
-    fn draw_controls(&mut self, ui: &mut Ui) {
+    fn draw_controls(&mut self, ctx: &Context, ui: &mut Ui) {
         ui.vertical(|ui| {
             let aw = ui.available_width();
 
             ui.horizontal(|ui| {
                 ui.group(|ui| {
                     ui.vertical(|ui| {
-                        self.draw_viewport_controls(ui);
+                        self.draw_viewport_controls(ctx, ui);
                     });
 
                     // to adjust the bounds
@@ -255,14 +317,14 @@ impl App {
         self.life_rect.replace(response.rect);
     }
 
-    pub fn draw(&mut self, ui: &mut Ui) {
+    pub fn draw(&mut self, ctx: &Context, ui: &mut Ui) {
         let area = ui.available_size();
 
         let size_px = area
             .y
             .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN);
         ui.horizontal(|ui| {
-            self.draw_controls(ui);
+            self.draw_controls(ctx, ui);
 
             ui.add_space(ui.available_width() - size_px);
 

@@ -322,3 +322,9 @@ impl Manager {
         self.hashtable = new_buf;
     }
 }
+
+impl Default for Manager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

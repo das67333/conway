@@ -1,5 +1,6 @@
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
 use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use std::collections::HashMap;
 
 const LEAF_SIZE: u64 = 8;
 
@@ -486,11 +487,11 @@ impl HashLifeEngine {
         }
     }
 
-    pub fn get_blank_node(&mut self, size_log2: u32) -> NodeIdx {
+    pub fn get_blank_node(mem: &mut Manager, size_log2: u32) -> NodeIdx {
         assert!(size_log2 >= LEAF_SIZE.ilog2());
-        let mut node = self.mem.find_leaf([0; 8]);
+        let mut node = mem.find_leaf([0; 8]);
         for _ in LEAF_SIZE.ilog2()..size_log2 {
-            node = self.mem.find_node(node, node, node, node);
+            node = mem.find_node(node, node, node, node);
         }
         node
     }
@@ -509,6 +510,86 @@ impl Engine for HashLifeEngine {
             root: node,
             steps_per_update_log2: 0,
             mem: hashtable,
+        }
+    }
+
+    fn from_macrocell(data: &[u8]) -> Self
+    where
+        Self: Sized,
+    {
+        let mut nodes_cnt = 0;
+        let mut mem = Manager::new();
+        let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
+        let mut blanks = HashMap::new();
+        let mut last_node = None;
+        let mut size_log2 = 0;
+
+        let lines = data
+            .split(|&x| x == b'\n')
+            .skip(1)
+            .filter(|s| !s.is_empty() && s[0] != b'#')
+            .collect::<Vec<_>>();
+        for s in lines {
+            let node = if s[0].is_ascii_digit() {
+                // non-leaf
+                // parse s into 4 numbers
+                let [k, nw, ne, sw, se] = s
+                    .split(|&x| x == b' ')
+                    .map(|s: &[u8]| std::str::from_utf8(s).unwrap().parse::<usize>().unwrap())
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .unwrap();
+                size_log2 = k as u32;
+                assert!((LEAF_SIZE.ilog2() + 1..=MAX_SIDE_LOG2).contains(&size_log2));
+                let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
+                    if x == 0 {
+                        if let Some(&node) = blanks.get(&(size_log2 - 1)) {
+                            node
+                        } else {
+                            let node = Self::get_blank_node(&mut mem, size_log2 - 1);
+                            blanks.insert(size_log2 - 1, node);
+                            node
+                        }
+                    } else {
+                        codes
+                            .get(&x)
+                            .copied()
+                            .unwrap_or_else(|| panic!("Node with code {} not found", x))
+                    }
+                });
+                mem.find_node(nw, ne, sw, se)
+            } else {
+                // is leaf
+                let mut cells = 0u64;
+                let (mut i, mut j) = (0, 0);
+                for &c in s {
+                    match c {
+                        b'$' => (i, j) = (i + 1, 0),
+                        b'*' => {
+                            cells |= 1 << (i * 8 + j);
+                            j += 1;
+                            assert!(j <= 8);
+                        }
+                        b'.' => {
+                            j += 1;
+                            assert!(j <= 8);
+                        }
+                        _ => panic!("Unexpected symbol"),
+                    }
+                }
+                assert!(i <= 8);
+                mem.find_leaf(cells.to_le_bytes())
+            };
+            nodes_cnt += 1;
+            codes.insert(nodes_cnt, node);
+            last_node = Some(node);
+        }
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
+        Self {
+            n_log2: size_log2,
+            root: last_node.unwrap(),
+            steps_per_update_log2: 0,
+            mem,
         }
     }
 
@@ -561,8 +642,6 @@ impl Engine for HashLifeEngine {
     }
 
     fn save_into_macrocell(&self) -> Vec<u8> {
-        use std::collections::HashMap;
-
         fn inner(
             node: NodeIdx,
             size_log2: u32,
@@ -727,7 +806,7 @@ impl Engine for HashLifeEngine {
         if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
-            let b = self.get_blank_node(self.n_log2 - 1);
+            let b = Self::get_blank_node(&mut self.mem, self.n_log2 - 1);
             let nw = self.mem.find_node(b, b, b, r.nw);
             let ne = self.mem.find_node(b, b, r.ne, b);
             let sw = self.mem.find_node(b, r.sw, b, b);
