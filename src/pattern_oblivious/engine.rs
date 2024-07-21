@@ -135,10 +135,6 @@ impl Engine for PatternObliviousEngine {
         self.n.ilog2()
     }
 
-    fn population(&self) -> f64 {
-        self.data.iter().map(|x| x.count_ones() as f64).sum()
-    }
-
     fn get_cell(&self, x: u64, y: u64) -> bool {
         let pos = (x + y * self.n) >> Self::CELLS_IN_CHUNK.ilog2();
         let offset = x & (Self::CELLS_IN_CHUNK - 1);

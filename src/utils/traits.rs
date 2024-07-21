@@ -55,9 +55,6 @@ pub trait Engine {
     /// Get the side length of the field in log2
     fn side_length_log2(&self) -> u32;
 
-    /// Get the number of alive cells in the field
-    fn population(&self) -> f64;
-
     fn get_cell(&self, x: u64, y: u64) -> bool;
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool);

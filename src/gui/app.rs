@@ -114,11 +114,6 @@ impl App {
             ui.vertical(|ui| {
                 ui.label(new_text(&format!("Generation: {}", self.generation as f64)));
 
-                ui.label(new_text(&format!(
-                    "Population: {}",
-                    self.life_engine.population()
-                )));
-
                 let text = if self.is_paused { "Play" } else { "Pause" };
                 if ui.add(new_button(text)).clicked() {
                     self.is_paused = !self.is_paused;

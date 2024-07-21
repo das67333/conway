@@ -663,10 +663,6 @@ impl Engine for HashLifeEngine {
         self.n_log2
     }
 
-    fn population(&self) -> f64 {
-        self.mem.get(self.root).population
-    }
-
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
         let mut node = self.root;
         let mut size = 1 << self.n_log2;
@@ -897,10 +893,12 @@ impl Engine for HashLifeEngine {
     }
 
     fn stats(&self, verbose: bool) -> String {
-        format!(
-            "Engine: Hashlife\nn: 2^{}\n{}",
-            self.n_log2,
-            self.mem.stats(verbose)
-        )
+        let v = [
+            "Engine: Hashlife".to_string(),
+            format!("Side length: 2^{}", self.n_log2),
+            format!("Population: {}", self.mem.get(self.root).population),
+            self.mem.stats(verbose),
+        ];
+        v.join("\n")
     }
 }
