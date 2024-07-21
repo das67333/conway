@@ -34,33 +34,28 @@ impl App {
         file_dialog: &mut Option<FileDialog>,
         extension: &'static str,
     ) -> Response {
-        let response = ui
-            .horizontal(|ui| {
-                // let data = self.life_engine.save_into_macrocell();
-                // std::fs::write(&self.filename_save, data).unwrap();
-                let response = ui.add(Self::new_button(button_text));
-                if response.clicked() {
-                    let filter = Box::new({
-                        let ext = Some(OsStr::new(extension));
-                        move |path: &Path| -> bool { path.extension() == ext }
-                    });
-                    let mut dialog =
-                        FileDialog::open_file(file_path.clone()).show_files_filter(filter);
-                    dialog.open();
-                    *file_dialog = Some(dialog);
-                }
+        ui.horizontal(|ui| {
+            let response = ui.add(Self::new_button(button_text));
+            if response.clicked() {
+                let filter = Box::new({
+                    let ext = Some(OsStr::new(extension));
+                    move |path: &Path| -> bool { path.extension() == ext }
+                });
+                let mut dialog = FileDialog::open_file(file_path.clone()).show_files_filter(filter);
+                dialog.open();
+                *file_dialog = Some(dialog);
+            }
 
-                if let Some(dialog) = file_dialog {
-                    if dialog.show(ctx).selected() {
-                        if let Some(file) = dialog.path() {
-                            *file_path = Some(file.to_path_buf());
-                        }
+            if let Some(dialog) = file_dialog {
+                if dialog.show(ctx).selected() {
+                    if let Some(file) = dialog.path() {
+                        *file_path = Some(file.to_path_buf());
                     }
                 }
-                response
-            })
-            .inner;
-        response
+            }
+            response
+        })
+        .inner
     }
 
     fn draw_viewport_controls(&mut self, ctx: &Context, ui: &mut Ui) {
@@ -123,13 +118,17 @@ impl App {
         if ui.add(Self::new_button("Reset viewport")).clicked() {
             self.reset_viewport();
         }
+
+        ui.add_space(Config::WIDGET_GAP);
+
+        ui.label(Self::new_text("Recreate field: "));
+
         ui.horizontal(|ui| {
             ui.radio_value(
                 &mut self.field_source,
                 FieldSource::RecursiveOTCA,
                 Self::new_text("Recursive OTCA"),
             );
-            // ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
             ui.radio_value(
                 &mut self.field_source,
                 FieldSource::FileMacroCell,
@@ -141,10 +140,18 @@ impl App {
                 Self::new_text("RLE"),
             );
         });
-        ui.horizontal(|ui| match self.field_source {
+        match self.field_source {
             FieldSource::RecursiveOTCA => {
-                ui.label(Self::new_text("with depth: "));
-                ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
+                ui.horizontal(|ui| {
+                    if ui.add(Self::new_button("Recreate with depth:")).clicked() {
+                        self.life_engine = Box::new(HashLifeEngine::from_recursive_otca_metapixel(
+                            self.field_source_otca_depth,
+                            Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
+                        ));
+                        self.reset_viewport();
+                    }
+                    ui.add(DragValue::new(&mut self.field_source_otca_depth).range(1..=5));
+                });
             }
             FieldSource::FileMacroCell => {
                 Self::draw_file_dialog(
@@ -158,6 +165,7 @@ impl App {
                 if let Some(file_path) = self.opened_file.take() {
                     let data = std::fs::read(file_path).unwrap();
                     self.life_engine = Box::new(HashLifeEngine::from_macrocell(&data));
+                    self.reset_viewport();
                 }
             }
             FieldSource::FileRLE => {
@@ -170,10 +178,11 @@ impl App {
                     "rle",
                 );
                 if let Some(_file_path) = self.opened_file.take() {
-                    todo!()
+                    todo!();
+                    self.reset_viewport();
                 }
             }
-        });
+        }
 
         ui.add_space(Config::WIDGET_GAP);
 
