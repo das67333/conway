@@ -4,7 +4,7 @@ use eframe::egui::{
     load::SizedTexture, pos2, Button, Checkbox, ColorImage, Context, DragValue, Image, Rect,
     Response, RichText, Slider, Stroke, TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
 };
-use egui_file::FileDialog;
+use egui_file::{DialogType, FileDialog};
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -33,6 +33,7 @@ impl App {
         file_path: &mut Option<PathBuf>,
         file_dialog: &mut Option<FileDialog>,
         extension: &'static str,
+        dialog_type: DialogType,
     ) -> Response {
         ui.horizontal(|ui| {
             let response = ui.add(Self::new_button(button_text));
@@ -41,7 +42,15 @@ impl App {
                     let ext = Some(OsStr::new(extension));
                     move |path: &Path| -> bool { path.extension() == ext }
                 });
-                let mut dialog = FileDialog::open_file(file_path.clone()).show_files_filter(filter);
+                let mut dialog = match dialog_type {
+                    DialogType::OpenFile => {
+                        FileDialog::open_file(file_path.clone()).show_files_filter(filter)
+                    }
+                    DialogType::SaveFile => {
+                        FileDialog::save_file(file_path.clone()).show_files_filter(filter)
+                    }
+                    _ => unimplemented!("Unsupported dialog type"),
+                };
                 dialog.open();
                 *file_dialog = Some(dialog);
             }
@@ -105,6 +114,7 @@ impl App {
                 &mut self.saved_file,
                 &mut self.save_file_dialog,
                 "mc",
+                DialogType::SaveFile,
             );
             if let Some(file_path) = self.saved_file.take() {
                 let data = self.life_engine.save_into_macrocell();
@@ -161,6 +171,7 @@ impl App {
                     &mut self.opened_file,
                     &mut self.open_file_dialog,
                     "mc",
+                    DialogType::OpenFile,
                 );
                 if let Some(file_path) = self.opened_file.take() {
                     let data = std::fs::read(file_path).unwrap();
@@ -176,9 +187,11 @@ impl App {
                     &mut self.opened_file,
                     &mut self.open_file_dialog,
                     "rle",
+                    DialogType::OpenFile,
                 );
-                if let Some(_file_path) = self.opened_file.take() {
-                    todo!();
+                if let Some(file_path) = self.opened_file.take() {
+                    let data = std::fs::read(file_path).unwrap();
+                    self.life_engine = Box::new(HashLifeEngine::from_rle(&data));
                     self.reset_viewport();
                 }
             }
