@@ -41,8 +41,7 @@ pub struct App {
 
 impl App {
     pub fn new(ctx: &Context) -> Self {
-        let top_pattern = Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect();
-        let life = HashLifeEngine::from_recursive_otca_metapixel(Config::OTCA_DEPTH, top_pattern);
+        let life = HashLifeEngine::default();
         // let life = crate::PatternObliviousEngine::random(7, None);
         Self {
             viewport_size: 2f64.powi(life.side_length_log2() as i32),
@@ -71,8 +70,8 @@ impl App {
             opened_file: None,
             open_file_dialog: None,
 
-            brightness_strategy: BrightnessStrategy::Linear,
-            field_source: FieldSource::RecursiveOTCA,
+            brightness_strategy: BrightnessStrategy::Golly,
+            field_source: FieldSource::FileMacroCell,
             field_source_otca_depth: Config::OTCA_DEPTH,
             max_fps: Config::MAX_FPS,
             zoom_step: Config::ZOOM_STEP,

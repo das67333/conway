@@ -10,6 +10,7 @@ impl PatternObliviousEngine {
 
     fn update_row(row_prev: &[u64], row_curr: &[u64], row_next: &[u64], dst: &mut [u64]) {
         // TODO: double word technique
+        // TODO: use avx2 if available
         let (w, shift) = (row_prev.len(), Self::CELLS_IN_CHUNK - 1);
         let (x, x1, x2) = (0, w - 1, 1);
 
@@ -186,5 +187,11 @@ impl Engine for PatternObliviousEngine {
 
     fn stats(&self, _verbose: bool) -> String {
         format!("memory on field: {} bytes", self.data.len() * 8)
+    }
+}
+
+impl Default for PatternObliviousEngine {
+    fn default() -> Self {
+        Self::blank(MIN_SIDE_LOG2)
     }
 }

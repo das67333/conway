@@ -125,6 +125,11 @@ impl App {
 
         ui.add_space(Config::WIDGET_GAP);
 
+        ui.label(Self::new_text(&format!(
+            "Viewport:\nx: {:e}\ny: {:e}\n size: {:e}",
+            self.viewport_pos_x, self.viewport_pos_y, self.viewport_size
+        )));
+
         if ui.add(Self::new_button("Reset viewport")).clicked() {
             self.reset_viewport();
         }

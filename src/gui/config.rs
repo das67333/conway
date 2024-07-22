@@ -18,7 +18,7 @@ impl Config {
 
     pub const OTCA_DEPTH: u32 = 2;
     pub const MAX_FPS: f64 = 60.;
-    pub const ZOOM_STEP: f32 = 2.;
+    pub const ZOOM_STEP: f32 = 1.5;
     pub const SUPERSAMPLING: f64 = 0.7;
     pub const TOP_PATTERN: [[u8; 4]; 4] = [[0, 1, 0, 0], [0, 0, 1, 0], [1, 1, 1, 0], [0, 0, 0, 0]];
 }

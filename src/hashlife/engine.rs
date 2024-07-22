@@ -378,7 +378,6 @@ impl HashLifeEngine {
         });
 
         if depth == 0 {
-            // TODO
             unimplemented!("Use `from_cells` instead");
         }
 
@@ -974,5 +973,11 @@ impl Engine for HashLifeEngine {
             self.mem.stats(verbose),
         ];
         v.join("\n")
+    }
+}
+
+impl Default for HashLifeEngine {
+    fn default() -> Self {
+        Self::blank(MIN_SIDE_LOG2)
     }
 }
