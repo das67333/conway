@@ -85,6 +85,7 @@ impl HashLifeEngine {
     }
 
     // It can be significantly optimized, but update_nodes_double is much slower anyway.
+    #[cfg(not)]
     fn update_nodes_single(
         &mut self,
         nw: NodeIdx,
@@ -187,6 +188,155 @@ impl HashLifeEngine {
             ]
         };
         self.mem.find_node(t_nw, t_ne, t_sw, t_se)
+    }
+
+    fn update_nodes_single(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> NodeIdx {
+        let [nwnw, nwne, nwsw, nwse] = {
+            let n = self.mem.get(nw);
+            [n.nw, n.ne, n.sw, n.se]
+        };
+        let [nenw, nene, nesw, nese] = {
+            let n = self.mem.get(ne);
+            [n.nw, n.ne, n.sw, n.se]
+        };
+        let [swnw, swne, swsw, swse] = {
+            let n = self.mem.get(sw);
+            [n.nw, n.ne, n.sw, n.se]
+        };
+        let [senw, sene, sesw, sese] = {
+            let n = self.mem.get(se);
+            [n.nw, n.ne, n.sw, n.se]
+        };
+        let [t00, t01, t02, t10, t11, t12, t20, t21, t22] = if size_log2 >= LEAF_SIZE.ilog2() + 2 {
+            [
+                self.mem.find_node(
+                    self.mem.get(nwnw).se,
+                    self.mem.get(nwne).sw,
+                    self.mem.get(nwsw).ne,
+                    self.mem.get(nwse).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(nwne).se,
+                    self.mem.get(nenw).sw,
+                    self.mem.get(nwse).ne,
+                    self.mem.get(nesw).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(nenw).se,
+                    self.mem.get(nene).sw,
+                    self.mem.get(nesw).ne,
+                    self.mem.get(nese).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(nwsw).se,
+                    self.mem.get(nwse).sw,
+                    self.mem.get(swnw).ne,
+                    self.mem.get(swne).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(nwse).se,
+                    self.mem.get(nesw).sw,
+                    self.mem.get(swne).ne,
+                    self.mem.get(senw).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(nesw).se,
+                    self.mem.get(nese).sw,
+                    self.mem.get(senw).ne,
+                    self.mem.get(sene).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(swnw).se,
+                    self.mem.get(swne).sw,
+                    self.mem.get(swsw).ne,
+                    self.mem.get(swse).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(swne).se,
+                    self.mem.get(senw).sw,
+                    self.mem.get(swse).ne,
+                    self.mem.get(sesw).nw,
+                ),
+                self.mem.find_node(
+                    self.mem.get(senw).se,
+                    self.mem.get(sene).sw,
+                    self.mem.get(sesw).ne,
+                    self.mem.get(sese).nw,
+                ),
+            ]
+        } else {
+            [
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nwnw).leaf_se(),
+                    self.mem.get(nwne).leaf_sw(),
+                    self.mem.get(nwsw).leaf_ne(),
+                    self.mem.get(nwse).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nwne).leaf_se(),
+                    self.mem.get(nenw).leaf_sw(),
+                    self.mem.get(nwse).leaf_ne(),
+                    self.mem.get(nesw).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nenw).leaf_se(),
+                    self.mem.get(nene).leaf_sw(),
+                    self.mem.get(nesw).leaf_ne(),
+                    self.mem.get(nese).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nwsw).leaf_se(),
+                    self.mem.get(nwse).leaf_sw(),
+                    self.mem.get(swnw).leaf_ne(),
+                    self.mem.get(swne).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nwse).leaf_se(),
+                    self.mem.get(nesw).leaf_sw(),
+                    self.mem.get(swne).leaf_ne(),
+                    self.mem.get(senw).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(nesw).leaf_se(),
+                    self.mem.get(nese).leaf_sw(),
+                    self.mem.get(senw).leaf_ne(),
+                    self.mem.get(sene).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(swnw).leaf_se(),
+                    self.mem.get(swne).leaf_sw(),
+                    self.mem.get(swsw).leaf_ne(),
+                    self.mem.get(swse).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(swne).leaf_se(),
+                    self.mem.get(senw).leaf_sw(),
+                    self.mem.get(swse).leaf_ne(),
+                    self.mem.get(sesw).leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    self.mem.get(senw).leaf_se(),
+                    self.mem.get(sene).leaf_sw(),
+                    self.mem.get(sesw).leaf_ne(),
+                    self.mem.get(sese).leaf_nw(),
+                ),
+            ]
+        };
+        let q00 = self.mem.find_node(t00, t01, t10, t11);
+        let q01 = self.mem.find_node(t01, t02, t11, t12);
+        let q10 = self.mem.find_node(t10, t11, t20, t21);
+        let q11 = self.mem.find_node(t11, t12, t21, t22);
+
+        let [s00, s01, s10, s11] = [q00, q01, q10, q11].map(|x| self.update_node(x, size_log2));
+
+        self.mem.find_node(s00, s01, s10, s11)
     }
 
     #[cfg(not(feature = "prefetch"))]
