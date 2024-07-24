@@ -3,7 +3,7 @@ use std::time::Instant;
 
 fn main() {
     let timer = Instant::now();
-    // be careful with deadlocks
+
     let depth = Config::OTCA_DEPTH;
     let top_pattern = Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect();
     let mut engine = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);

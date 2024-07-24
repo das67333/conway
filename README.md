@@ -9,7 +9,8 @@ cargo run --release
 ## Benchmark
 
 ```bash
-cargo run --release --bin bench
+cargo run --release --bin bench_otca
+cargo run --release --bin bench_0e0p
 ```
 
 ## Controls

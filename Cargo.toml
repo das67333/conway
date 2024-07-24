@@ -5,7 +5,10 @@ edition = "2021"
 default-run = "conway"
 
 [[bin]]
-name = "bench"
+name = "bench_otca"
+
+[[bin]]
+name = "bench_0e0p"
 
 [dependencies]
 rand = "0.8"
