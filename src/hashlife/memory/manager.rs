@@ -197,11 +197,15 @@ impl Manager {
                 lengths[len] += 1;
             }
 
-            for (i, count) in lengths.iter().enumerate() {
-                if *count > 0 {
-                    s.push_str(&format!("buckets of size {}: {}\n", i, count));
-                }
-            }
+            let sum = lengths.iter().sum::<usize>();
+            s.push_str("Chain lengths distribution:\n");
+            s.push_str(&format!(
+                "0-{}%  1-{}%  2-{}%  >2-{}%\n",
+                lengths[0] * 100 / sum,
+                lengths[1] * 100 / sum,
+                lengths[2] * 100 / sum,
+                lengths[3..].iter().sum::<usize>() * 100 / sum
+            ));
         }
         s
     }
