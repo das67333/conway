@@ -93,6 +93,13 @@ pub trait Engine {
 
     /// Returns multiline string reporting engine stats.
     ///
-    /// `verbose` enables stats that require heavy calculations.
-    fn stats(&self, verbose: bool) -> String;
+    /// This function is fast enough to be called every frame.
+    fn stats_fast(&self) -> String {
+        String::new()
+    }
+
+    /// Additional stats that are slow to compute.
+    fn stats_slow(&self) -> String {
+        String::new()
+    }
 }

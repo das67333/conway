@@ -36,7 +36,7 @@ pub struct App {
     pub(super) max_fps: f64,
     pub(super) zoom_step: f32,
     pub(super) supersampling: f64,
-    pub(super) show_verbose_stats: bool,
+    pub(super) cached_verbose_stats: String,
 }
 
 impl App {
@@ -76,7 +76,7 @@ impl App {
             max_fps: Config::MAX_FPS,
             zoom_step: Config::ZOOM_STEP,
             supersampling: Config::SUPERSAMPLING,
-            show_verbose_stats: false,
+            cached_verbose_stats: String::new(),
         }
     }
 
@@ -99,7 +99,7 @@ impl App {
         self.max_fps = Config::MAX_FPS;
         self.zoom_step = Config::ZOOM_STEP;
         self.supersampling = Config::SUPERSAMPLING;
-        self.show_verbose_stats = false;
+        self.cached_verbose_stats.clear();
     }
 
     fn update_engine(&mut self) {

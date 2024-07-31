@@ -1,8 +1,9 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
 use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    load::SizedTexture, pos2, Button, Checkbox, ColorImage, Context, DragValue, Image, Rect,
-    Response, RichText, Slider, Stroke, TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
+    load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, ColorImage, Context,
+    DragValue, Image, Rect, Response, RichText, ScrollArea, Slider, Stroke, TextureFilter,
+    TextureOptions, TextureWrapMode, Ui, Vec2,
 };
 use egui_file::{DialogType, FileDialog};
 use std::{
@@ -261,13 +262,12 @@ impl App {
     }
 
     fn draw_stats(&mut self, ui: &mut Ui) {
-        ui.add(Checkbox::new(
-            &mut self.show_verbose_stats,
-            Self::new_text("Verbose stats (can drop FPS)"),
-        ));
+        if ui.add(Self::new_button("Update slow stats")).clicked() {
+            self.cached_verbose_stats = self.life_engine.stats_slow();
+        }
 
         ui.label(Self::new_text(
-            &self.life_engine.stats(self.show_verbose_stats),
+            &(self.life_engine.stats_fast() + &self.cached_verbose_stats),
         ));
     }
 
@@ -351,7 +351,24 @@ impl App {
             .y
             .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN);
         ui.horizontal(|ui| {
-            self.draw_controls(ctx, ui);
+            ui.add_sized([Config::CONTROL_PANEL_WIDTH, area.y], |ui: &mut Ui| {
+                ui.vertical(|ui| {
+                    ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .max_width(f32::INFINITY)
+                        .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+                        .show(ui, |ui| {
+                            ui.with_layout(
+                                eframe::egui::Layout::top_down(eframe::egui::Align::LEFT)
+                                    .with_cross_justify(true),
+                                |ui| {
+                                    self.draw_controls(ctx, ui);
+                                },
+                            );
+                        });
+                });
+                ui.label("")
+            });
 
             ui.add_space(ui.available_width() - size_px);
 

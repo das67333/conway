@@ -1115,14 +1115,65 @@ impl Engine for HashLifeEngine {
         step_log2
     }
 
-    fn stats(&self, verbose: bool) -> String {
-        let v = [
-            "Engine: Hashlife".to_string(),
-            format!("Side length: 2^{}", self.n_log2),
-            format!("Population: {}", self.mem.get(self.root).population),
-            self.mem.stats(verbose),
-        ];
-        v.join("\n")
+    fn stats_fast(&self) -> String {
+        let mut s = "Engine: Hashlife\n".to_string();
+        s.push_str(&format!("Side length: 2^{}\n", self.n_log2));
+        s.push_str(&format!(
+            "Population: {}\n",
+            self.mem.get(self.root).population
+        ));
+        s.push('\n');
+        s.push_str(&self.mem.stats_fast());
+
+        s
+    }
+
+    fn stats_slow(&self) -> String {
+        // IMPOSSIBLE TO CALCULATE FOR ALL NODES: NEED TO STORE SIZE_LOG2 IN EVERY NODE
+        // Nodes' sizes (side lengths) distribution
+        use std::collections::{HashMap, HashSet};
+        fn inner(
+            node: NodeIdx,
+            size_log2: u32,
+            mem: &Manager,
+            distribution: &mut HashMap<u32, HashSet<NodeIdx>>,
+        ) {
+            if !distribution.entry(size_log2).or_default().insert(node) {
+                return;
+            }
+            let n = mem.get(node);
+            if !n.nw.is_null() {
+                inner(n.nw, size_log2 - 1, mem, distribution);
+                inner(n.ne, size_log2 - 1, mem, distribution);
+                inner(n.sw, size_log2 - 1, mem, distribution);
+                inner(n.se, size_log2 - 1, mem, distribution);
+            }
+        }
+
+        let mut distribution = HashMap::new();
+        inner(self.root, self.n_log2, &self.mem, &mut distribution);
+        let mut distr = distribution
+            .into_iter()
+            .map(|(k, v)| (k, v.len()))
+            .collect::<Vec<_>>();
+        distr.sort_unstable();
+        let sum = distr.iter().map(|(_, v)| *v).sum::<usize>();
+
+        let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
+        s.push_str("ONLY PARTS OF QUADTREE ARE CONSIDERED!\n");
+        for (size_log2, count) in distr {
+            s.push_str(&format!(
+                "2^{:2<} -{:>3}% ({})\n",
+                size_log2,
+                count * 100 / sum,
+                count
+            ));
+        }
+
+        s.push('\n');
+        s.push_str(&self.mem.stats_slow());
+
+        s
     }
 }
 

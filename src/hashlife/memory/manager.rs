@@ -160,7 +160,7 @@ impl Manager {
     }
 
     /// Get statistics about the memory manager.
-    pub fn stats(&self, verbose: bool) -> String {
+    pub fn stats_fast(&self) -> String {
         let mut s = String::new();
 
         let mem = self.storage.len() * CHUNK_SIZE * std::mem::size_of::<QuadTreeNode>();
@@ -182,31 +182,30 @@ impl Manager {
             self.misses, self.hits
         ));
 
-        if verbose {
-            let mut lengths = vec![];
-            for chain in self.hashtable.iter() {
-                let mut len = 0;
-                let mut node = *chain;
-                while !node.is_null() {
-                    len += 1;
-                    node = self.get(node).next;
-                }
-                if len >= lengths.len() {
-                    lengths.resize(len + 1, 0);
-                }
-                lengths[len] += 1;
-            }
+        s
+    }
 
-            let sum = lengths.iter().sum::<usize>();
-            s.push_str("Chain lengths distribution:\n");
-            s.push_str(&format!(
-                "0-{}%  1-{}%  2-{}%  >2-{}%\n",
-                lengths[0] * 100 / sum,
-                lengths[1] * 100 / sum,
-                lengths[2] * 100 / sum,
-                lengths[3..].iter().sum::<usize>() * 100 / sum
-            ));
+    pub fn stats_slow(&self) -> String {
+        let mut lengths = vec![];
+        for chain in self.hashtable.iter() {
+            let mut len = 0;
+            let mut node = *chain;
+            while !node.is_null() {
+                len += 1;
+                node = self.get(node).next;
+            }
+            if len >= lengths.len() {
+                lengths.resize(len + 1, 0);
+            }
+            lengths[len] += 1;
         }
+
+        let sum = lengths.iter().sum::<usize>();
+        let mut s = "Chain lengths distribution:\n".to_string();
+        for (i, &len) in lengths.iter().enumerate() {
+            s.push_str(&format!("{:<2}-{:>3}% ({})\n", i, len * 100 / sum, len));
+        }
+
         s
     }
 
