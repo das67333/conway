@@ -1,3 +1,5 @@
+use crate::NiceInt;
+
 use super::{NodeIdx, QuadTreeNode};
 
 const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
@@ -168,19 +170,19 @@ impl Manager {
 
         s.push_str(&format!(
             "memory on hashtable: {} MB\n",
-            crate::utils::with_delimiters(((self.hashtable.len() * 4) >> 20) as i128)
+            NiceInt::from_usize((self.hashtable.len() * 4) >> 20)
         ));
 
         s.push_str(&format!(
             "hashtable elements / buckets: {} / {}\n",
-            crate::utils::with_delimiters(self.ht_size as i128),
-            crate::utils::with_delimiters(self.hashtable.len() as i128)
+            NiceInt::from_usize(self.ht_size),
+            NiceInt::from_usize(self.hashtable.len())
         ));
 
         s.push_str(&format!(
             "hashtable misses / hits: {} / {}\n",
-            crate::utils::with_delimiters(self.misses as i128),
-            crate::utils::with_delimiters(self.hits as i128)
+            NiceInt::from(self.misses),
+            NiceInt::from(self.hits)
         ));
 
         s
@@ -208,7 +210,7 @@ impl Manager {
                 "{:<2}-{:>3}% ({})\n",
                 i,
                 len * 100 / sum,
-                crate::utils::with_delimiters(len as i128)
+                NiceInt::from_usize(len)
             ));
         }
 

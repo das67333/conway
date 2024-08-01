@@ -1,5 +1,5 @@
 use super::memory::{Manager, NodeIdx, QuadTreeNode};
-use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use std::collections::HashMap;
 
 const LEAF_SIZE: u64 = 8;
@@ -1122,7 +1122,7 @@ impl Engine for HashLifeEngine {
         s.push_str(&format!("Side length: 2^{}\n", self.n_log2));
         s.push_str(&format!(
             "Population: {}\n",
-            crate::utils::with_delimiters(self.mem.get(self.root).population as i128)
+            NiceInt::from_f64(self.mem.get(self.root).population)
         ));
         s.push('\n');
         s.push_str(&self.mem.stats_fast());
@@ -1168,7 +1168,7 @@ impl Engine for HashLifeEngine {
                 "2^{:2<} -{:>3}% ({})\n",
                 size_log2,
                 count * 100 / sum,
-                crate::utils::with_delimiters(count as i128)
+                NiceInt::from_usize(count)
             ));
         }
 

@@ -1,5 +1,5 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
-use crate::{Engine, HashLifeEngine, Topology};
+use crate::{Engine, HashLifeEngine, NiceInt, Topology};
 use eframe::egui::{
     load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, Color32, ColorImage,
     Context, DragValue, Frame, Image, Margin, Rect, Response, RichText, ScrollArea, Slider, Stroke,
@@ -128,9 +128,9 @@ impl App {
 
         ui.label(Self::new_text(&format!(
             "Viewport:\nx: {}\ny: {}\n size: {}",
-            crate::utils::with_delimiters(self.viewport_pos_x as i128),
-            crate::utils::with_delimiters(self.viewport_pos_y as i128),
-            crate::utils::with_delimiters(self.viewport_size as i128)
+            NiceInt::from_f64(self.viewport_pos_x),
+            NiceInt::from_f64(self.viewport_pos_y),
+            NiceInt::from_f64(self.viewport_size)
         )));
 
         if ui.add(Self::new_button("Reset viewport")).clicked() {
