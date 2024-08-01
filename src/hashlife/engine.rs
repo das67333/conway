@@ -1014,7 +1014,7 @@ impl Engine for HashLifeEngine {
         size: &mut f64,
         resolution: &mut f64,
         dst: &mut Vec<f64>,
-    ) -> u32 {
+    ) {
         struct Args<'a> {
             node: &'a QuadTreeNode,
             x: i64,
@@ -1098,6 +1098,9 @@ impl Engine for HashLifeEngine {
 
         dst.clear();
         dst.resize((resolution_int * resolution_int) as usize, 0.);
+        if step_log2 > self.n_log2 {
+            return;
+        }
         let mut args = Args {
             node: self.mem.get(self.root),
             x: 0,
@@ -1112,7 +1115,6 @@ impl Engine for HashLifeEngine {
             mem: &self.mem,
         };
         inner(&mut args);
-        step_log2
     }
 
     fn stats_fast(&self) -> String {

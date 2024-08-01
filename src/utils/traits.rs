@@ -42,10 +42,7 @@ pub trait Engine {
 
     fn from_macrocell(_data: &[u8]) -> Self
     where
-        Self: Sized,
-    {
-        unimplemented!()
-    }
+        Self: Sized;
 
     /// Create a square field from a vector of cells
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
@@ -53,9 +50,7 @@ pub trait Engine {
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn save_into_macrocell(&self) -> Vec<u8> {
-        unimplemented!()
-    }
+    fn save_into_macrocell(&self) -> Vec<u8>;
 
     fn get_cells(&self) -> Vec<u64>;
 
@@ -80,8 +75,6 @@ pub trait Engine {
     /// changing `viewport_x`, `viewport_y`, `size` and `resolution`.
     ///
     /// `dst` - buffer of texture; it should be resized to `resolution * resolution`.
-    ///
-    /// Returns log2 of the number of cells per pixel side.
     fn fill_texture(
         &self,
         viewport_x: &mut f64,
@@ -89,7 +82,7 @@ pub trait Engine {
         size: &mut f64,
         resolution: &mut f64,
         dst: &mut Vec<f64>,
-    ) -> u32;
+    );
 
     /// Returns multiline string reporting engine stats.
     ///

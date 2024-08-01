@@ -8,7 +8,7 @@ fn main() {
             .with_inner_size(vec2(1280., 800.))
             .with_min_inner_size(vec2(640.0, 360.0)),
         follow_system_theme: false,
-        default_theme: eframe::Theme::Dark,
+        default_theme: eframe::Theme::Light,
         ..Default::default()
     };
     eframe::run_native(

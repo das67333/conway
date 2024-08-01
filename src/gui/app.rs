@@ -1,7 +1,7 @@
 use super::{BrightnessStrategy, Config, FieldSource, FpsLimiter};
 use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    CentralPanel, Color32, ColorImage, Context, Frame, Key, Margin, Rect, TextureHandle,
+    CentralPanel, Color32, ColorImage, Context, Frame, Key, Rect, TextureHandle,
     TextureOptions,
 };
 use egui_file::FileDialog;
@@ -25,6 +25,7 @@ pub struct App {
     pub(super) life_rect: Option<Rect>, // Part of the window displaying Conway's GoL field.
     pub(super) fps_limiter: FpsLimiter, // Limits the frame rate to a certain value.
     pub(super) brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
+    pub(super) brightness_shift: f64,
 
     pub(super) saved_file: Option<PathBuf>,
     pub(super) save_file_dialog: Option<FileDialog>,
@@ -64,13 +65,14 @@ impl App {
             ),
             life_rect: None,
             fps_limiter: FpsLimiter::default(),
+            brightness_strategy: BrightnessStrategy::Golly,
+            brightness_shift: 0.0,
 
             saved_file: None,
             save_file_dialog: None,
             opened_file: None,
             open_file_dialog: None,
 
-            brightness_strategy: BrightnessStrategy::Golly,
             field_source: FieldSource::FileMacroCell,
             field_source_otca_depth: Config::OTCA_DEPTH,
             max_fps: Config::MAX_FPS,
@@ -176,8 +178,8 @@ impl eframe::App for App {
         CentralPanel::default()
             .frame(
                 Frame::default()
-                    .inner_margin(Margin::same(Config::FRAME_MARGIN))
-                    .fill(Color32::LIGHT_GRAY),
+                    .inner_margin(Config::FRAME_MARGIN)
+                    .fill(Color32::GRAY),
             )
             .show(ctx, |ui| {
                 // TODO: power-efficient mode?

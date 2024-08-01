@@ -7,6 +7,8 @@ impl Config {
 
     pub const FRAME_MARGIN: f32 = 20.;
     pub const CONTROL_PANEL_WIDTH: f32 = 400.;
+    pub const ROUNDING: f32 = 3.;
+    pub const STROKE_WIDTH: f32 = 3.;
     pub const TEXT_SIZE: f32 = 16.;
     pub const TEXT_COLOR: Color32 = Color32::BLACK;
     pub const BUTTON_STROKE_WIDTH: f32 = 3.;

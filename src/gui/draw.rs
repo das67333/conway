@@ -1,9 +1,9 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
 use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, ColorImage, Context,
-    DragValue, Image, Rect, Response, RichText, ScrollArea, Slider, Stroke, TextureFilter,
-    TextureOptions, TextureWrapMode, Ui, Vec2,
+    load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, Color32, ColorImage,
+    Context, DragValue, Frame, Image, Margin, Rect, Response, RichText, ScrollArea, Slider, Stroke,
+    TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
 };
 use egui_file::{DialogType, FileDialog};
 use std::{
@@ -50,7 +50,7 @@ impl App {
                     DialogType::SaveFile => {
                         FileDialog::save_file(file_path.clone()).show_files_filter(filter)
                     }
-                    _ => unimplemented!("Unsupported dialog type"),
+                    _ => panic!("Unsupported dialog type"),
                 };
                 dialog.open();
                 *file_dialog = Some(dialog);
@@ -241,20 +241,32 @@ impl App {
             ui.label(Self::new_text("Brightness: "));
             ui.radio_value(
                 &mut self.brightness_strategy,
-                BrightnessStrategy::Linear,
-                Self::new_text("Linear"),
-            );
-            ui.radio_value(
-                &mut self.brightness_strategy,
                 BrightnessStrategy::Golly,
                 Self::new_text("Golly"),
-            );
+            )
+            .on_hover_text(Self::new_text(
+                "Pixels that contain any alive cells will have max brighness",
+            ));
             ui.radio_value(
                 &mut self.brightness_strategy,
-                BrightnessStrategy::Custom,
-                Self::new_text("Custom"),
-            );
+                BrightnessStrategy::Linear,
+                Self::new_text("Linear"),
+            )
+            .on_hover_text(Self::new_text("Linear between min and max population"));
+            ui.radio_value(
+                &mut self.brightness_strategy,
+                BrightnessStrategy::Sigmoid,
+                Self::new_text("Sigmoid"),
+            )
+            .on_hover_text(Self::new_text("Sigmoid on shifted normalized population"));
         });
+
+        if matches!(self.brightness_strategy, BrightnessStrategy::Sigmoid) {
+            ui.horizontal(|ui| {
+                ui.label(Self::new_text("Shift: "));
+                ui.add(Slider::new(&mut self.brightness_shift, -2.0..=2.0));
+            });
+        }
 
         if ui.add(Self::new_button("Reset config")).clicked() {
             self.reset_appearance();
@@ -276,29 +288,25 @@ impl App {
             let aw = ui.available_width();
 
             ui.horizontal(|ui| {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        self.draw_viewport_controls(ctx, ui);
-                    });
-
-                    // to adjust the bounds
-                    ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
+                ui.vertical(|ui| {
+                    self.draw_viewport_controls(ctx, ui);
                 });
+
+                // to adjust the bounds
+                ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
             });
 
             ui.horizontal(|ui| {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        self.draw_appearance_controls(ui);
+                ui.vertical(|ui| {
+                    self.draw_appearance_controls(ui);
 
-                        ui.add_space(Config::WIDGET_GAP);
+                    ui.add_space(Config::WIDGET_GAP);
 
-                        self.draw_stats(ui);
-                    });
-
-                    // to adjust the bounds
-                    ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
+                    self.draw_stats(ui);
                 });
+
+                // to adjust the bounds
+                ui.add_space((Config::CONTROL_PANEL_WIDTH - aw + ui.available_width()).max(0.));
             });
         });
     }
@@ -321,9 +329,11 @@ impl App {
             &mut self.viewport_buf,
         );
 
-        let gray = self
-            .brightness_strategy
-            .transform(resolution as usize, &self.viewport_buf);
+        let gray = self.brightness_strategy.transform(
+            resolution as usize,
+            &self.viewport_buf,
+            self.brightness_shift,
+        );
 
         let ci = ColorImage::from_gray([resolution as usize; 2], &gray);
         let texture_options = TextureOptions {
@@ -349,22 +359,27 @@ impl App {
 
         let size_px = area
             .y
-            .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN);
+            .min(area.x - Config::CONTROL_PANEL_WIDTH - Config::FRAME_MARGIN * 5.);
         ui.horizontal(|ui| {
             ui.add_sized([Config::CONTROL_PANEL_WIDTH, area.y], |ui: &mut Ui| {
                 ui.vertical(|ui| {
-                    ScrollArea::vertical()
-                        .auto_shrink(false)
-                        .max_width(f32::INFINITY)
-                        .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+                    Frame::default()
+                        .fill(Color32::GRAY)
+                        .rounding(Config::ROUNDING)
+                        .stroke(Stroke::new(Config::STROKE_WIDTH, Color32::DARK_GRAY))
+                        .inner_margin(Margin::same(Config::FRAME_MARGIN))
                         .show(ui, |ui| {
-                            ui.with_layout(
-                                eframe::egui::Layout::top_down(eframe::egui::Align::LEFT)
-                                    .with_cross_justify(true),
-                                |ui| {
-                                    self.draw_controls(ctx, ui);
-                                },
-                            );
+                            ScrollArea::vertical()
+                                .scroll_bar_visibility(ScrollBarVisibility::VisibleWhenNeeded)
+                                .show(ui, |ui| {
+                                    ui.with_layout(
+                                        eframe::egui::Layout::top_down(eframe::egui::Align::LEFT)
+                                            .with_cross_justify(true),
+                                        |ui| {
+                                            self.draw_controls(ctx, ui);
+                                        },
+                                    );
+                                });
                         });
                 });
                 ui.label("")

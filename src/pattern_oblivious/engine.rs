@@ -114,6 +114,10 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
+    fn from_macrocell(_data: &[u8]) -> Self {
+        unimplemented!()
+    }
+
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized,
@@ -126,6 +130,10 @@ impl Engine for PatternObliviousEngine {
             data: cells,
             n: 1 << n_log2,
         }
+    }
+
+    fn save_into_macrocell(&self) -> Vec<u8> {
+        unimplemented!()
     }
 
     fn get_cells(&self) -> Vec<u64> {
@@ -170,7 +178,7 @@ impl Engine for PatternObliviousEngine {
         size: &mut f64,
         resolution: &mut f64,
         dst: &mut Vec<f64>,
-    ) -> u32 {
+    ) {
         *viewport_x = 0.;
         *viewport_y = 0.;
         *size = self.n as f64;
@@ -182,7 +190,6 @@ impl Engine for PatternObliviousEngine {
                 dst[(x + y * self.n) as usize] = self.get_cell(x, y) as u8 as f64;
             }
         }
-        0
     }
 
     fn stats_fast(&self) -> String {
