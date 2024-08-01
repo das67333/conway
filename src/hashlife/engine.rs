@@ -60,6 +60,7 @@ impl HashLifeEngine {
         sw: NodeIdx,
         se: NodeIdx,
         steps: u64,
+        size_log2: u32,
     ) -> NodeIdx {
         let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| self.mem.get(x).leaf_cells());
 
@@ -81,7 +82,7 @@ impl HashLifeEngine {
         }
 
         let arr: [u16; 8] = src[4..12].try_into().unwrap();
-        self.mem.find_leaf(arr.map(|x| (x >> 4) as u8))
+        self.mem.find_leaf(arr.map(|x| (x >> 4) as u8), size_log2)
     }
 
     // It can be significantly optimized, but update_nodes_double is much slower anyway.
@@ -221,54 +222,63 @@ impl HashLifeEngine {
                     self.mem.get(nwne).sw,
                     self.mem.get(nwsw).ne,
                     self.mem.get(nwse).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(nwne).se,
                     self.mem.get(nenw).sw,
                     self.mem.get(nwse).ne,
                     self.mem.get(nesw).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(nenw).se,
                     self.mem.get(nene).sw,
                     self.mem.get(nesw).ne,
                     self.mem.get(nese).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(nwsw).se,
                     self.mem.get(nwse).sw,
                     self.mem.get(swnw).ne,
                     self.mem.get(swne).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(nwse).se,
                     self.mem.get(nesw).sw,
                     self.mem.get(swne).ne,
                     self.mem.get(senw).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(nesw).se,
                     self.mem.get(nese).sw,
                     self.mem.get(senw).ne,
                     self.mem.get(sene).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(swnw).se,
                     self.mem.get(swne).sw,
                     self.mem.get(swsw).ne,
                     self.mem.get(swse).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(swne).se,
                     self.mem.get(senw).sw,
                     self.mem.get(swse).ne,
                     self.mem.get(sesw).nw,
+                    size_log2 - 1,
                 ),
                 self.mem.find_node(
                     self.mem.get(senw).se,
                     self.mem.get(sene).sw,
                     self.mem.get(sesw).ne,
                     self.mem.get(sese).nw,
+                    size_log2 - 1,
                 ),
             ]
         } else {
@@ -278,65 +288,74 @@ impl HashLifeEngine {
                     self.mem.get(nwne).leaf_sw(),
                     self.mem.get(nwsw).leaf_ne(),
                     self.mem.get(nwse).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(nwne).leaf_se(),
                     self.mem.get(nenw).leaf_sw(),
                     self.mem.get(nwse).leaf_ne(),
                     self.mem.get(nesw).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(nenw).leaf_se(),
                     self.mem.get(nene).leaf_sw(),
                     self.mem.get(nesw).leaf_ne(),
                     self.mem.get(nese).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(nwsw).leaf_se(),
                     self.mem.get(nwse).leaf_sw(),
                     self.mem.get(swnw).leaf_ne(),
                     self.mem.get(swne).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(nwse).leaf_se(),
                     self.mem.get(nesw).leaf_sw(),
                     self.mem.get(swne).leaf_ne(),
                     self.mem.get(senw).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(nesw).leaf_se(),
                     self.mem.get(nese).leaf_sw(),
                     self.mem.get(senw).leaf_ne(),
                     self.mem.get(sene).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(swnw).leaf_se(),
                     self.mem.get(swne).leaf_sw(),
                     self.mem.get(swsw).leaf_ne(),
                     self.mem.get(swse).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(swne).leaf_se(),
                     self.mem.get(senw).leaf_sw(),
                     self.mem.get(swse).leaf_ne(),
                     self.mem.get(sesw).leaf_nw(),
+                    size_log2 - 1,
                 ),
                 self.mem.find_leaf_from_parts(
                     self.mem.get(senw).leaf_se(),
                     self.mem.get(sene).leaf_sw(),
                     self.mem.get(sesw).leaf_ne(),
                     self.mem.get(sese).leaf_nw(),
+                    size_log2 - 1,
                 ),
             ]
         };
-        let q00 = self.mem.find_node(t00, t01, t10, t11);
-        let q01 = self.mem.find_node(t01, t02, t11, t12);
-        let q10 = self.mem.find_node(t10, t11, t20, t21);
-        let q11 = self.mem.find_node(t11, t12, t21, t22);
+        let q00 = self.mem.find_node(t00, t01, t10, t11, size_log2);
+        let q01 = self.mem.find_node(t01, t02, t11, t12, size_log2);
+        let q10 = self.mem.find_node(t10, t11, t20, t21, size_log2);
+        let q11 = self.mem.find_node(t11, t12, t21, t22, size_log2);
 
         let [s00, s01, s10, s11] = [q00, q01, q10, q11].map(|x| self.update_node(x, size_log2));
 
-        self.mem.find_node(s00, s01, s10, s11)
+        self.mem.find_node(s00, s01, s10, s11, size_log2)
     }
 
     #[cfg(not(feature = "prefetch"))]
@@ -432,25 +451,25 @@ impl HashLifeEngine {
         let t00 = self.update_node(nw, size_log2);
 
         let t01 = {
-            let node = self.mem.find_node_prefetched(&su0);
+            let node = self.mem.find_node_prefetched(&su0, size_log2);
             self.update_node(node, size_log2)
         };
         let t02 = self.update_node(ne, size_log2);
         let t12 = {
-            let node = self.mem.find_node_prefetched(&su1);
+            let node = self.mem.find_node_prefetched(&su1, size_log2);
             self.update_node(node, size_log2)
         };
         let t11 = {
-            let node = self.mem.find_node_prefetched(&su2);
+            let node = self.mem.find_node_prefetched(&su2, size_log2);
             self.update_node(node, size_log2)
         };
         let t10 = {
-            let node = self.mem.find_node_prefetched(&su3);
+            let node = self.mem.find_node_prefetched(&su3, size_log2);
             self.update_node(node, size_log2)
         };
         let t20 = self.update_node(sw, size_log2);
         let t21 = {
-            let node = self.mem.find_node_prefetched(&su4);
+            let node = self.mem.find_node_prefetched(&su4, size_log2);
             self.update_node(node, size_log2)
         };
         let t22 = self.update_node(se, size_log2);
@@ -461,22 +480,22 @@ impl HashLifeEngine {
         let su2 = self.mem.setup_prefetch(t00, t01, t10, t11);
         let su3 = self.mem.setup_prefetch(t01, t02, t11, t12);
         let t_se = {
-            let node = self.mem.find_node_prefetched(&su5);
+            let node = self.mem.find_node_prefetched(&su5, size_log2);
             self.update_node(node, size_log2)
         };
         let t_sw = {
-            let node = self.mem.find_node_prefetched(&su1);
+            let node = self.mem.find_node_prefetched(&su1, size_log2);
             self.update_node(node, size_log2)
         };
         let t_nw = {
-            let node = self.mem.find_node_prefetched(&su2);
+            let node = self.mem.find_node_prefetched(&su2, size_log2);
             self.update_node(node, size_log2)
         };
         let t_ne = {
-            let node = self.mem.find_node_prefetched(&su3);
+            let node = self.mem.find_node_prefetched(&su3, size_log2);
             self.update_node(node, size_log2)
         };
-        self.mem.find_node(t_nw, t_ne, t_sw, t_se)
+        self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
     }
 
     fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
@@ -494,7 +513,7 @@ impl HashLifeEngine {
             } else {
                 1 << self.steps_per_update_log2
             };
-            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps, size_log2)
         } else if do_full_step {
             self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2)
         } else {
@@ -549,7 +568,7 @@ impl HashLifeEngine {
                             }
                         }
                     }
-                    nodes_curr.push(mem.find_leaf(data));
+                    nodes_curr.push(mem.find_leaf(data, LEAF_SIZE.ilog2()));
                 }
             }
             let mut t = OTCA_SIZE / LEAF_SIZE;
@@ -560,7 +579,13 @@ impl HashLifeEngine {
                         let ne = nodes_curr[((x + 1) + y * t) as usize];
                         let sw = nodes_curr[(x + (y + 1) * t) as usize];
                         let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                        nodes_next.push(mem.find_node(nw, ne, sw, se));
+                        nodes_next.push(mem.find_node(
+                            nw,
+                            ne,
+                            sw,
+                            se,
+                            OTCA_SIZE.ilog2() - t.ilog2() + 1,
+                        ));
                     }
                 }
                 std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -571,7 +596,7 @@ impl HashLifeEngine {
             nodes_curr.pop().unwrap()
         });
         // creating next-levels OTCA nodes
-        for _ in 1..depth {
+        for d in 1..depth {
             let otca_nodes_next = [0, 1].map(|i| {
                 for y in 0..OTCA_SIZE {
                     for x in 0..OTCA_SIZE {
@@ -588,7 +613,13 @@ impl HashLifeEngine {
                             let ne = nodes_curr[((x + 1) + y * t) as usize];
                             let sw = nodes_curr[(x + (y + 1) * t) as usize];
                             let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                            nodes_next.push(mem.find_node(nw, ne, sw, se));
+                            nodes_next.push(mem.find_node(
+                                nw,
+                                ne,
+                                sw,
+                                se,
+                                (d + 1) * OTCA_SIZE.ilog2() - t.ilog2() + 1,
+                            ));
                         }
                     }
                     std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -616,7 +647,13 @@ impl HashLifeEngine {
                     let ne = nodes_curr[(x + 1) + y * t];
                     let sw = nodes_curr[x + (y + 1) * t];
                     let se = nodes_curr[(x + 1) + (y + 1) * t];
-                    nodes_next.push(mem.find_node(nw, ne, sw, se));
+                    nodes_next.push(mem.find_node(
+                        nw,
+                        ne,
+                        sw,
+                        se,
+                        depth * OTCA_SIZE.ilog2() + k.ilog2() - t.ilog2() + 1,
+                    ));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -638,9 +675,9 @@ impl HashLifeEngine {
 
     pub fn get_blank_node(mem: &mut Manager, size_log2: u32) -> NodeIdx {
         assert!(size_log2 >= LEAF_SIZE.ilog2());
-        let mut node = mem.find_leaf([0; 8]);
-        for _ in LEAF_SIZE.ilog2()..size_log2 {
-            node = mem.find_node(node, node, node, node);
+        let mut node = mem.find_leaf([0; 8], LEAF_SIZE.ilog2());
+        for d in LEAF_SIZE.ilog2()..size_log2 {
+            node = mem.find_node(node, node, node, node, d + 1);
         }
         node
     }
@@ -650,9 +687,9 @@ impl Engine for HashLifeEngine {
     fn blank(n_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         let mut hashtable = Manager::new();
-        let mut node = hashtable.find_leaf([0; LEAF_SIZE as usize]);
-        for _ in LEAF_SIZE.ilog2()..n_log2 {
-            node = hashtable.find_node(node, node, node, node);
+        let mut node = hashtable.find_leaf([0; LEAF_SIZE as usize], LEAF_SIZE.ilog2());
+        for d in LEAF_SIZE.ilog2()..n_log2 {
+            node = hashtable.find_node(node, node, node, node, d + 1);
         }
         Self {
             n_log2,
@@ -706,7 +743,7 @@ impl Engine for HashLifeEngine {
                             .unwrap_or_else(|| panic!("Node with code {} not found", x))
                     }
                 });
-                mem.find_node(nw, ne, sw, se)
+                mem.find_node(nw, ne, sw, se, size_log2)
             } else {
                 // is leaf
                 let mut cells = 0u64;
@@ -727,7 +764,7 @@ impl Engine for HashLifeEngine {
                     }
                 }
                 assert!(i <= 8);
-                mem.find_leaf(cells.to_le_bytes())
+                mem.find_leaf(cells.to_le_bytes(), LEAF_SIZE.ilog2())
             };
             nodes_cnt += 1;
             codes.insert(nodes_cnt, node);
@@ -743,51 +780,52 @@ impl Engine for HashLifeEngine {
     }
 
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
-        let mut hashtable = Manager::new();
-        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
-        let n = 1 << n_log2;
+        // assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
+        // assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
+        // let mut hashtable = Manager::new();
+        // let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
+        // let n = 1 << n_log2;
 
-        for y in 0..n / LEAF_SIZE {
-            for x in 0..n / LEAF_SIZE {
-                let mut data = [0; LEAF_SIZE as usize];
-                for sy in 0..LEAF_SIZE {
-                    for sx in 0..LEAF_SIZE {
-                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
-                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
-                        if cells[idx / 64] & (1 << (idx % 64)) != 0 {
-                            data[pos as usize] |= mask;
-                        }
-                    }
-                }
-                nodes_curr.push(hashtable.find_leaf(data));
-            }
-        }
-        let mut t = n / LEAF_SIZE;
-        while t != 1 {
-            for y in (0..t).step_by(2) {
-                for x in (0..t).step_by(2) {
-                    let nw = nodes_curr[(x + y * t) as usize];
-                    let ne = nodes_curr[((x + 1) + y * t) as usize];
-                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
-                }
-            }
-            std::mem::swap(&mut nodes_curr, &mut nodes_next);
-            nodes_next.clear();
-            t >>= 1;
-        }
-        assert_eq!(nodes_curr.len(), 1);
-        let root = nodes_curr.pop().unwrap();
-        Self {
-            n_log2,
-            root,
-            steps_per_update_log2: 0,
-            mem: hashtable,
-        }
+        // for y in 0..n / LEAF_SIZE {
+        //     for x in 0..n / LEAF_SIZE {
+        //         let mut data = [0; LEAF_SIZE as usize];
+        //         for sy in 0..LEAF_SIZE {
+        //             for sx in 0..LEAF_SIZE {
+        //                 let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
+        //                 let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
+        //                 let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
+        //                 if cells[idx / 64] & (1 << (idx % 64)) != 0 {
+        //                     data[pos as usize] |= mask;
+        //                 }
+        //             }
+        //         }
+        //         nodes_curr.push(hashtable.find_leaf(data));
+        //     }
+        // }
+        // let mut t = n / LEAF_SIZE;
+        // while t != 1 {
+        //     for y in (0..t).step_by(2) {
+        //         for x in (0..t).step_by(2) {
+        //             let nw = nodes_curr[(x + y * t) as usize];
+        //             let ne = nodes_curr[((x + 1) + y * t) as usize];
+        //             let sw = nodes_curr[(x + (y + 1) * t) as usize];
+        //             let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
+        //             nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+        //         }
+        //     }
+        //     std::mem::swap(&mut nodes_curr, &mut nodes_next);
+        //     nodes_next.clear();
+        //     t >>= 1;
+        // }
+        // assert_eq!(nodes_curr.len(), 1);
+        // let root = nodes_curr.pop().unwrap();
+        // Self {
+        //     n_log2,
+        //     root,
+        //     steps_per_update_log2: 0,
+        //     mem: hashtable,
+        // }
+        unimplemented!()
     }
 
     fn save_into_macrocell(&self) -> Vec<u8> {
@@ -912,36 +950,37 @@ impl Engine for HashLifeEngine {
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        fn inner(
-            mut x: u64,
-            mut y: u64,
-            mut size: u64,
-            node: NodeIdx,
-            state: bool,
-            mem: &mut Manager,
-        ) -> NodeIdx {
-            let n = mem.get(node);
-            if size == LEAF_SIZE {
-                let mut data = n.leaf_cells();
-                let mask = 1 << x;
-                if state {
-                    data[y as usize] |= mask;
-                } else {
-                    data[y as usize] &= !mask;
-                }
-                mem.find_leaf(data)
-            } else {
-                let mut arr = [n.nw, n.ne, n.sw, n.se];
-                size >>= 1;
-                let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-                x -= (x >= size) as u64 * size;
-                y -= (y >= size) as u64 * size;
-                arr[idx] = inner(x, y, size, arr[idx], state, mem);
-                mem.find_node(arr[0], arr[1], arr[2], arr[3])
-            }
-        }
+        // fn inner(
+        //     mut x: u64,
+        //     mut y: u64,
+        //     mut size: u64,
+        //     node: NodeIdx,
+        //     state: bool,
+        //     mem: &mut Manager,
+        // ) -> NodeIdx {
+        //     let n = mem.get(node);
+        //     if size == LEAF_SIZE {
+        //         let mut data = n.leaf_cells();
+        //         let mask = 1 << x;
+        //         if state {
+        //             data[y as usize] |= mask;
+        //         } else {
+        //             data[y as usize] &= !mask;
+        //         }
+        //         mem.find_leaf(data)
+        //     } else {
+        //         let mut arr = [n.nw, n.ne, n.sw, n.se];
+        //         size >>= 1;
+        //         let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
+        //         x -= (x >= size) as u64 * size;
+        //         y -= (y >= size) as u64 * size;
+        //         arr[idx] = inner(x, y, size, arr[idx], state, mem);
+        //         mem.find_node(arr[0], arr[1], arr[2], arr[3], size.ilog2() + 1)
+        //     }
+        // }
 
-        self.root = inner(x, y, 1 << self.n_log2, self.root, state, &mut self.mem);
+        // self.root = inner(x, y, 1 << self.n_log2, self.root, state, &mut self.mem);
+        unimplemented!()
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
@@ -956,26 +995,26 @@ impl Engine for HashLifeEngine {
             // add frame of blank cells around the field
             let r = self.mem.get(self.root).clone();
             let b = Self::get_blank_node(&mut self.mem, self.n_log2 - 1);
-            let nw = self.mem.find_node(b, b, b, r.nw);
-            let ne = self.mem.find_node(b, b, r.ne, b);
-            let sw = self.mem.find_node(b, r.sw, b, b);
-            let se = self.mem.find_node(r.se, b, b, b);
-            self.root = self.mem.find_node(nw, ne, sw, se);
+            let nw = self.mem.find_node(b, b, b, r.nw, self.n_log2);
+            let ne = self.mem.find_node(b, b, r.ne, b, self.n_log2);
+            let sw = self.mem.find_node(b, r.sw, b, b, self.n_log2);
+            let se = self.mem.find_node(r.se, b, b, b, self.n_log2);
             self.n_log2 += 1;
+            self.root = self.mem.find_node(nw, ne, sw, se, self.n_log2);
             assert!(self.n_log2 <= MAX_SIDE_LOG2);
             dx += 1 << (self.n_log2 - 2);
             dy += 1 << (self.n_log2 - 2);
         }
         let top = {
             let r = self.mem.get(self.root).clone();
-            let q = self.mem.find_node(r.se, r.sw, r.ne, r.nw);
-            self.mem.find_node(q, q, q, q)
+            let q = self.mem.find_node(r.se, r.sw, r.ne, r.nw, self.n_log2);
+            self.mem.find_node(q, q, q, q, self.n_log2 + 1)
         };
         let q = {
             let q = self.update_node(top, self.n_log2 + 1);
             self.mem.get(q)
         };
-        self.root = self.mem.find_node(q.nw, q.ne, q.sw, q.se);
+        self.root = self.mem.find_node(q.nw, q.ne, q.sw, q.se, self.n_log2);
 
         let root = self.mem.get(self.root).clone();
         let [nw, ne, sw, se] = [
@@ -1001,8 +1040,8 @@ impl Engine for HashLifeEngine {
         {
             dx -= 1 << (self.n_log2 - 2);
             dy -= 1 << (self.n_log2 - 2);
-            self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw);
             self.n_log2 -= 1;
+            self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
         }
         [dx, dy]
     }
@@ -1159,16 +1198,22 @@ impl Engine for HashLifeEngine {
             .map(|(k, v)| (k, v.len()))
             .collect::<Vec<_>>();
         distr.sort_unstable();
-        let sum = distr.iter().map(|(_, v)| *v).sum::<usize>();
+        let sum = self.mem.size_distribution_history.iter().sum::<u64>();
 
         let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
         s.push_str("ONLY PARTS OF QUADTREE ARE CONSIDERED!\n");
-        for (size_log2, count) in distr {
+        for (i, count) in self
+            .mem
+            .size_distribution_history
+            .iter()
+            .enumerate()
+            .skip(LEAF_SIZE.ilog2() as usize)
+        {
             s.push_str(&format!(
                 "2^{:2<} -{:>3}% ({})\n",
-                size_log2,
+                i,
                 count * 100 / sum,
-                NiceInt::from_usize(count)
+                NiceInt::from(self.mem.size_distribution_history[i])
             ));
         }
 
