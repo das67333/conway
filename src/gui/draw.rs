@@ -127,8 +127,10 @@ impl App {
         ui.add_space(Config::WIDGET_GAP);
 
         ui.label(Self::new_text(&format!(
-            "Viewport:\nx: {:e}\ny: {:e}\n size: {:e}",
-            self.viewport_pos_x, self.viewport_pos_y, self.viewport_size
+            "Viewport:\nx: {}\ny: {}\n size: {}",
+            crate::utils::with_delimiters(self.viewport_pos_x as i128),
+            crate::utils::with_delimiters(self.viewport_pos_y as i128),
+            crate::utils::with_delimiters(self.viewport_size as i128)
         )));
 
         if ui.add(Self::new_button("Reset viewport")).clicked() {

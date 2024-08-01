@@ -1122,7 +1122,7 @@ impl Engine for HashLifeEngine {
         s.push_str(&format!("Side length: 2^{}\n", self.n_log2));
         s.push_str(&format!(
             "Population: {}\n",
-            self.mem.get(self.root).population
+            crate::utils::with_delimiters(self.mem.get(self.root).population as i128)
         ));
         s.push('\n');
         s.push_str(&self.mem.stats_fast());
@@ -1168,7 +1168,7 @@ impl Engine for HashLifeEngine {
                 "2^{:2<} -{:>3}% ({})\n",
                 size_log2,
                 count * 100 / sum,
-                count
+                crate::utils::with_delimiters(count as i128)
             ));
         }
 

@@ -7,12 +7,7 @@ pub enum BrightnessStrategy {
 
 impl BrightnessStrategy {
     /// Transforms populations into single-channel image data.
-    pub fn transform(
-        &self,
-        resolution: usize,
-        data: &[f64],
-        brightness_shift: f64,
-    ) -> Vec<u8> {
+    pub fn transform(&self, resolution: usize, data: &[f64], brightness_shift: f64) -> Vec<u8> {
         assert_eq!(data.len(), resolution * resolution);
         match self {
             Self::Golly => data

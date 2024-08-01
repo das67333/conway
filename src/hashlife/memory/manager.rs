@@ -168,18 +168,19 @@ impl Manager {
 
         s.push_str(&format!(
             "memory on hashtable: {} MB\n",
-            (self.hashtable.len() * 4) >> 20
+            crate::utils::with_delimiters(((self.hashtable.len() * 4) >> 20) as i128)
         ));
 
         s.push_str(&format!(
             "hashtable elements / buckets: {} / {}\n",
-            self.ht_size,
-            self.hashtable.len()
+            crate::utils::with_delimiters(self.ht_size as i128),
+            crate::utils::with_delimiters(self.hashtable.len() as i128)
         ));
 
         s.push_str(&format!(
             "hashtable misses / hits: {} / {}\n",
-            self.misses, self.hits
+            crate::utils::with_delimiters(self.misses as i128),
+            crate::utils::with_delimiters(self.hits as i128)
         ));
 
         s
@@ -203,7 +204,12 @@ impl Manager {
         let sum = lengths.iter().sum::<usize>();
         let mut s = "Chain lengths distribution:\n".to_string();
         for (i, &len) in lengths.iter().enumerate() {
-            s.push_str(&format!("{:<2}-{:>3}% ({})\n", i, len * 100 / sum, len));
+            s.push_str(&format!(
+                "{:<2}-{:>3}% ({})\n",
+                i,
+                len * 100 / sum,
+                crate::utils::with_delimiters(len as i128)
+            ));
         }
 
         s

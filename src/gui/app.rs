@@ -1,8 +1,7 @@
 use super::{BrightnessStrategy, Config, FieldSource, FpsLimiter};
 use crate::{Engine, HashLifeEngine, Topology};
 use eframe::egui::{
-    CentralPanel, Color32, ColorImage, Context, Frame, Key, Rect, TextureHandle,
-    TextureOptions,
+    CentralPanel, Color32, ColorImage, Context, Frame, Key, Rect, TextureHandle, TextureOptions,
 };
 use egui_file::FileDialog;
 use std::{path::PathBuf, time::Instant};
