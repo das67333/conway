@@ -9,7 +9,7 @@ pub struct Manager {
     // all allocated nodes
     storage: Vec<Box<[QuadTreeNode; CHUNK_SIZE]>>,
     // total number of initiallized nodes in the storage
-    storage_size: usize,
+    pub storage_size: usize,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // total number of elements in the hashtable
@@ -44,11 +44,13 @@ impl Manager {
         }
     }
 
+    #[inline]
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
         &self.storage[i][j]
     }
 
+    #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
         let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
         &mut self.storage[i][j]
@@ -112,12 +114,12 @@ impl Manager {
             let cells = u64::from_le_bytes(cells);
             n.ne = NodeIdx::new(cells as u32);
             n.sw = NodeIdx::new((cells >> 32) as u32);
-            n.population = cells.count_ones() as f64;
         }
         self.insert(index, node);
         node
     }
 
+    #[inline]
     /// Find a node with the given parts.
     /// If the node is not found, it is created.
     pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
@@ -143,9 +145,6 @@ impl Manager {
         }
         self.misses += 1;
 
-        let population = (self.get(nw).population + self.get(ne).population)
-            + (self.get(sw).population + self.get(se).population);
-
         node = self.new_node();
         {
             let n = self.get_mut(node);
@@ -153,7 +152,6 @@ impl Manager {
             n.ne = ne;
             n.sw = sw;
             n.se = se;
-            n.population = population;
         }
         self.insert(index, node);
         node
@@ -267,15 +265,12 @@ impl Manager {
             node = next;
         }
         self.misses += 1;
-        let population = (self.get(nw).population + self.get(ne).population)
-            + (self.get(sw).population + self.get(se).population);
         node = self.new_node();
         let n = self.get_mut(node);
         n.nw = nw;
         n.ne = ne;
         n.sw = sw;
         n.se = se;
-        n.population = population;
         self.insert(index, node);
         node
     }

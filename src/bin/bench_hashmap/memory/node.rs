@@ -2,24 +2,28 @@
 pub struct NodeIdx(u32);
 
 impl NodeIdx {
+    #[inline]
     pub fn new(idx: u32) -> Self {
         NodeIdx(idx)
     }
 
+    #[inline]
     pub fn null() -> Self {
         NodeIdx(0)
     }
 
+    #[inline]
     pub fn is_null(&self) -> bool {
         self.0 == 0
     }
 
+    #[inline]
     pub fn get(&self) -> usize {
         self.0 as usize
     }
 }
 
-#[repr(align(32))]
+// #[repr(align(32))]
 #[derive(Clone)]
 pub struct QuadTreeNode {
     // 1) nw == null means that the node is a leaf
@@ -34,8 +38,6 @@ pub struct QuadTreeNode {
     pub next: NodeIdx,
     // cached result of update; for leaf nodes is unused
     pub cache: NodeIdx,
-    // total number of alive cells in the subtree
-    pub population: f64,
 }
 
 impl QuadTreeNode {
@@ -49,7 +51,18 @@ impl QuadTreeNode {
         h as usize
     }
 
+    #[inline]
     pub fn node_hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
+        // 6364136223846793005
+        // 
+        // for (int i = 1; i < k64; i++) {
+        //     h -= (h << 7);
+        //     h += hcopy[i];
+        // }
+        // let (h0, h1) = (nw.0 as u64 | (ne.0 as u64) << 32, sw.0 as u64 | (se.0 as u64) << 32);
+        // (h0 + h1 * 6364136223846793005) as usize
+
+        // 1 + 2^2, 3 + 2^4, 5 + 2^8, 7 + 2^16
         let mut h = 5 * nw.0 as u64 + 17 * ne.0 as u64 + 257 * sw.0 as u64 + 65537 * se.0 as u64;
         h += h >> 11;
         h as usize
@@ -102,7 +115,6 @@ impl Default for QuadTreeNode {
             se: NodeIdx::null(),
             next: NodeIdx::null(),
             cache: NodeIdx::null(),
-            population: 0.,
         }
     }
 }
