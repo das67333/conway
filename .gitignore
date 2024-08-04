@@ -1,6 +1,7 @@
 target/
 Cargo.lock
 .*
-golly-4.3-src/
+hashbrown/
+golly*
+lifelib*
 lifealg/
-lifelib/

@@ -1,4 +1,10 @@
-#![warn(clippy::all)]
+#![warn(
+    clippy::all,
+    clippy::restriction,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+)]
 
 fn main() {
     use eframe::egui::{vec2, ViewportBuilder};
