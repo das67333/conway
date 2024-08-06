@@ -1,19 +1,15 @@
 use super::{NodeIdx, QuadTreeNode};
 
-const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
-const HASHTABLE_MAX_LOAD_FACTOR: f64 = 1.2;
-const CHUNK_SIZE: usize = (1 << 18) / std::mem::size_of::<QuadTreeNode>();
+// const HASHTABLE_MAX_LOAD_FACTOR: f64 = 0.7;
 
 /// Hashtable for finding nodes (to avoid duplicates)
 pub struct Manager {
     // all allocated nodes
-    storage: Vec<Box<[QuadTreeNode; CHUNK_SIZE]>>,
-    // total number of initiallized nodes in the storage
-    pub storage_size: usize,
+    storage: Vec<QuadTreeNode>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // total number of elements in the hashtable
-    ht_size: usize,
+    pub ht_size: usize,
     // how many times elements were found in the hashtable
     hits: u64,
     // how many times elements were inserted into the hashtable
@@ -30,15 +26,17 @@ pub struct PrefetchedNode {
 }
 
 impl Manager {
-    /// Create a new memory manager.
-    pub fn new() -> Self {
-        assert!(HASHTABLE_BUF_INITIAL_SIZE.is_power_of_two());
+    /// Create a new memory manager with a given capacity.
+    /// 
+    /// `cap` must be a power of two!
+    #[must_use]
+    pub fn with_capacity(cap: usize) -> Self {
+        assert!(cap.is_power_of_two(), "Capacity must be a power of two");
         Self {
             // first node must be reserved for null
-            storage: vec![Box::new(std::array::from_fn(|_| QuadTreeNode::default()))],
-            storage_size: 1,
-            hashtable: vec![NodeIdx::null(); HASHTABLE_BUF_INITIAL_SIZE],
-            ht_size: 0,
+            storage: vec![QuadTreeNode::default(); cap],
+            hashtable: vec![NodeIdx::null(); cap],
+            ht_size: 1,
             hits: 0,
             misses: 0,
         }
@@ -46,14 +44,12 @@ impl Manager {
 
     #[inline]
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
-        let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
-        &self.storage[i][j]
+        &self.storage[idx.get()]
     }
 
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
-        let (i, j) = (idx.get() / CHUNK_SIZE, idx.get() % CHUNK_SIZE);
-        &mut self.storage[i][j]
+        &mut self.storage[idx.get()]
     }
 
     /// Find a leaf node with the given parts.
@@ -161,7 +157,7 @@ impl Manager {
     pub fn stats(&self, verbose: bool) -> String {
         let mut s = String::new();
 
-        let mem = self.storage.len() * CHUNK_SIZE * std::mem::size_of::<QuadTreeNode>();
+        let mem = self.storage.len() * std::mem::size_of::<QuadTreeNode>();
         s.push_str(&format!("memory on nodes: {} MB\n", mem >> 20));
 
         s.push_str(&format!(
@@ -276,13 +272,10 @@ impl Manager {
     }
 
     fn new_node(&mut self) -> NodeIdx {
-        if self.storage_size % CHUNK_SIZE == 0 {
-            self.storage
-                .push(Box::new(std::array::from_fn(|_| QuadTreeNode::default())));
-        }
-        self.storage_size += 1;
+        self.ht_size += 1;
+        assert!(self.ht_size <= self.storage.len(), "Node storage overflow, realloc disabled");
         NodeIdx::new(
-            (self.storage_size - 1)
+            (self.ht_size - 1)
                 .try_into()
                 .expect("Nodes storage overflowed u32"),
         )
@@ -291,12 +284,11 @@ impl Manager {
     /// Insert a node into the hashtable.
     /// index must be hash(node) % buf.len(); node must not be present in the hashtable
     fn insert(&mut self, index: usize, node: NodeIdx) {
-        self.ht_size += 1;
         self.get_mut(node).next = self.hashtable[index];
         self.hashtable[index] = node;
-        if self.ht_size as f64 > self.hashtable.len() as f64 * HASHTABLE_MAX_LOAD_FACTOR {
-            self.rehash();
-        }
+        // if self.ht_size as f64 > self.hashtable.len() as f64 * HASHTABLE_MAX_LOAD_FACTOR {
+        //     self.rehash();
+        // }
     }
 
     fn rehash(&mut self) {
@@ -319,11 +311,5 @@ impl Manager {
             }
         }
         self.hashtable = new_buf;
-    }
-}
-
-impl Default for Manager {
-    fn default() -> Self {
-        Self::new()
     }
 }
