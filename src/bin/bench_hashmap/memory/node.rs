@@ -9,12 +9,12 @@ impl NodeIdx {
 
     #[inline]
     pub fn null() -> Self {
-        NodeIdx(0)
+        NodeIdx(u32::MAX)
     }
 
     #[inline]
     pub fn is_null(&self) -> bool {
-        self.0 == 0
+        self.0 == u32::MAX
     }
 
     #[inline]

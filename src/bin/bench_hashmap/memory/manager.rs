@@ -27,7 +27,7 @@ pub struct PrefetchedNode {
 
 impl Manager {
     /// Create a new memory manager with a given capacity.
-    /// 
+    ///
     /// `cap` must be a power of two!
     #[must_use]
     pub fn with_capacity(cap: usize) -> Self {
@@ -36,7 +36,7 @@ impl Manager {
             // first node must be reserved for null
             storage: vec![QuadTreeNode::default(); cap],
             hashtable: vec![NodeIdx::null(); cap],
-            ht_size: 1,
+            ht_size: 0,
             hits: 0,
             misses: 0,
         }
@@ -273,7 +273,10 @@ impl Manager {
 
     fn new_node(&mut self) -> NodeIdx {
         self.ht_size += 1;
-        assert!(self.ht_size <= self.storage.len(), "Node storage overflow, realloc disabled");
+        assert!(
+            self.ht_size <= self.storage.len(),
+            "Node storage overflow, realloc disabled"
+        );
         NodeIdx::new(
             (self.ht_size - 1)
                 .try_into()

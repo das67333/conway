@@ -9,9 +9,9 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
 
     let mut rng = ChaCha8Rng::seed_from_u64(42);
     let mut indices = (0..n)
-        .map(|_| [0; 4].map(|_| rng.gen::<u32>()))
+        .map(|_| [0; 4].map(|_| rng.gen::<u32>() & (m - 1) as u32))
         .collect::<Vec<_>>();
-    assert_eq!(mem.ht_size - 1, 0);
+    assert_eq!(mem.ht_size, 0);
 
     let t = std::time::Instant::now();
 
@@ -25,7 +25,7 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
     }
 
     let ns_per_insert = t.elapsed().as_secs_f64() * 1e9 / n as f64;
-    assert_eq!(mem.ht_size - 1, n as usize);
+    assert_eq!(mem.ht_size, n as usize);
 
     indices.shuffle(&mut rng);
     let t = std::time::Instant::now();
@@ -40,16 +40,16 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
     }
 
     let ns_per_find = t.elapsed().as_secs_f64() * 1e9 / n as f64;
-    assert_eq!(mem.ht_size - 1, n as usize);
+    assert_eq!(mem.ht_size, n as usize);
 
     (ns_per_insert, ns_per_find)
 }
 
 fn main() {
     let m = 1usize << 23;
-    let k_max = 100;
+    let k_max = 1;
     for k in 1..=k_max {
-        let n = m * k / k_max - 1;
+        let n = m * k / k_max;
         let (ns_per_insert, ns_per_find) = bench_with_capacity(n, m);
         println!("{} {} {:.2} {:.2}", n, m, ns_per_insert, ns_per_find);
     }
