@@ -114,10 +114,6 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn from_macrocell(_data: &[u8]) -> Self {
-        unimplemented!()
-    }
-
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized,
@@ -130,10 +126,6 @@ impl Engine for PatternObliviousEngine {
             data: cells,
             n: 1 << n_log2,
         }
-    }
-
-    fn save_into_macrocell(&self) -> Vec<u8> {
-        unimplemented!()
     }
 
     fn get_cells(&self) -> Vec<u64> {
@@ -172,7 +164,7 @@ impl Engine for PatternObliviousEngine {
     }
 
     fn fill_texture(
-        &self,
+        &mut self,
         viewport_x: &mut f64,
         viewport_y: &mut f64,
         size: &mut f64,
@@ -192,7 +184,7 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn stats_fast(&self) -> String {
+    fn stats_fast(&mut self) -> String {
         format!("memory on field: {} bytes", self.data.len() * 8)
     }
 }

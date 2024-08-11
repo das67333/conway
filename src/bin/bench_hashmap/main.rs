@@ -1,11 +1,14 @@
 #[allow(unused)]
 mod memory;
-use memory::{Manager, NodeIdx};
+mod node;
+
+use memory::MemoryManager;
+use node::NodeIdx;
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
-    let mut mem = Manager::with_capacity(m);
+    let mut mem = MemoryManager::with_capacity(m);
 
     let mut rng = ChaCha8Rng::seed_from_u64(42);
     let mut indices = (0..n)
@@ -47,9 +50,8 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
 
 fn main() {
     let m = 1usize << 23;
-    let k_max = 1;
-    for k in 1..=k_max {
-        let n = m * k / k_max;
+    for k in 1..=7 {
+        let n = m * k / 10;
         let (ns_per_insert, ns_per_find) = bench_with_capacity(n, m);
         println!("{} {} {:.2} {:.2}", n, m, ns_per_insert, ns_per_find);
     }

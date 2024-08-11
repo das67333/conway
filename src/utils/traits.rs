@@ -42,7 +42,9 @@ pub trait Engine {
 
     fn from_macrocell(_data: &[u8]) -> Self
     where
-        Self: Sized;
+        Self: Sized {
+            unimplemented!()
+        }
 
     /// Create a square field from a vector of cells
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
@@ -50,7 +52,9 @@ pub trait Engine {
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn save_into_macrocell(&self) -> Vec<u8>;
+    fn save_into_macrocell(&mut self) -> Vec<u8> {
+        unimplemented!()
+    }
 
     fn get_cells(&self) -> Vec<u64>;
 
@@ -76,7 +80,7 @@ pub trait Engine {
     ///
     /// `dst` - buffer of texture; it should be resized to `resolution * resolution`.
     fn fill_texture(
-        &self,
+        &mut self,
         viewport_x: &mut f64,
         viewport_y: &mut f64,
         size: &mut f64,
@@ -87,12 +91,12 @@ pub trait Engine {
     /// Returns multiline string reporting engine stats.
     ///
     /// This function is fast enough to be called every frame.
-    fn stats_fast(&self) -> String {
+    fn stats_fast(&mut self) -> String {
         String::new()
     }
 
     /// Additional stats that are slow to compute.
-    fn stats_slow(&self) -> String {
+    fn stats_slow(&mut self) -> String {
         String::new()
     }
 }
