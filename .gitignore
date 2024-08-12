@@ -3,5 +3,5 @@ Cargo.lock
 .*
 hashbrown/
 golly*
-lifelib*
+lifelib_original/
 lifealg/
