@@ -86,6 +86,7 @@ impl HashLifeEngine {
     }
 
     // Original Golly version with 9 recursive calls
+    #[allow(dead_code)]
     fn update_nodes_single_golly(
         &mut self,
         nw: NodeIdx,

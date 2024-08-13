@@ -1,9 +1,4 @@
-#[allow(unused)]
-mod memory;
-mod node;
-
-use memory::MemoryManager;
-use node::NodeIdx;
+use conway::hashlife::*;
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 

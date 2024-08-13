@@ -1,5 +1,5 @@
 mod gui;
-mod hashlife;
+pub mod hashlife; // pub for benchmarks in separate binaries
 mod pattern_oblivious;
 mod utils;
 
