@@ -2,7 +2,7 @@ use conway::{Engine, HashLifeEngine, Topology};
 use std::time::Instant;
 
 fn main() {
-    const STEPS_LOG2: u32 = 10;
+    const STEPS_LOG2: u32 = 12;
 
     let timer = Instant::now();
 
@@ -13,4 +13,6 @@ fn main() {
     let timer = Instant::now();
     engine.update(STEPS_LOG2, Topology::Unbounded);
     println!("Time on big update: {:?}", timer.elapsed());
+
+    println!("{}", engine.stats_fast());
 }

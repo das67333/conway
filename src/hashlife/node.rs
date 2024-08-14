@@ -7,6 +7,7 @@ impl NodeIdx {
         NodeIdx(idx)
     }
 
+    /// null() might refer to a real node! It is not equivalent to None!
     #[inline]
     pub fn null() -> Self {
         NodeIdx(0)
@@ -29,7 +30,7 @@ pub struct QuadTreeNode {
     pub has_next: bool,
     // metadata for hashmap:
     // 1<ones>          -> empty
-    // 1<zeros>         -> tombstone
+    // 1<zeros>         -> deleted
     // 0<is_leaf><hash> -> full
     pub metadata: u16,
 }
@@ -43,39 +44,15 @@ impl QuadTreeNode {
         self.metadata & (1 << 14) != 0
     }
 
+    // Only lower 32 bits are used
     #[inline]
-    pub fn leaf_hash(cells: [u8; 8]) -> usize {
-        let mut h = u64::from_le_bytes(cells);
-        h ^= h >> 33;
-        h = h.wrapping_mul(0xff51afd7ed558ccd);
-        h ^= h >> 33;
-        h = h.wrapping_mul(0xc4ceb9fe1a85ec53);
-        h ^= h >> 33;
-        h as usize
-    }
-
-    #[inline]
-    pub fn node_hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
-        // 6364136223846793005
-        //
-        // for (int i = 1; i < k64; i++) {
-        //     h -= (h << 7);
-        //     h += hcopy[i];
-        // }
-        // let (h0, h1) = (nw.0 as u64 | (ne.0 as u64) << 32, sw.0 as u64 | (se.0 as u64) << 32);
-        // (h0 + h1 * 6364136223846793005) as usize
-
-        // 1 + 2^2, 3 + 2^4, 5 + 2^8, 7 + 2^16
-        let mut h = 5 * nw.0 as u64 + 17 * ne.0 as u64 + 257 * sw.0 as u64 + 65537 * se.0 as u64;
-        h += h >> 11;
-        h as usize
-        //     let mut h = 0u32
-        //     .wrapping_add(nw.0.wrapping_mul(5))
-        //     .wrapping_add(ne.0.wrapping_mul(17))
-        //     .wrapping_add(sw.0.wrapping_mul(257))
-        //     .wrapping_add(se.0.wrapping_mul(65537));
-        // h += h >> 11;
-        // h as usize
+    pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
+        let h = 0u32
+            .wrapping_add(nw.0.wrapping_mul(5))
+            .wrapping_add(ne.0.wrapping_mul(17))
+            .wrapping_add(sw.0.wrapping_mul(257))
+            .wrapping_add(se.0.wrapping_mul(65537));
+        h.wrapping_add(h >> 11) as usize
     }
 
     /// Returns the cells of a leaf node row by row.
