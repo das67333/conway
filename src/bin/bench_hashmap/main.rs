@@ -23,7 +23,9 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
     }
 
     let ns_per_insert = t.elapsed().as_secs_f64() * 1e9 / n as f64;
-    assert_eq!(mem.ht_size, n as usize);
+    assert_eq!(mem.ht_size, n);
+    println!("{}", mem.stats());
+    println!("{:/<1$}", "", 64);
 
     indices.shuffle(&mut rng);
     let t = std::time::Instant::now();
@@ -38,14 +40,14 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
     }
 
     let ns_per_find = t.elapsed().as_secs_f64() * 1e9 / n as f64;
-    assert_eq!(mem.ht_size, n as usize);
+    assert_eq!(mem.ht_size, n);
 
     (ns_per_insert, ns_per_find)
 }
 
 fn main() {
-    let m = 1usize << 23;
-    for k in 1..=7 {
+    let m = 1usize << 26;
+    for k in 7..=7 {
         let n = m * k / 10;
         let (ns_per_insert, ns_per_find) = bench_with_capacity(n, m);
         println!("{} {} {:.2} {:.2}", n, m, ns_per_insert, ns_per_find);

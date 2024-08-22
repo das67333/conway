@@ -42,9 +42,10 @@ pub trait Engine {
 
     fn from_macrocell(_data: &[u8]) -> Self
     where
-        Self: Sized {
-            unimplemented!()
-        }
+        Self: Sized,
+    {
+        unimplemented!()
+    }
 
     /// Create a square field from a vector of cells
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self

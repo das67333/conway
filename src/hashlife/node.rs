@@ -28,20 +28,24 @@ pub struct QuadTreeNode {
     pub se: NodeIdx,
     pub next: NodeIdx, // cached result of update
     pub has_next: bool,
-    // metadata for hashmap:
-    // 1<ones>          -> empty
-    // 1<zeros>         -> deleted
-    // 0<is_leaf><hash> -> full
-    pub metadata: u16,
+    pub ctrl: u8, // control byte for hashmap
 }
 
 impl QuadTreeNode {
-    pub const METADATA_EMPTY: u16 = !0;
-    pub const METADATA_DELETED: u16 = 1 << 15;
+    // control byte:
+    // 11111111     -> empty
+    // 11000000     -> deleted
+    // 10<hash>     -> full (leaf)
+    // 0<hash>      -> full (node)
+    pub const CTRL_EMPTY: u8 = !0;
+    pub const CTRL_DELETED: u8 = 3 << 6;
+    pub const CTRL_LEAF_BASE: u8 = 2 << 6;
+    pub const CTRL_LEAF_MASK: u8 = (1 << 6) - 1;
+    pub const CTRL_NODE_MASK: u8 = (1 << 7) - 1;
 
     #[inline]
     pub fn is_leaf(&self) -> bool {
-        self.metadata & (1 << 14) != 0
+        self.ctrl >> 6 == 2
     }
 
     // Only lower 32 bits are used
@@ -102,7 +106,7 @@ impl Default for QuadTreeNode {
             se: NodeIdx::null(),
             next: NodeIdx::null(),
             has_next: false,
-            metadata: Self::METADATA_EMPTY,
+            ctrl: Self::CTRL_EMPTY,
         }
     }
 }

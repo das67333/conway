@@ -75,18 +75,18 @@ impl MemoryManager {
         let ne = NodeIdx::new(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx::null(); 2];
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        self.find_inner(nw, ne, sw, se, hash, true)
+        unsafe { self.find_inner(nw, ne, sw, se, hash, true) }
     }
 
     #[inline]
     pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        self.find_inner(nw, ne, sw, se, hash, false)
+        unsafe { self.find_inner(nw, ne, sw, se, hash, false) }
     }
 
     #[inline]
     /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
-    fn find_inner(
+    unsafe fn find_inner(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -102,24 +102,28 @@ impl MemoryManager {
         // 1<ones>          -> empty
         // 1<zeros>         -> deleted
         // 0<is_leaf><hash> -> full
-        let meta_full = {
-            let mut t = hash as u16 & ((1 << 14) - 1);
+        let ctrl_full = {
+            let hash_compressed = {
+                let mut h = hash;
+                h ^= h >> 16;
+                h ^= h >> 8;
+                h as u8
+            };
             if is_leaf {
-                t |= 1 << 14;
+                QuadTreeNode::CTRL_LEAF_BASE | (QuadTreeNode::CTRL_LEAF_MASK & hash_compressed)
+            } else {
+                QuadTreeNode::CTRL_NODE_MASK & hash_compressed
             }
-            t
         };
 
         loop {
             let n = unsafe { self.hashtable.get_unchecked(index) };
-            if n.metadata == meta_full {
-                if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                    self.hits += 1;
-                    break;
-                }
+            if n.ctrl == ctrl_full && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+                self.hits += 1;
+                break;
             }
 
-            if n.metadata == QuadTreeNode::METADATA_EMPTY {
+            if n.ctrl == QuadTreeNode::CTRL_EMPTY {
                 self.hashtable[index] = QuadTreeNode {
                     nw,
                     ne,
@@ -127,7 +131,7 @@ impl MemoryManager {
                     se,
                     next: NodeIdx::null(),
                     has_next: false,
-                    metadata: meta_full,
+                    ctrl: ctrl_full,
                 };
                 self.ht_size += 1;
                 self.misses += 1;
@@ -135,9 +139,7 @@ impl MemoryManager {
             }
 
             index = (index + step as usize) & mask;
-            step = step
-                .checked_add(1)
-                .expect("The chain of collisions reached a length of 256, allocate more memory");
+            step = step.wrapping_add(1);
         }
 
         NodeIdx::new(index as u32)
@@ -148,14 +150,14 @@ impl MemoryManager {
         let mut s = String::new();
 
         s.push_str(&format!(
-            "memory on hashtable: {}/{} MB\n",
+            "hashtable size/capacity: {}/{} MB\n",
             NiceInt::from_usize((self.ht_size * std::mem::size_of::<QuadTreeNode>()) >> 20),
             NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
         ));
 
         s.push_str(&format!(
             "hashtable load factor: {:.3}\n",
-            self.ht_size as f64 / self.hashtable.len() as f64
+            self.ht_size as f64 / self.hashtable.len() as f64,
         ));
 
         s.push_str(&format!(
@@ -257,3 +259,6 @@ impl MemoryManager {
         cells
     }
 }
+
+#[test]
+fn f() {}
