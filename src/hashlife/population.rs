@@ -17,16 +17,21 @@ impl PopulationManager {
             *val
         } else {
             let n = mem.get(node);
-            if n.is_leaf() {
-                return (n.nw.get().count_ones() + n.ne.get().count_ones()) as f64;
-            }
-            let population = self.get(n.nw, mem)
-                + self.get(n.ne, mem)
-                + self.get(n.sw, mem)
-                + self.get(n.se, mem);
+            let population = if n.is_leaf() {
+                (n.nw.get().count_ones() + n.ne.get().count_ones()) as f64
+            } else {
+                self.get(n.nw, mem)
+                    + self.get(n.ne, mem)
+                    + self.get(n.sw, mem)
+                    + self.get(n.se, mem)
+            };
             self.cache.insert(node, population);
             population
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.cache.clear();
     }
 }
 

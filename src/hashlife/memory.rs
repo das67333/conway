@@ -69,11 +69,13 @@ impl MemoryManager {
         }
     }
 
+    /// Get a const reference to the node with the given index.
     #[inline]
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { self.hashtable.get_unchecked(idx.get()) }
     }
 
+    /// Get a mutable reference to the node with the given index.
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
         unsafe { self.hashtable.get_unchecked_mut(idx.get()) }
@@ -146,9 +148,6 @@ impl MemoryManager {
         let mut index = hash & mask;
         let mut step = 1u8;
 
-        // 1<ones>          -> empty
-        // 1<zeros>         -> deleted
-        // 0<is_leaf><hash> -> full
         let ctrl_full = {
             let hash_compressed = {
                 let mut h = hash;
@@ -190,6 +189,13 @@ impl MemoryManager {
         }
 
         NodeIdx::new(index as u32)
+    }
+
+    pub fn clear_cache(&mut self) {
+        for n in self.hashtable.iter_mut() {
+            n.next = NodeIdx::null();
+            n.has_next = false;
+        }
     }
 
     /// Statistics about the memory manager that are fast to compute.

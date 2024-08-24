@@ -6,6 +6,7 @@ pub struct HashLifeEngine {
     n_log2: u32,
     root: NodeIdx,
     steps_per_update_log2: u32,
+    has_cache: bool,
     mem: MemoryManager,
     population: PopulationManager,
 }
@@ -457,7 +458,7 @@ impl HashLifeEngine {
         });
 
         if depth == 0 {
-            unimplemented!("Use `from_cells` instead");
+            panic!("Use `from_cells` instead");
         }
 
         let mut mem = MemoryManager::new();
@@ -561,6 +562,7 @@ impl HashLifeEngine {
             n_log2,
             root,
             steps_per_update_log2: 0,
+            has_cache: false,
             mem,
             population: PopulationManager::new(),
         }
@@ -588,6 +590,7 @@ impl Engine for HashLifeEngine {
             n_log2,
             root: node,
             steps_per_update_log2: 0,
+            has_cache: false,
             mem: hashtable,
             population: PopulationManager::new(),
         }
@@ -669,6 +672,7 @@ impl Engine for HashLifeEngine {
             n_log2: size_log2,
             root: last_node.unwrap(),
             steps_per_update_log2: 0,
+            has_cache: false,
             mem,
             population: PopulationManager::new(),
         }
@@ -718,6 +722,7 @@ impl Engine for HashLifeEngine {
             n_log2,
             root,
             steps_per_update_log2: 0,
+            has_cache: false,
             mem: hashtable,
             population: PopulationManager::new(),
         }
@@ -886,12 +891,12 @@ impl Engine for HashLifeEngine {
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
-        if self.steps_per_update_log2 != steps_log2 {
-            if self.steps_per_update_log2 != 0 {
-                unimplemented!()
-            }
-            self.steps_per_update_log2 = steps_log2;
+        if self.has_cache && self.steps_per_update_log2 != steps_log2 {
+            self.mem.clear_cache();
         }
+        self.has_cache = true;
+        self.steps_per_update_log2 = steps_log2;
+
         let (mut dx, mut dy) = (0, 0);
         if matches!(topology, Topology::Unbounded) {
             // add frame of blank cells around the field
@@ -925,6 +930,7 @@ impl Engine for HashLifeEngine {
             self.mem.get(root.sw).clone(),
             self.mem.get(root.se).clone(),
         ];
+        // pop frame of blank cells around the field if present
         if matches!(topology, Topology::Unbounded)
             && self.n_log2 > MIN_SIDE_LOG2
             && self.population.get(nw.sw, &self.mem) == 0.
@@ -1064,9 +1070,14 @@ impl Engine for HashLifeEngine {
     fn stats_fast(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
         s.push_str(&format!("Side length: 2^{}\n", self.n_log2));
+        let timer = std::time::Instant::now();
         s.push_str(&format!(
             "Population: {}\n",
             NiceInt::from_f64(self.population.get(self.root, &self.mem))
+        ));
+        s.push_str(&format!(
+            "Population compute time: {}",
+            timer.elapsed().as_secs_f64()
         ));
         s.push('\n');
         s.push_str(&self.mem.stats_fast());

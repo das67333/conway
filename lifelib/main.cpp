@@ -9,7 +9,7 @@ void test(apg::lifetree_abstract<unsigned> *lt) {
 
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    auto y = x.advance(1 << 10);
+    auto y = x.advance(1 << 12);
 
     auto t2 = std::chrono::high_resolution_clock::now();
 

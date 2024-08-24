@@ -68,9 +68,7 @@ pub trait Engine {
 
     /// Update the field `2^{iters_log2}` times
     ///
-    /// If `unbounded` is `false`, then the field's topology is a torus.
-    ///
-    /// Returns the coordinate offset after the update.
+    /// Returns coordinate shift caused by the update.
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
 
     /// Fills the texture of given resolution with a part of field
