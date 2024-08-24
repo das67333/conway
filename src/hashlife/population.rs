@@ -29,3 +29,9 @@ impl PopulationManager {
         }
     }
 }
+
+impl Default for PopulationManager {
+    fn default() -> Self {
+        PopulationManager::new()
+    }
+}

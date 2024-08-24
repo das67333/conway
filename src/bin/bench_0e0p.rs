@@ -15,4 +15,5 @@ fn main() {
     println!("Time on big update: {:?}", timer.elapsed());
 
     println!("{}", engine.stats_fast());
+    println!("{}", engine.stats_slow());
 }

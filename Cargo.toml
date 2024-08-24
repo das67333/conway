@@ -25,4 +25,3 @@ debug = true
 
 [features]
 default = []
-prefetch = []

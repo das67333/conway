@@ -24,7 +24,7 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
 
     let ns_per_insert = t.elapsed().as_secs_f64() * 1e9 / n as f64;
     assert_eq!(mem.ht_size, n);
-    println!("{}", mem.stats());
+    println!("{}", mem.stats_fast());
     println!("{:/<1$}", "", 64);
 
     indices.shuffle(&mut rng);

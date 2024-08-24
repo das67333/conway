@@ -3,7 +3,9 @@ mod memory;
 mod node;
 mod population;
 
-pub use memory::MemoryManager;
+pub const LEAF_SIZE: u64 = 8;
+
+pub use memory::{MemoryManager, PrefetchedNode};
 pub use node::{NodeIdx, QuadTreeNode};
 pub use population::PopulationManager;
 

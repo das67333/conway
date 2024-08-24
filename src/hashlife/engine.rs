@@ -1,8 +1,6 @@
-use super::{MemoryManager, NodeIdx, PopulationManager};
+use super::{MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE};
 use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use std::collections::HashMap;
-
-const LEAF_SIZE: u64 = 8;
 
 pub struct HashLifeEngine {
     n_log2: u32,
@@ -341,7 +339,6 @@ impl HashLifeEngine {
         self.mem.find_node(s00, s01, s10, s11)
     }
 
-    #[cfg(not(feature = "prefetch"))]
     #[inline(never)]
     fn update_nodes_double(
         &mut self,
@@ -351,135 +348,63 @@ impl HashLifeEngine {
         se: NodeIdx,
         size_log2: u32,
     ) -> NodeIdx {
-        let nwne = self.mem.get(nw).ne;
-        let nwsw = self.mem.get(nw).sw;
-        let nwse = self.mem.get(nw).se;
-
-        let nenw = self.mem.get(ne).nw;
-        let nesw = self.mem.get(ne).sw;
-        let nese = self.mem.get(ne).se;
-
-        let swnw = self.mem.get(sw).nw;
-        let swne = self.mem.get(sw).ne;
-        let swse = self.mem.get(sw).se;
-
-        let senw = self.mem.get(se).nw;
-        let sene = self.mem.get(se).ne;
-        let sesw = self.mem.get(se).sw;
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
 
         // First stage
-        let t11 = {
-            let node = self.mem.find_node(nwse, nesw, swne, senw);
-            self.update_node(node, size_log2)
-        };
+        let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw);
+        let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw);
+        let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne);
+        let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne);
+        let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw);
+
         let t00 = self.update_node(nw, size_log2);
         let t01 = {
-            let node = self.mem.find_node(nwne, nenw, nwse, nesw);
+            let node = p01.find();
             self.update_node(node, size_log2)
         };
         let t02 = self.update_node(ne, size_log2);
         let t12 = {
-            let node = self.mem.find_node(nesw, nese, senw, sene);
+            let node = p12.find();
+            self.update_node(node, size_log2)
+        };
+        let t11 = {
+            let node = p11.find();
             self.update_node(node, size_log2)
         };
         let t10 = {
-            let node = self.mem.find_node(nwsw, nwse, swnw, swne);
+            let node = p10.find();
             self.update_node(node, size_log2)
         };
         let t20 = self.update_node(sw, size_log2);
         let t21 = {
-            let node = self.mem.find_node(swne, senw, swse, sesw);
+            let node = p21.find();
             self.update_node(node, size_log2)
         };
         let t22 = self.update_node(se, size_log2);
 
         // Second stage
+        let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22);
+        let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21);
+        let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11);
+        let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12);
         let t_se = {
-            let node = self.mem.find_node(t11, t12, t21, t22);
+            let node = pse.find();
             self.update_node(node, size_log2)
         };
         let t_sw = {
-            let node = self.mem.find_node(t10, t11, t20, t21);
+            let node = psw.find();
             self.update_node(node, size_log2)
         };
         let t_nw = {
-            let node = self.mem.find_node(t00, t01, t10, t11);
+            let node = pnw.find();
             self.update_node(node, size_log2)
         };
         let t_ne = {
-            let node = self.mem.find_node(t01, t02, t11, t12);
+            let node = pne.find();
             self.update_node(node, size_log2)
         };
         self.mem.find_node(t_nw, t_ne, t_sw, t_se)
     }
-
-    // #[cfg(feature = "prefetch")]
-    // #[inline(never)]
-    // fn update_nodes_double(
-    //     &mut self,
-    //     nw: NodeIdx,
-    //     ne: NodeIdx,
-    //     sw: NodeIdx,
-    //     se: NodeIdx,
-    //     size_log2: u32,
-    // ) -> NodeIdx {
-    //     let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
-
-    //     // First stage
-    //     let su2 = self.mem.setup_prefetch(nw_.se, ne_.sw, sw_.ne, se_.nw);
-    //     let su0 = self.mem.setup_prefetch(nw_.ne, ne_.nw, nw_.se, ne_.sw);
-    //     let su1 = self.mem.setup_prefetch(ne_.sw, ne_.se, se_.nw, se_.ne);
-    //     let su3 = self.mem.setup_prefetch(nw_.sw, nw_.se, sw_.nw, sw_.ne);
-    //     let su4 = self.mem.setup_prefetch(sw_.ne, se_.nw, sw_.se, se_.sw);
-    //     let t00 = self.update_node(nw, size_log2);
-
-    //     let t01 = {
-    //         let node = self.mem.find_node_prefetched(&su0, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t02 = self.update_node(ne, size_log2);
-    //     let t12 = {
-    //         let node = self.mem.find_node_prefetched(&su1, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t11 = {
-    //         let node = self.mem.find_node_prefetched(&su2, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t10 = {
-    //         let node = self.mem.find_node_prefetched(&su3, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t20 = self.update_node(sw, size_log2);
-    //     let t21 = {
-    //         let node = self.mem.find_node_prefetched(&su4, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t22 = self.update_node(se, size_log2);
-
-    //     // Second stage
-    //     let su5 = self.mem.setup_prefetch(t11, t12, t21, t22);
-    //     let su1 = self.mem.setup_prefetch(t10, t11, t20, t21);
-    //     let su2 = self.mem.setup_prefetch(t00, t01, t10, t11);
-    //     let su3 = self.mem.setup_prefetch(t01, t02, t11, t12);
-    //     let t_se = {
-    //         let node = self.mem.find_node_prefetched(&su5, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t_sw = {
-    //         let node = self.mem.find_node_prefetched(&su1, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t_nw = {
-    //         let node = self.mem.find_node_prefetched(&su2, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     let t_ne = {
-    //         let node = self.mem.find_node_prefetched(&su3, size_log2);
-    //         self.update_node(node, size_log2)
-    //     };
-    //     self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
-    // }
 
     fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
@@ -1144,64 +1069,14 @@ impl Engine for HashLifeEngine {
             NiceInt::from_f64(self.population.get(self.root, &self.mem))
         ));
         s.push('\n');
-        s.push_str(&self.mem.stats());
+        s.push_str(&self.mem.stats_fast());
 
         s
     }
 
-    // fn stats_slow(&self) -> String {
-    //     // IMPOSSIBLE TO CALCULATE FOR ALL NODES: NEED TO STORE SIZE_LOG2 IN EVERY NODE
-    //     // Nodes' sizes (side lengths) distribution
-    //     use std::collections::{HashMap, HashSet};
-    //     fn inner(
-    //         node: NodeIdx,
-    //         size_log2: u32,
-    //         mem: &Manager,
-    //         distribution: &mut HashMap<u32, HashSet<NodeIdx>>,
-    //     ) {
-    //         if !distribution.entry(size_log2).or_default().insert(node) {
-    //             return;
-    //         }
-    //         let n = mem.get(node);
-    //         if !n.nw.is_null() {
-    //             inner(n.nw, size_log2 - 1, mem, distribution);
-    //             inner(n.ne, size_log2 - 1, mem, distribution);
-    //             inner(n.sw, size_log2 - 1, mem, distribution);
-    //             inner(n.se, size_log2 - 1, mem, distribution);
-    //         }
-    //     }
-
-    //     let mut distribution = HashMap::new();
-    //     inner(self.root, self.n_log2, &self.mem, &mut distribution);
-    //     let mut distr = distribution
-    //         .into_iter()
-    //         .map(|(k, v)| (k, v.len()))
-    //         .collect::<Vec<_>>();
-    //     distr.sort_unstable();
-    //     let sum = self.mem.size_distribution_history.iter().sum::<u64>();
-
-    //     let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
-    //     s.push_str("ONLY PARTS OF QUADTREE ARE CONSIDERED!\n");
-    //     for (i, count) in self
-    //         .mem
-    //         .size_distribution_history
-    //         .iter()
-    //         .enumerate()
-    //         .skip(LEAF_SIZE.ilog2() as usize)
-    //     {
-    //         s.push_str(&format!(
-    //             "2^{:2<} -{:>3}% ({})\n",
-    //             i,
-    //             count * 100 / sum,
-    //             NiceInt::from(self.mem.size_distribution_history[i])
-    //         ));
-    //     }
-
-    //     s.push('\n');
-    //     s.push_str(&self.mem.stats_slow());
-
-    //     s
-    // }
+    fn stats_slow(&mut self) -> String {
+        self.mem.stats_slow()
+    }
 }
 
 impl Default for HashLifeEngine {
