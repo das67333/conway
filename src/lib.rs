@@ -1,6 +1,6 @@
 mod gui;
 mod pattern_oblivious;
-pub mod quadtree; // pub for benchmarks in separate binaries
+mod quadtree;
 mod utils;
 
 pub use gui::{App, Config};

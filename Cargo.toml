@@ -10,9 +10,6 @@ name = "bench_otca"
 [[bin]]
 name = "bench_0e0p"
 
-[[bin]]
-name = "bench_hashmap"
-
 [dependencies]
 rand = "0.8"
 rand_chacha = "0.3"
