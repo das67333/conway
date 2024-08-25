@@ -1,4 +1,4 @@
-use conway::hashlife::*;
+use conway::quadtree::*;
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
