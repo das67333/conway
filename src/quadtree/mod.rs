@@ -2,7 +2,7 @@ mod hashlife;
 mod memory;
 mod node;
 mod population;
-mod streamlife;
+// mod streamlife;
 
 pub const LEAF_SIZE: u64 = 8;
 

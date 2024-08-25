@@ -15,10 +15,10 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
 
     for arr in indices.iter() {
         mem.find_node(
-            NodeIdx::new(arr[0]),
-            NodeIdx::new(arr[1]),
-            NodeIdx::new(arr[2]),
-            NodeIdx::new(arr[3]),
+            NodeIdx(arr[0]),
+            NodeIdx(arr[1]),
+            NodeIdx(arr[2]),
+            NodeIdx(arr[3]),
         );
     }
 
@@ -32,10 +32,10 @@ fn bench_with_capacity(n: usize, m: usize) -> (f64, f64) {
 
     for arr in indices.iter() {
         mem.find_node(
-            NodeIdx::new(arr[0]),
-            NodeIdx::new(arr[1]),
-            NodeIdx::new(arr[2]),
-            NodeIdx::new(arr[3]),
+            NodeIdx(arr[0]),
+            NodeIdx(arr[1]),
+            NodeIdx(arr[2]),
+            NodeIdx(arr[3]),
         );
     }
 

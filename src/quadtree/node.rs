@@ -1,23 +1,5 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct NodeIdx(u32);
-
-impl NodeIdx {
-    #[inline]
-    pub fn new(idx: u32) -> Self {
-        NodeIdx(idx)
-    }
-
-    /// null() might refer to a real node! It is not equivalent to None!
-    #[inline]
-    pub fn null() -> Self {
-        NodeIdx(0)
-    }
-
-    #[inline]
-    pub fn get(&self) -> usize {
-        self.0 as usize
-    }
-}
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct NodeIdx(pub u32);
 
 #[repr(align(8))]
 #[derive(Clone)]
@@ -100,11 +82,11 @@ impl QuadTreeNode {
 impl Default for QuadTreeNode {
     fn default() -> Self {
         Self {
-            nw: NodeIdx::null(),
-            ne: NodeIdx::null(),
-            sw: NodeIdx::null(),
-            se: NodeIdx::null(),
-            next: NodeIdx::null(),
+            nw: NodeIdx(0),
+            ne: NodeIdx(0),
+            sw: NodeIdx(0),
+            se: NodeIdx(0),
+            next: NodeIdx(0),
             has_next: false,
             ctrl: Self::CTRL_EMPTY,
         }

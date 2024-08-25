@@ -561,10 +561,8 @@ impl HashLifeEngine {
         Self {
             n_log2,
             root,
-            steps_per_update_log2: 0,
-            has_cache: false,
             mem,
-            population: PopulationManager::new(),
+            ..Default::default()
         }
     }
 
@@ -671,17 +669,15 @@ impl Engine for HashLifeEngine {
         Self {
             n_log2: size_log2,
             root: last_node.unwrap(),
-            steps_per_update_log2: 0,
-            has_cache: false,
             mem,
-            population: PopulationManager::new(),
+            ..Default::default()
         }
     }
 
     fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
-        let mut hashtable = MemoryManager::new();
+        let mut mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         let n = 1 << n_log2;
 
@@ -698,7 +694,7 @@ impl Engine for HashLifeEngine {
                         }
                     }
                 }
-                nodes_curr.push(hashtable.find_leaf(data));
+                nodes_curr.push(mem.find_leaf(data));
             }
         }
         let mut t = n / LEAF_SIZE;
@@ -709,7 +705,7 @@ impl Engine for HashLifeEngine {
                     let ne = nodes_curr[((x + 1) + y * t) as usize];
                     let sw = nodes_curr[(x + (y + 1) * t) as usize];
                     let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(hashtable.find_node(nw, ne, sw, se));
+                    nodes_next.push(mem.find_node(nw, ne, sw, se));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -721,10 +717,8 @@ impl Engine for HashLifeEngine {
         Self {
             n_log2,
             root,
-            steps_per_update_log2: 0,
-            has_cache: false,
-            mem: hashtable,
-            population: PopulationManager::new(),
+            mem,
+            ..Default::default()
         }
     }
 

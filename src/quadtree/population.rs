@@ -1,15 +1,14 @@
 use super::{MemoryManager, NodeIdx};
 use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct PopulationManager {
     cache: HashMap<NodeIdx, f64>,
 }
 
 impl PopulationManager {
     pub fn new() -> Self {
-        PopulationManager {
-            cache: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn get(&mut self, node: NodeIdx, mem: &MemoryManager) -> f64 {
@@ -18,7 +17,7 @@ impl PopulationManager {
         } else {
             let n = mem.get(node);
             let population = if n.is_leaf() {
-                (n.nw.get().count_ones() + n.ne.get().count_ones()) as f64
+                (n.nw.0.count_ones() + n.ne.0.count_ones()) as f64
             } else {
                 self.get(n.nw, mem)
                     + self.get(n.ne, mem)
@@ -32,11 +31,5 @@ impl PopulationManager {
 
     pub fn clear(&mut self) {
         self.cache.clear();
-    }
-}
-
-impl Default for PopulationManager {
-    fn default() -> Self {
-        PopulationManager::new()
     }
 }

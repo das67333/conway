@@ -72,13 +72,13 @@ impl MemoryManager {
     /// Get a const reference to the node with the given index.
     #[inline]
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
-        unsafe { self.hashtable.get_unchecked(idx.get()) }
+        unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
-        unsafe { self.hashtable.get_unchecked_mut(idx.get()) }
+        unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 
     /// Find a leaf node with the given parts.
@@ -118,9 +118,9 @@ impl MemoryManager {
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
     pub fn find_leaf(&mut self, cells: [u8; 8]) -> NodeIdx {
-        let nw = NodeIdx::new(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
-        let ne = NodeIdx::new(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
-        let [sw, se] = [NodeIdx::null(); 2];
+        let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
+        let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
+        let [sw, se] = [NodeIdx(0); 2];
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
         unsafe { self.find_inner(nw, ne, sw, se, hash, true) }
     }
@@ -175,7 +175,7 @@ impl MemoryManager {
                     ne,
                     sw,
                     se,
-                    next: NodeIdx::null(),
+                    next: NodeIdx(0),
                     has_next: false,
                     ctrl: ctrl_full,
                 };
@@ -188,12 +188,12 @@ impl MemoryManager {
             step = step.wrapping_add(1);
         }
 
-        NodeIdx::new(index as u32)
+        NodeIdx(index as u32)
     }
 
     pub fn clear_cache(&mut self) {
         for n in self.hashtable.iter_mut() {
-            n.next = NodeIdx::null();
+            n.next = NodeIdx(0);
             n.has_next = false;
         }
     }
