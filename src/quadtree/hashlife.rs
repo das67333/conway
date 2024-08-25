@@ -1,6 +1,8 @@
-use super::{MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE};
+use super::{NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE};
 use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use std::collections::HashMap;
+
+type MemoryManager = super::MemoryManager<()>;
 
 pub struct HashLifeEngine {
     n_log2: u32,

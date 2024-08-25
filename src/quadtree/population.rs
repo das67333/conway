@@ -11,7 +11,7 @@ impl PopulationManager {
         Self::default()
     }
 
-    pub fn get(&mut self, node: NodeIdx, mem: &MemoryManager) -> f64 {
+    pub fn get<Meta: Clone + Default>(&mut self, node: NodeIdx, mem: &MemoryManager<Meta>) -> f64 {
         if let Some(val) = self.cache.get(&node) {
             *val
         } else {

@@ -209,12 +209,12 @@ impl App {
 
         ui.label(Self::new_text(&format!(
             "Generation: {}",
-            self.generation as f64
+            NiceInt::from(self.generation)
         )));
 
         ui.label(Self::new_text(&format!(
             "\nLast field update: {:.3} ms",
-            self.last_update_duration * 1e3
+            NiceInt::from((self.last_update_duration * 1e3) as i128)
         )));
     }
 

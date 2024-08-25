@@ -2,8 +2,8 @@ use super::{NodeIdx, QuadTreeNode, LEAF_SIZE};
 use crate::NiceInt;
 
 /// Wrapper around MemoryManager::find_node that prefetches the node from the hashtable.
-pub struct PrefetchedNode {
-    mem: *mut MemoryManager,
+pub struct PrefetchedNode<Meta> {
+    mem: *mut MemoryManager<Meta>,
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
@@ -11,18 +11,24 @@ pub struct PrefetchedNode {
     pub hash: usize,
 }
 
-impl PrefetchedNode {
-    pub fn new(mem: &MemoryManager, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> Self {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+impl<Meta: Clone + Default> PrefetchedNode<Meta> {
+    pub fn new(
+        mem: &MemoryManager<Meta>,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+    ) -> Self {
+        let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         let idx = hash & (mem.hashtable.len() - 1);
         unsafe {
             use std::arch::x86_64::*;
             _mm_prefetch::<_MM_HINT_T0>(
-                mem.hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
+                mem.hashtable.get_unchecked(idx) as *const QuadTreeNode<Meta> as *const i8
             );
         }
         Self {
-            mem: mem as *const MemoryManager as *mut MemoryManager,
+            mem: mem as *const MemoryManager<Meta> as *mut MemoryManager<Meta>,
             nw,
             ne,
             sw,
@@ -37,9 +43,9 @@ impl PrefetchedNode {
 }
 
 /// Hashtable that stores nodes of the quadtree
-pub struct MemoryManager {
+pub struct MemoryManager<Meta> {
     // buffer where heads of linked lists are stored
-    hashtable: Vec<QuadTreeNode>,
+    hashtable: Vec<QuadTreeNode<Meta>>,
     // total number of elements in the hashtable
     pub ht_size: usize,
     // how many times elements were found in the hashtable
@@ -48,7 +54,18 @@ pub struct MemoryManager {
     misses: u64,
 }
 
-impl MemoryManager {
+impl<Meta: Clone + Default> MemoryManager<Meta> {
+    // control byte:
+    // 00000000     -> empty
+    // 00111111     -> deleted
+    // 01<hash>     -> full (leaf)
+    // 1<hash>      -> full (node)
+    const CTRL_EMPTY: u8 = 0;
+    const CTRL_DELETED: u8 = (1 << 6) - 1;
+    const CTRL_LEAF_BASE: u8 = 1 << 6;
+    const CTRL_LEAF_MASK: u8 = (1 << 6) - 1;
+    const CTRL_NODE_BASE: u8 = 1 << 7;
+
     /// Create a new memory manager with a default capacity.
     pub fn new() -> Self {
         Self::with_capacity(1 << 28)
@@ -62,7 +79,7 @@ impl MemoryManager {
         assert!(u32::try_from(cap).is_ok(), "Capacity must fit into 32 bits");
         Self {
             // first node must be reserved for null
-            hashtable: vec![QuadTreeNode::default(); cap],
+            hashtable: vec![QuadTreeNode::<Meta>::default(); cap],
             ht_size: 0,
             hits: 0,
             misses: 0,
@@ -71,13 +88,13 @@ impl MemoryManager {
 
     /// Get a const reference to the node with the given index.
     #[inline]
-    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Meta> {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
-    pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
+    pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Meta> {
         unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 
@@ -121,7 +138,7 @@ impl MemoryManager {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx(0); 2];
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         unsafe { self.find_inner(nw, ne, sw, se, hash, true) }
     }
 
@@ -129,7 +146,7 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     #[inline]
     pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         unsafe { self.find_inner(nw, ne, sw, se, hash, false) }
     }
 
@@ -156,9 +173,9 @@ impl MemoryManager {
                 h as u8
             };
             if is_leaf {
-                QuadTreeNode::CTRL_LEAF_BASE | (QuadTreeNode::CTRL_LEAF_MASK & hash_compressed)
+                Self::CTRL_LEAF_BASE | (Self::CTRL_LEAF_MASK & hash_compressed)
             } else {
-                QuadTreeNode::CTRL_NODE_MASK & hash_compressed
+                Self::CTRL_NODE_BASE | hash_compressed
             }
         };
 
@@ -169,7 +186,7 @@ impl MemoryManager {
                 break;
             }
 
-            if n.ctrl == QuadTreeNode::CTRL_EMPTY {
+            if n.ctrl == Self::CTRL_EMPTY {
                 self.hashtable[index] = QuadTreeNode {
                     nw,
                     ne,
@@ -178,6 +195,7 @@ impl MemoryManager {
                     next: NodeIdx(0),
                     has_next: false,
                     ctrl: ctrl_full,
+                    meta: Default::default(),
                 };
                 self.ht_size += 1;
                 self.misses += 1;
@@ -204,8 +222,10 @@ impl MemoryManager {
 
         s.push_str(&format!(
             "hashtable size/capacity: {}/{} MB\n",
-            NiceInt::from_usize((self.ht_size * std::mem::size_of::<QuadTreeNode>()) >> 20),
-            NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
+            NiceInt::from_usize((self.ht_size * std::mem::size_of::<QuadTreeNode<Meta>>()) >> 20),
+            NiceInt::from_usize(
+                (self.hashtable.len() * std::mem::size_of::<QuadTreeNode<Meta>>()) >> 20
+            ),
         ));
 
         s.push_str(&format!(
@@ -227,7 +247,7 @@ impl MemoryManager {
         let mut size_log2_cnt: Vec<u64> = vec![];
 
         for mut n in self.hashtable.iter() {
-            if n.ctrl == QuadTreeNode::CTRL_EMPTY || n.ctrl == QuadTreeNode::CTRL_DELETED {
+            if n.ctrl == Self::CTRL_EMPTY || n.ctrl == Self::CTRL_DELETED {
                 continue;
             }
             let mut height = 0;
@@ -244,6 +264,7 @@ impl MemoryManager {
         let sum = size_log2_cnt.iter().sum::<u64>();
 
         let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
+        s.push_str(&format!("total - {}\n", NiceInt::from(sum)));
         for (height, count) in size_log2_cnt.iter().enumerate() {
             let percent = count * 100 / sum;
             if percent == 0 {
@@ -262,7 +283,7 @@ impl MemoryManager {
     }
 }
 
-impl Default for MemoryManager {
+impl<Meta: Clone + Default> Default for MemoryManager<Meta> {
     fn default() -> Self {
         Self::new()
     }

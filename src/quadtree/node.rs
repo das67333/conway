@@ -2,32 +2,22 @@
 pub struct NodeIdx(pub u32);
 
 #[repr(align(8))]
-#[derive(Clone)]
-pub struct QuadTreeNode {
+#[derive(Clone, Default)]
+pub struct QuadTreeNode<Meta> {
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
     pub next: NodeIdx, // cached result of update
     pub has_next: bool,
-    pub ctrl: u8, // control byte for hashmap
+    pub ctrl: u8,   // control byte for hashmap
+    pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife
 }
 
-impl QuadTreeNode {
-    // control byte:
-    // 11111111     -> empty
-    // 11000000     -> deleted
-    // 10<hash>     -> full (leaf)
-    // 0<hash>      -> full (node)
-    pub const CTRL_EMPTY: u8 = !0;
-    pub const CTRL_DELETED: u8 = 3 << 6;
-    pub const CTRL_LEAF_BASE: u8 = 2 << 6;
-    pub const CTRL_LEAF_MASK: u8 = (1 << 6) - 1;
-    pub const CTRL_NODE_MASK: u8 = (1 << 7) - 1;
-
+impl<Meta> QuadTreeNode<Meta> {
     #[inline]
     pub fn is_leaf(&self) -> bool {
-        self.ctrl >> 6 == 2
+        self.ctrl >> 6 == 1
     }
 
     // Only lower 32 bits are used
@@ -76,19 +66,5 @@ impl QuadTreeNode {
             result |= (self.ne.0 >> (i * 8 + 4) & 0xF) << (i * 4);
         }
         result as u16
-    }
-}
-
-impl Default for QuadTreeNode {
-    fn default() -> Self {
-        Self {
-            nw: NodeIdx(0),
-            ne: NodeIdx(0),
-            sw: NodeIdx(0),
-            se: NodeIdx(0),
-            next: NodeIdx(0),
-            has_next: false,
-            ctrl: Self::CTRL_EMPTY,
-        }
     }
 }
