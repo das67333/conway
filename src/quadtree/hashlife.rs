@@ -411,14 +411,14 @@ impl HashLifeEngine {
 
     fn update_node(&mut self, node: NodeIdx, mut size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
-        if n.has_next {
-            return n.next;
+        if n.has_cache {
+            return n.cache;
         }
 
         size_log2 -= 1;
 
         let do_full_step = self.steps_per_update_log2 + 1 >= size_log2;
-        let next = if size_log2 == LEAF_SIZE.ilog2() {
+        let cache = if size_log2 == LEAF_SIZE.ilog2() {
             let steps = if do_full_step {
                 LEAF_SIZE / 2
             } else {
@@ -431,9 +431,9 @@ impl HashLifeEngine {
             self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2)
         };
         let n = self.mem.get_mut(node);
-        n.next = next;
-        n.has_next = true;
-        next
+        n.cache = cache;
+        n.has_cache = true;
+        cache
     }
 
     /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.

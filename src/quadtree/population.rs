@@ -17,7 +17,7 @@ impl PopulationManager {
         } else {
             let n = mem.get(node);
             let population = if n.is_leaf() {
-                (n.nw.0.count_ones() + n.ne.0.count_ones()) as f64
+                (n.ne.0.count_ones() + n.sw.0.count_ones()) as f64
             } else {
                 self.get(n.nw, mem)
                     + self.get(n.ne, mem)
