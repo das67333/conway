@@ -16,12 +16,7 @@ pub struct QuadTreeNode<Meta> {
 }
 
 impl<Meta> QuadTreeNode<Meta> {
-    #[inline]
-    pub fn is_leaf(&self) -> bool {
-        self.nw.0 == 0
-    }
-
-    // Only lower 32 bits are used
+    // For blank nodes (without population) must return zero
     #[inline]
     pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
@@ -34,13 +29,13 @@ impl<Meta> QuadTreeNode<Meta> {
 
     /// Returns the cells of a leaf node row by row.
     pub fn leaf_cells(&self) -> [u8; 8] {
-        (self.ne.0 as u64 | (self.sw.0 as u64) << 32).to_le_bytes()
+        (self.nw.0 as u64 | (self.ne.0 as u64) << 32).to_le_bytes()
     }
 
     pub fn leaf_nw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.ne.0 >> (i * 8) & 0xF) << (i * 4);
+            result |= (self.nw.0 >> (i * 8) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -48,7 +43,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_ne(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.ne.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+            result |= (self.nw.0 >> (i * 8 + 4) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -56,7 +51,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_sw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.sw.0 >> (i * 8) & 0xF) << (i * 4);
+            result |= (self.ne.0 >> (i * 8) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -64,7 +59,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_se(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.sw.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+            result |= (self.ne.0 >> (i * 8 + 4) & 0xF) << (i * 4);
         }
         result as u16
     }

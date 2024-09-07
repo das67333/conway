@@ -1,13 +1,31 @@
-use super::{NodeIdx, QuadTreeNode};
+use crate::NiceInt;
+
+use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
 
 /// Wrapper around MemoryManager::find_node that prefetches the node from the hashtable.
 pub struct PrefetchedNode<Meta> {
-    mem: *mut MemoryManager<Meta>,
+    kiv: *mut KIVMap<Meta>,
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
     pub hash: usize,
+}
+
+/// Hashtable that stores nodes of the quadtree
+pub struct KIVMap<Meta> {
+    // all allocated nodes
+    storage: Vec<QuadTreeNode<Meta>>,
+    // buffer where heads of linked lists are stored
+    hashtable: Vec<NodeIdx>,
+    // how many times elements were found
+    pub hits: u64,
+    // how many times elements were inserted
+    pub misses: u64,
+}
+
+pub struct MemoryManager<Meta> {
+    layers: Vec<KIVMap<Meta>>,
 }
 
 impl<Meta: Clone + Default> PrefetchedNode<Meta> {
@@ -17,17 +35,22 @@ impl<Meta: Clone + Default> PrefetchedNode<Meta> {
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
+        size_log2: u32,
     ) -> Self {
         let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
-        let idx = hash & (mem.hashtable.len() - 1);
+        let kiv = unsafe {
+            mem.layers
+                .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
+        };
+        let idx = hash & (kiv.hashtable.len() - 1);
         unsafe {
             use std::arch::x86_64::*;
             _mm_prefetch::<_MM_HINT_T0>(
-                mem.hashtable.get_unchecked(idx) as *const NodeIdx as *const i8
+                kiv.hashtable.get_unchecked(idx) as *const NodeIdx as *const i8
             );
         }
         Self {
-            mem: mem as *const MemoryManager<Meta> as *mut MemoryManager<Meta>,
+            kiv: kiv as *const KIVMap<Meta> as *mut KIVMap<Meta>,
             nw,
             ne,
             sw,
@@ -37,69 +60,159 @@ impl<Meta: Clone + Default> PrefetchedNode<Meta> {
     }
 
     pub fn find(&self) -> NodeIdx {
-        unsafe { (*self.mem).find_inner(self.nw, self.ne, self.sw, self.se, self.hash) }
+        unsafe { (*self.kiv).find(self.nw, self.ne, self.sw, self.se, self.hash) }
     }
 }
 
-const HASHTABLE_BUF_INITIAL_SIZE: usize = 1;
-const CHUNK_SIZE: usize = 1 << 13;
-
-/// Hashtable for finding nodes (to avoid duplicates)
-pub struct MemoryManager<Meta> {
-    // all allocated nodes
-    // storage: Vec<Box<[QuadTreeNode<Meta>; CHUNK_SIZE]>>,
-    storage: Vec<QuadTreeNode<Meta>>,
-    // total number of initiallized nodes in the storage
-    // storage_size: usize,
-    // buffer where heads of linked lists are stored
-    hashtable: Vec<NodeIdx>,
-    // total number of elements in the hashtable
-    ht_size: usize,
-    // how many times elements were found in the hashtable
-    hits: u64,
-    // how many times elements were inserted into the hashtable
-    misses: u64,
-}
-
-impl<Meta: Clone + Default> MemoryManager<Meta> {
-    /// Create a new memory manager.
-    pub fn new() -> Self {
-        assert!(HASHTABLE_BUF_INITIAL_SIZE.is_power_of_two());
+impl<Meta: Clone + Default> KIVMap<Meta> {
+    /// Create a new memory manager with a given capacity.
+    ///
+    /// `cap` must be a power of two!
+    pub fn with_capacity(cap: usize) -> Self {
+        assert!(cap.is_power_of_two());
+        assert!(u32::try_from(cap).is_ok(), "u32 is insufficient");
+        // reserving NodeIdx(0) for blank node
+        let mut storage = vec![QuadTreeNode::default()];
+        storage[0].has_cache = true;
         Self {
-            // first node must be reserved for null
-            // storage: vec![Box::new(std::array::from_fn(|_| {
-            //     QuadTreeNode::<Meta>::default()
-            // }))],
-            storage: vec![QuadTreeNode::<Meta>::default()],
-            // storage_size: 1,
-            hashtable: vec![NodeIdx(0); HASHTABLE_BUF_INITIAL_SIZE],
-            ht_size: 0,
+            storage,
+            hashtable: vec![NodeIdx(0); cap],
             hits: 0,
             misses: 0,
         }
     }
 
-    pub fn clear_cache(&mut self) {
-        // for chunk in self.storage.iter_mut() {
-        //     for x in chunk.iter_mut() {
-        //         x.has_cache = false;
-        //         x.cache = NodeIdx(0);
-        //     }
-        // }
-        for x in self.storage.iter_mut() {
-            x.has_cache = false;
-            x.cache = NodeIdx(0);
-        }
-    }
-
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Meta> {
-        // let (i, j) = (idx.0 as usize / CHUNK_SIZE, idx.0 as usize % CHUNK_SIZE);
         unsafe { self.storage.get_unchecked(idx.0 as usize) }
     }
 
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Meta> {
-        // let (i, j) = (idx.0 as usize / CHUNK_SIZE, idx.0 as usize % CHUNK_SIZE);
         unsafe { self.storage.get_unchecked_mut(idx.0 as usize) }
+    }
+
+    pub unsafe fn rehash(&mut self) {
+        let new_size = self.hashtable.len() << 1;
+        assert!(u32::try_from(new_size).is_ok(), "u32 is insufficient");
+        let mut new_buf = vec![NodeIdx(0); new_size];
+        for mut node in std::mem::take(&mut self.hashtable) {
+            while node != NodeIdx(0) {
+                let n = self.get(node);
+                let hash = QuadTreeNode::<Meta>::hash(n.nw, n.ne, n.sw, n.se);
+                let next = n.next;
+                let index = hash & (new_size - 1);
+                self.get_mut(node).next = *new_buf.get_unchecked(index);
+                *new_buf.get_unchecked_mut(index) = node;
+                node = next;
+            }
+        }
+        self.hashtable = new_buf;
+    }
+
+    /// Find an item in hashtable; if it is not present, it is created.
+    /// Returns its index in hashtable.
+    #[inline]
+    pub unsafe fn find(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        hash: usize,
+    ) -> NodeIdx {
+        // if nw == NodeIdx(0) && ne == NodeIdx(0) && sw == NodeIdx(0) && se == NodeIdx(0) {
+        //     return NodeIdx(0);
+        // }
+        let i = hash & (self.hashtable.len() - 1);
+        let mut node = *self.hashtable.get_unchecked(i);
+        let mut prev = NodeIdx(0);
+        // search for the node in the linked list
+        while node != NodeIdx(0) {
+            let n = self.get(node);
+            let next = n.next;
+            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+                // move the node to the front of the list
+                if prev != NodeIdx(0) {
+                    self.get_mut(prev).next = n.next;
+                    self.get_mut(node).next = *self.hashtable.get_unchecked(i);
+                    *self.hashtable.get_unchecked_mut(i) = node;
+                }
+                self.hits += 1;
+                return node;
+            }
+            prev = node;
+            node = next;
+        }
+
+        self.misses += 1;
+        let idx = NodeIdx(u32::try_from(self.storage.len()).unwrap());
+        self.storage.push(QuadTreeNode {
+            nw,
+            ne,
+            sw,
+            se,
+            next: *self.hashtable.get_unchecked(i),
+            ..Default::default()
+        });
+        *self.hashtable.get_unchecked_mut(i) = idx;
+        if self.storage.len() > self.hashtable.len() {
+            // TODO: как удалять мусор
+            self.rehash();
+        }
+        assert!(idx != NodeIdx(0));
+        idx
+    }
+
+    pub fn clear_cache(&mut self) {
+        for n in self.storage.iter_mut().skip(1) {
+            n.has_cache = false;
+            n.cache = NodeIdx(0);
+        }
+    }
+
+    pub fn bytes_total(&self) -> usize {
+        self.storage.len() * std::mem::size_of::<QuadTreeNode<Meta>>()
+            + self.hashtable.len() * std::mem::size_of::<NodeIdx>()
+    }
+
+    pub fn len(&self) -> usize {
+        self.storage.len()
+    }
+}
+
+impl<Meta: Clone + Default> Default for KIVMap<Meta> {
+    fn default() -> Self {
+        Self::with_capacity(1)
+    }
+}
+
+impl<Meta: Clone + Default> MemoryManager<Meta> {
+    /// Create a new memory manager.
+    pub fn new() -> Self {
+        Self {
+            layers: vec![KIVMap::default()],
+        }
+    }
+
+    /// Get a const reference to the node with the given index.
+    #[inline]
+    pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Meta> {
+        unsafe {
+            self.layers
+                .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
+                .storage
+                .get_unchecked(idx.0 as usize)
+        }
+    }
+
+    /// Get a mutable reference to the node with the given index.
+    #[inline]
+    pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Meta> {
+        unsafe {
+            self.layers
+                .get_unchecked_mut((size_log2 - LEAF_SIZE_LOG2) as usize)
+                .storage
+                .get_unchecked_mut(idx.0 as usize)
+        }
     }
 
     /// Find a leaf node with the given parts.
@@ -126,178 +239,81 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
             se >>= 4;
             shift += 4;
         }
-        self.find_leaf(cells.to_le_bytes())
+        self.find_leaf(cells)
     }
 
     /// Find a leaf node with the given cells.
     /// If the node is not found, it is created.
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_leaf(&mut self, cells: [u8; 8]) -> NodeIdx {
-        let [nw, se] = [NodeIdx(0); 2];
-        let v = u64::from_le_bytes(cells);
-        let ne = NodeIdx(v as u32);
-        let sw = NodeIdx((v >> 32) as u32);
+    pub fn find_leaf(&mut self, cells: u64) -> NodeIdx {
+        let nw = NodeIdx(cells as u32);
+        let ne = NodeIdx((cells >> 32) as u32);
+        let [sw, se] = [NodeIdx(0); 2];
         let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
-        self.find_inner(nw, ne, sw, se, hash)
+        unsafe { self.layers.get_unchecked_mut(0).find(nw, ne, sw, se, hash) }
     }
 
     /// Find a node with the given parts.
+    ///
+    /// `size_log2` is related to the result! `nw`, `ne`, `sw`, `se` are `size_log2 - 1`
+    ///
     /// If the node is not found, it is created.
     #[inline]
-    pub fn find_node(&mut self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> NodeIdx {
-        let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
-        self.find_inner(nw, ne, sw, se, hash)
-    }
-
-    #[inline]
-    pub fn find_inner(
+    pub fn find_node(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
-        hash: usize,
+        size_log2: u32,
     ) -> NodeIdx {
-        let index = hash & (self.hashtable.len() - 1);
-        let mut node = unsafe { *self.hashtable.get_unchecked(index) };
-        let mut prev = NodeIdx(0);
-        // search for the node in the linked list
-        while node.0 != 0 {
-            let next = self.get(node).next;
-            let n = self.get(node);
-            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                // move the node to the front of the list
-                if prev.0 != 0 {
-                    self.get_mut(prev).next = n.next;
-                    self.get_mut(node).next = self.hashtable[index];
-                    self.hashtable[index] = node;
-                }
-                self.hits += 1;
-                return node;
-            }
-            prev = node;
-            node = next;
+        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
+        if self.layers.len() <= i {
+            self.layers.resize_with(i + 1, KIVMap::default);
         }
-        self.misses += 1;
-
-        node = self.new_node();
-        {
-            let n = self.get_mut(node);
-            n.nw = nw;
-            n.ne = ne;
-            n.sw = sw;
-            n.se = se;
-        }
-        self.insert(index, node);
-        node
+        unsafe { self.layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
     }
 
-    fn new_node(&mut self) -> NodeIdx {
-        // if self.storage_size % CHUNK_SIZE == 0 {
-        //     self.storage
-        //         .push(Box::new(std::array::from_fn(|_| QuadTreeNode::default())));
-        // }
-        self.storage.push(QuadTreeNode::default());
-        // self.storage_size += 1;
-        NodeIdx(
-            // (self.storage_size - 1)
-            (self.storage.len() - 1)
-                .try_into()
-                .expect("Nodes storage overflowed u32"),
-        )
-    }
-
-    /// Insert a node into the hashtable.
-    /// index must be hash(node) % buf.len(); node must not be present in the hashtable
-    fn insert(&mut self, index: usize, node: NodeIdx) {
-        self.ht_size += 1;
-        self.get_mut(node).next = self.hashtable[index];
-        self.hashtable[index] = node;
-        if self.ht_size > self.hashtable.len() / 2 {
-            self.rehash();
+    pub fn clear_cache(&mut self) {
+        for kiv in self.layers.iter_mut() {
+            kiv.clear_cache();
         }
-    }
-
-    fn rehash(&mut self) {
-        let new_size = self.hashtable.len() * 2;
-        let mut new_buf = vec![NodeIdx(0); new_size];
-        for i in 0..self.hashtable.len() {
-            let mut node = self.hashtable[i];
-            while node.0 != 0 {
-                let n = self.get(node);
-                let hash = QuadTreeNode::<Meta>::hash(n.nw, n.ne, n.sw, n.se);
-                let next = n.next;
-                let index = hash & (new_size - 1);
-                self.get_mut(node).next = new_buf[index];
-                new_buf[index] = node;
-                node = next;
-            }
-        }
-        self.hashtable = new_buf;
     }
 
     /// Get statistics about the memory manager.
     pub fn stats_fast(&self) -> String {
-        // let mut s = String::new();
+        let mut s = String::new();
 
-        // let mem = self.storage.len() * CHUNK_SIZE * std::mem::size_of::<QuadTreeNode<Meta>>();
-        // s.push_str(&format!("memory on nodes: {} MB\n", mem >> 20));
+        let total_bytes = self.layers.iter().map(|m| m.bytes_total()).sum::<usize>();
+        s += &format!(
+            "memory consumption: {} MB\n",
+            NiceInt::from_usize(total_bytes >> 20),
+        );
 
-        // s.push_str(&format!(
-        //     "memory on hashtable: {} MB\n",
-        //     NiceInt::from_usize((self.hashtable.len() * 4) >> 20)
-        // ));
+        let total_misses = self.layers.iter().map(|m| m.misses).sum::<u64>();
+        let total_hits = self.layers.iter().map(|m| m.hits).sum::<u64>();
+        s += &format!(
+            "hashtable misses / hits: {} / {}\n",
+            NiceInt::from(total_misses),
+            NiceInt::from(total_hits),
+        );
 
-        // s.push_str(&format!(
-        //     "hashtable elements / buckets: {} / {}\n",
-        //     NiceInt::from_usize(self.ht_size),
-        //     NiceInt::from_usize(self.hashtable.len())
-        // ));
-
-        // s.push_str(&format!(
-        //     "hashtable misses / hits: {} / {}\n",
-        //     NiceInt::from(self.misses),
-        //     NiceInt::from(self.hits)
-        // ));
-
-        // s
-        String::new()
+        let nodes_total = self.layers.iter().map(|m| m.len()).sum::<usize>();
+        s += "Nodes' sizes (side lengths) distribution:\n";
+        s += &format!("total - {}\n", NiceInt::from_usize(nodes_total));
+        for (i, m) in self.layers.iter().enumerate() {
+            let percent = m.len() * 100 / nodes_total;
+            if percent == 0 {
+                continue;
+            }
+            s += &format!("2^{:<2} -{:>3}%\n", LEAF_SIZE_LOG2 + i as u32, percent,);
+        }
+        s
     }
 
     pub fn stats_slow(&self) -> String {
-        // let mut lengths = vec![];
-        // for chain in self.hashtable.iter() {
-        //     let mut len = 0;
-        //     let mut node = *chain;
-        //     while node != NodeIdx(0) {
-        //         len += 1;
-        //         node = self.get(node).next;
-        //     }
-        //     if len >= lengths.len() {
-        //         lengths.resize(len + 1, 0);
-        //     }
-        //     lengths[len] += 1;
-        // }
-
-        // let sum = lengths.iter().sum::<usize>();
-        // let mut s = "Chain lengths distribution:\n".to_string();
-        // for (i, &len) in lengths.iter().enumerate() {
-        //     s.push_str(&format!(
-        //         "{:<2}-{:>3}% ({})\n",
-        //         i,
-        //         len * 100 / sum,
-        //         NiceInt::from_usize(len),
-        //     ));
-        // }
-
-        // s
-        String::new()
-    }
-}
-
-impl<Meta: Clone + Default> Default for MemoryManager<Meta> {
-    fn default() -> Self {
-        Self::new()
+        "No slow statistics are collected\n".to_string()
     }
 }

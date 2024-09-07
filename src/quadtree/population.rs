@@ -1,9 +1,15 @@
-use super::{MemoryManager, NodeIdx};
+use super::{MemoryManager, NodeIdx, LEAF_SIZE_LOG2};
 use std::collections::HashMap;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+struct Key {
+    size_log2: u32,
+    idx: NodeIdx,
+}
 
 #[derive(Default)]
 pub struct PopulationManager {
-    cache: HashMap<NodeIdx, f64>,
+    cache: HashMap<Key, f64>,
 }
 
 impl PopulationManager {
@@ -11,25 +17,33 @@ impl PopulationManager {
         Self::default()
     }
 
-    pub fn get<Meta: Clone + Default>(&mut self, node: NodeIdx, mem: &MemoryManager<Meta>) -> f64 {
-        if let Some(val) = self.cache.get(&node) {
+    pub fn get<Meta: Clone + Default>(
+        &mut self,
+        idx: NodeIdx,
+        size_log2: u32,
+        mem: &MemoryManager<Meta>,
+    ) -> f64 {
+        if idx == NodeIdx(0) {
+            return 0.0;
+        }
+        if let Some(val) = self.cache.get(&Key { idx, size_log2 }) {
             *val
         } else {
-            let n = mem.get(node);
-            let population = if n.is_leaf() {
-                (n.ne.0.count_ones() + n.sw.0.count_ones()) as f64
+            let n = mem.get(idx, size_log2);
+            let population = if size_log2 == LEAF_SIZE_LOG2 {
+                u64::from_le_bytes(n.leaf_cells()).count_ones() as f64
             } else {
-                self.get(n.nw, mem)
-                    + self.get(n.ne, mem)
-                    + self.get(n.sw, mem)
-                    + self.get(n.se, mem)
+                self.get(n.nw, size_log2 - 1, mem)
+                    + self.get(n.ne, size_log2 - 1, mem)
+                    + self.get(n.sw, size_log2 - 1, mem)
+                    + self.get(n.se, size_log2 - 1, mem)
             };
-            self.cache.insert(node, population);
+            self.cache.insert(Key { idx, size_log2 }, population);
             population
         }
     }
 
-    pub fn clear(&mut self) {
+    pub fn clear_cache(&mut self) {
         self.cache.clear();
     }
 }

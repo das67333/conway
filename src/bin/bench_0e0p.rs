@@ -9,11 +9,10 @@ fn main() {
     let data = std::fs::read("res/0e0p-metaglider.mc").unwrap();
     let mut engine = crate::HashLifeEngine::from_macrocell(&data);
     println!("Time on building field: {:?}", timer.elapsed());
+    println!("{}", engine.stats_fast());
 
     let timer = Instant::now();
     engine.update(STEPS_LOG2, Topology::Unbounded);
     println!("Time on big update: {:?}", timer.elapsed());
-
     println!("{}", engine.stats_fast());
-    println!("{}", engine.stats_slow());
 }

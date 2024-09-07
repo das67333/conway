@@ -47,7 +47,7 @@ mod tests {
                     );
                     picture.push_str("|\n");
                 }
-                panic!("Mismatch at ({}, {}):\n{}", x, y, picture,);
+                panic!("Mismatch at ({}, {}):\n{}", x, y, picture);
             }
         }
     }
