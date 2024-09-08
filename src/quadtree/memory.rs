@@ -1,6 +1,7 @@
+use super::{Deque, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
 use crate::NiceInt;
 
-use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
+const DEQUE_BLOCK_SIZE: usize = 1 << 20;
 
 /// Wrapper around MemoryManager::find_node that prefetches the node from the hashtable.
 pub struct PrefetchedNode<Meta> {
@@ -15,7 +16,7 @@ pub struct PrefetchedNode<Meta> {
 /// Hashtable that stores nodes of the quadtree
 pub struct KIVMap<Meta> {
     // all allocated nodes
-    storage: Vec<QuadTreeNode<Meta>>,
+    storage: Deque<DEQUE_BLOCK_SIZE, QuadTreeNode<Meta>>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // how many times elements were found
@@ -72,7 +73,8 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         assert!(cap.is_power_of_two());
         assert!(u32::try_from(cap).is_ok(), "u32 is insufficient");
         // reserving NodeIdx(0) for blank node
-        let mut storage = vec![QuadTreeNode::default()];
+        let mut storage = Deque::new();
+        storage.push(QuadTreeNode::<Meta>::default());
         storage[0].has_cache = true;
         Self {
             storage,
@@ -83,11 +85,11 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
     }
 
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Meta> {
-        unsafe { self.storage.get_unchecked(idx.0 as usize) }
+        &self.storage[idx.0 as usize]
     }
 
     pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Meta> {
-        unsafe { self.storage.get_unchecked_mut(idx.0 as usize) }
+        &mut self.storage[idx.0 as usize]
     }
 
     pub unsafe fn rehash(&mut self) {
@@ -163,9 +165,9 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
     }
 
     pub fn clear_cache(&mut self) {
-        for n in self.storage.iter_mut().skip(1) {
-            n.has_cache = false;
-            n.cache = NodeIdx(0);
+        for i in 0..self.storage.len() {
+            self.storage[i].has_cache = false;
+            self.storage[i].cache = NodeIdx(0);
         }
     }
 
@@ -197,10 +199,10 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Meta> {
         unsafe {
-            self.layers
+            &self
+                .layers
                 .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
-                .storage
-                .get_unchecked(idx.0 as usize)
+                .storage[idx.0 as usize]
         }
     }
 
@@ -208,10 +210,10 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Meta> {
         unsafe {
-            self.layers
+            &mut self
+                .layers
                 .get_unchecked_mut((size_log2 - LEAF_SIZE_LOG2) as usize)
-                .storage
-                .get_unchecked_mut(idx.0 as usize)
+                .storage[idx.0 as usize]
         }
     }
 
