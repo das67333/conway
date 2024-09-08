@@ -1,7 +1,7 @@
-use super::{Deque, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
+use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
 use crate::NiceInt;
 
-const DEQUE_BLOCK_SIZE: usize = 1 << 20;
+const CHUNK_SIZE: usize = 1 << 13;
 
 /// Wrapper around MemoryManager::find_node that prefetches the node from the hashtable.
 pub struct PrefetchedNode<Meta> {
@@ -16,7 +16,7 @@ pub struct PrefetchedNode<Meta> {
 /// Hashtable that stores nodes of the quadtree
 pub struct KIVMap<Meta> {
     // all allocated nodes
-    storage: Deque<DEQUE_BLOCK_SIZE, QuadTreeNode<Meta>>,
+    storage: ChunkVec<CHUNK_SIZE, QuadTreeNode<Meta>>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // how many times elements were found
@@ -66,19 +66,16 @@ impl<Meta: Clone + Default> PrefetchedNode<Meta> {
 }
 
 impl<Meta: Clone + Default> KIVMap<Meta> {
-    /// Create a new memory manager with a given capacity.
-    ///
-    /// `cap` must be a power of two!
-    pub fn with_capacity(cap: usize) -> Self {
-        assert!(cap.is_power_of_two());
-        assert!(u32::try_from(cap).is_ok(), "u32 is insufficient");
+    pub fn new() -> Self {
+        assert!(CHUNK_SIZE.is_power_of_two(), "important for performance");
+        assert!(u32::try_from(CHUNK_SIZE).is_ok(), "u32 is insufficient");
         // reserving NodeIdx(0) for blank node
-        let mut storage = Deque::new();
+        let mut storage = ChunkVec::new();
         storage.push(QuadTreeNode::<Meta>::default());
         storage[0].has_cache = true;
         Self {
             storage,
-            hashtable: vec![NodeIdx(0); cap],
+            hashtable: vec![NodeIdx(0); CHUNK_SIZE],
             hits: 0,
             misses: 0,
         }
@@ -121,9 +118,6 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         se: NodeIdx,
         hash: usize,
     ) -> NodeIdx {
-        // if nw == NodeIdx(0) && ne == NodeIdx(0) && sw == NodeIdx(0) && se == NodeIdx(0) {
-        //     return NodeIdx(0);
-        // }
         let i = hash & (self.hashtable.len() - 1);
         let mut node = *self.hashtable.get_unchecked(i);
         let mut prev = NodeIdx(0);
@@ -134,7 +128,7 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
             if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if prev != NodeIdx(0) {
-                    self.get_mut(prev).next = n.next;
+                    self.get_mut(prev).next = next;
                     self.get_mut(node).next = *self.hashtable.get_unchecked(i);
                     *self.hashtable.get_unchecked_mut(i) = node;
                 }
@@ -160,7 +154,6 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
             // TODO: как удалять мусор
             self.rehash();
         }
-        assert!(idx != NodeIdx(0));
         idx
     }
 
@@ -172,8 +165,7 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.storage.len() * std::mem::size_of::<QuadTreeNode<Meta>>()
-            + self.hashtable.len() * std::mem::size_of::<NodeIdx>()
+        self.storage.bytes_total() + self.hashtable.len() * std::mem::size_of::<NodeIdx>()
     }
 
     pub fn len(&self) -> usize {
@@ -181,17 +173,11 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
     }
 }
 
-impl<Meta: Clone + Default> Default for KIVMap<Meta> {
-    fn default() -> Self {
-        Self::with_capacity(1)
-    }
-}
-
 impl<Meta: Clone + Default> MemoryManager<Meta> {
     /// Create a new memory manager.
     pub fn new() -> Self {
         Self {
-            layers: vec![KIVMap::default()],
+            layers: vec![KIVMap::new()],
         }
     }
 
@@ -273,7 +259,7 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         if self.layers.len() <= i {
-            self.layers.resize_with(i + 1, KIVMap::default);
+            self.layers.resize_with(i + 1, KIVMap::new);
         }
         unsafe { self.layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
     }

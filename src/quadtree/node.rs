@@ -1,21 +1,22 @@
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
 
-#[repr(align(8))]
+#[repr(align(4))]
 #[derive(Clone, Default)]
 pub struct QuadTreeNode<Meta> {
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub next: NodeIdx,
+    pub next: NodeIdx,  // next item in hashtable bucket
     pub cache: NodeIdx, // cached result of update
     pub has_cache: bool,
     pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife
 }
 
 impl<Meta> QuadTreeNode<Meta> {
-    // For blank nodes (without population) must return zero
+    /// For blank nodes (without population) must return zero.
+    /// They are guaranteed to have all parts equal to NodeIdx(0).
     #[inline]
     pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32

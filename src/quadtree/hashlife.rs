@@ -594,36 +594,26 @@ impl Engine for HashLifeEngine {
     where
         Self: Sized,
     {
-        let timer = std::time::Instant::now();
         let mut mem = MemoryManager::new();
         let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
         codes.insert(0, NodeIdx(0));
         let mut last_node = None;
         let mut size_log2 = 0;
 
-        let lines = data
+        for s in data
             .split(|&x| x == b'\n')
             .skip(1)
-            .filter(|s| !s.is_empty() && s[0] != b'#')
-            .collect::<Vec<_>>();
-        for s in lines {
+            .filter(|&s| !s.is_empty() && s[0] != b'#')
+        {
             let node = if s[0].is_ascii_digit() {
                 // non-leaf
-                // parse s into 4 numbers
-                let [k, nw, ne, sw, se] = s
-                    .split(|&x| x == b' ')
-                    .map(|s: &[u8]| std::str::from_utf8(s).unwrap().parse::<usize>().unwrap())
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .unwrap();
-                // let mut iter = s.split(|&x| x == b' ');
-                // let mut parse_usize = || {
-                //     std::str::from_utf8(iter.next().unwrap())
-                //     .unwrap()
-                //     .parse::<usize>()
-                //     .unwrap()
-                // };
-                // let [k, nw, ne, sw, se] = [0; 5].map(|_| parse_usize());
+                let mut iter = s.split(|&x| x == b' ');
+                let [k, nw, ne, sw, se] = [0; 5].map(|_| {
+                    std::str::from_utf8(iter.next().unwrap())
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap()
+                });
                 size_log2 = k as u32;
                 assert!((LEAF_SIZE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
                 let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
@@ -659,7 +649,6 @@ impl Engine for HashLifeEngine {
             last_node = Some(node);
         }
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        println!("{:?}", timer.elapsed());
         Self {
             n_log2: size_log2,
             root: last_node.unwrap(),
