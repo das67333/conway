@@ -28,7 +28,7 @@ pub trait Engine {
         let cells = (0..(1 << (n_log2 * 2 - 6)))
             .map(|_| rng.gen::<u64>())
             .collect();
-        Self::from_cells(n_log2, cells)
+        Self::from_cells_array(n_log2, cells)
     }
 
     /// Parse RLE format into the field
@@ -37,7 +37,7 @@ pub trait Engine {
         Self: Sized,
     {
         let (n_log2, cells) = crate::parse_rle(data);
-        Self::from_cells(n_log2, cells)
+        Self::from_cells_array(n_log2, cells)
     }
 
     fn from_macrocell(_data: &[u8]) -> Self
@@ -48,12 +48,12 @@ pub trait Engine {
     }
 
     /// Create a square field from a vector of cells
-    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
+    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized;
 
     /// Save the field in MacroCell format
-    fn save_into_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&mut self) -> Vec<u8> {
         unimplemented!()
     }
 

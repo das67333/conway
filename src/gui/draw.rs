@@ -118,7 +118,7 @@ impl App {
                 DialogType::SaveFile,
             );
             if let Some(file_path) = self.saved_file.take() {
-                let data = self.life_engine.save_into_macrocell();
+                let data = self.life_engine.save_as_macrocell();
                 std::fs::write(file_path, data).unwrap();
             }
             response

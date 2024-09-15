@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use conway::{Engine, HashLifeEngine, PatternObliviousEngine, Topology};
+    use conway::{Engine, PatternObliviousEngine, Topology};
+    type HashLifeEngine = conway::StreamLifeEngine;
+    // type HashLifeEngine = conway::HashLifeEngine;
 
     const SEED: u64 = 42;
 

@@ -114,7 +114,7 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
-    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self
+    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized,
     {

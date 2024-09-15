@@ -1,4 +1,4 @@
-use conway::{Engine, HashLifeEngine, Topology};
+use conway::{Engine, HashLifeEngine, StreamLifeEngine, Topology};
 use std::time::Instant;
 
 fn main() {
@@ -7,7 +7,7 @@ fn main() {
     let timer = Instant::now();
 
     let data = std::fs::read("res/0e0p-metaglider.mc").unwrap();
-    let mut engine = crate::HashLifeEngine::from_macrocell(&data);
+    let mut engine = crate::StreamLifeEngine::from_macrocell(&data);
     println!("Time on building field: {:?}", timer.elapsed());
     println!("{}", engine.stats_fast());
 

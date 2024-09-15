@@ -84,118 +84,122 @@ impl HashLifeEngine {
         }
 
         let arr: [u16; 8] = src[4..12].try_into().unwrap();
-        self.mem
-            .find_leaf(u64::from_le_bytes(arr.map(|x| (x >> 4) as u8)))
+        self.mem.find_leaf_from_rows(arr.map(|x| (x >> 4) as u8))
     }
 
-    // /// Original Golly version with 9 recursive calls
-    // /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and result
-    // #[allow(dead_code)]
-    // fn update_nodes_single_golly(
-    //     &mut self,
-    //     nw: NodeIdx,
-    //     ne: NodeIdx,
-    //     sw: NodeIdx,
-    //     se: NodeIdx,
-    //     size_log2: u32,
-    // ) -> NodeIdx {
-    //     let nwne = self.mem.get(nw, size_log2).ne;
-    //     let nwsw = self.mem.get(nw, size_log2).sw;
-    //     let nwse = self.mem.get(nw, size_log2).se;
+    /// Original Golly version with 9 recursive calls
+    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and result
+    #[allow(dead_code)]
+    fn update_nodes_single_golly(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> NodeIdx {
+        let nwne = self.mem.get(nw, size_log2).ne;
+        let nwsw = self.mem.get(nw, size_log2).sw;
+        let nwse = self.mem.get(nw, size_log2).se;
 
-    //     let nenw = self.mem.get(ne, size_log2).nw;
-    //     let nesw = self.mem.get(ne, size_log2).sw;
-    //     let nese = self.mem.get(ne, size_log2).se;
+        let nenw = self.mem.get(ne, size_log2).nw;
+        let nesw = self.mem.get(ne, size_log2).sw;
+        let nese = self.mem.get(ne, size_log2).se;
 
-    //     let swnw = self.mem.get(sw, size_log2).nw;
-    //     let swne = self.mem.get(sw, size_log2).ne;
-    //     let swse = self.mem.get(sw, size_log2).se;
+        let swnw = self.mem.get(sw, size_log2).nw;
+        let swne = self.mem.get(sw, size_log2).ne;
+        let swse = self.mem.get(sw, size_log2).se;
 
-    //     let senw = self.mem.get(se, size_log2).nw;
-    //     let sene = self.mem.get(se, size_log2).ne;
-    //     let sesw = self.mem.get(se, size_log2).sw;
+        let senw = self.mem.get(se, size_log2).nw;
+        let sene = self.mem.get(se, size_log2).ne;
+        let sesw = self.mem.get(se, size_log2).sw;
 
-    //     let t00 = {
-    //         let temp = self.update_node(nw, size_log2);
-    //         self.mem.get(temp, size_log2 - 1).clone()
-    //     };
+        let t00 = {
+            let temp = self.update_node(nw, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
 
-    //     let t01 = {
-    //         let node = self.mem.find_node(nwne, nenw, nwse, nesw, size_log2);
-    //         let temp = self.update_node(node, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t10 = {
-    //         let node = self.mem.find_node(nwsw, nwse, swnw, swne);
-    //         let temp = self.update_node(node, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t11 = {
-    //         let node = self.mem.find_node(nwse, nesw, swne, senw);
-    //         let temp = self.update_node(node, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t02 = {
-    //         let temp = self.update_node(ne, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t12 = {
-    //         let node = self.mem.find_node(nesw, nese, senw, sene);
-    //         let temp = self.update_node(node, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t20 = {
-    //         let temp = self.update_node(sw, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t21 = {
-    //         let node = self.mem.find_node(swne, senw, swse, sesw);
-    //         let temp = self.update_node(node, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let t22 = {
-    //         let temp = self.update_node(se, size_log2);
-    //         self.mem.get(temp).clone()
-    //     };
-    //     let [t_nw, t_ne, t_sw, t_se] = if size_log2 >= LEAF_SIZE_LOG2 + 2 {
-    //         [
-    //             self.mem.find_node(t00.se, t01.sw, t10.ne, t11.nw),
-    //             self.mem.find_node(t01.se, t02.sw, t11.ne, t12.nw),
-    //             self.mem.find_node(t10.se, t11.sw, t20.ne, t21.nw),
-    //             self.mem.find_node(t11.se, t12.sw, t21.ne, t22.nw),
-    //         ]
-    //     } else {
-    //         [
-    //             self.mem.find_leaf_from_parts(
-    //                 t00.leaf_se(),
-    //                 t01.leaf_sw(),
-    //                 t10.leaf_ne(),
-    //                 t11.leaf_nw(),
-    //             ),
-    //             self.mem.find_leaf_from_parts(
-    //                 t01.leaf_se(),
-    //                 t02.leaf_sw(),
-    //                 t11.leaf_ne(),
-    //                 t12.leaf_nw(),
-    //             ),
-    //             self.mem.find_leaf_from_parts(
-    //                 t10.leaf_se(),
-    //                 t11.leaf_sw(),
-    //                 t20.leaf_ne(),
-    //                 t21.leaf_nw(),
-    //             ),
-    //             self.mem.find_leaf_from_parts(
-    //                 t11.leaf_se(),
-    //                 t12.leaf_sw(),
-    //                 t21.leaf_ne(),
-    //                 t22.leaf_nw(),
-    //             ),
-    //         ]
-    //     };
-    //     self.mem.find_node(t_nw, t_ne, t_sw, t_se)
-    // }
+        let t01 = {
+            let node = self.mem.find_node(nwne, nenw, nwse, nesw, size_log2);
+            let temp = self.update_node(node, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t10 = {
+            let node = self.mem.find_node(nwsw, nwse, swnw, swne, size_log2);
+            let temp = self.update_node(node, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t11 = {
+            let node = self.mem.find_node(nwse, nesw, swne, senw, size_log2);
+            let temp = self.update_node(node, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t02 = {
+            let temp = self.update_node(ne, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t12 = {
+            let node = self.mem.find_node(nesw, nese, senw, sene, size_log2);
+            let temp = self.update_node(node, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t20 = {
+            let temp = self.update_node(sw, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t21 = {
+            let node = self.mem.find_node(swne, senw, swse, sesw, size_log2);
+            let temp = self.update_node(node, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let t22 = {
+            let temp = self.update_node(se, size_log2);
+            self.mem.get(temp, size_log2 - 1).clone()
+        };
+        let [t_nw, t_ne, t_sw, t_se] = if size_log2 >= LEAF_SIZE_LOG2 + 2 {
+            [
+                self.mem
+                    .find_node(t00.se, t01.sw, t10.ne, t11.nw, size_log2 - 1),
+                self.mem
+                    .find_node(t01.se, t02.sw, t11.ne, t12.nw, size_log2 - 1),
+                self.mem
+                    .find_node(t10.se, t11.sw, t20.ne, t21.nw, size_log2 - 1),
+                self.mem
+                    .find_node(t11.se, t12.sw, t21.ne, t22.nw, size_log2 - 1),
+            ]
+        } else {
+            [
+                self.mem.find_leaf_from_parts(
+                    t00.leaf_se(),
+                    t01.leaf_sw(),
+                    t10.leaf_ne(),
+                    t11.leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    t01.leaf_se(),
+                    t02.leaf_sw(),
+                    t11.leaf_ne(),
+                    t12.leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    t10.leaf_se(),
+                    t11.leaf_sw(),
+                    t20.leaf_ne(),
+                    t21.leaf_nw(),
+                ),
+                self.mem.find_leaf_from_parts(
+                    t11.leaf_se(),
+                    t12.leaf_sw(),
+                    t21.leaf_ne(),
+                    t22.leaf_nw(),
+                ),
+            ]
+        };
+        self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
+    }
 
     /// This version is expected to be faster as it only makes 4 recursive calls.
+    /// On practise it performs similarly to `update_nodes_single_golly`.
     ///
     /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and result
     fn update_nodes_single(
@@ -403,7 +407,7 @@ impl HashLifeEngine {
         if n.has_cache {
             return n.cache;
         }
-        assert!(node != NodeIdx(0));
+        assert!(node != NodeIdx(0), "Empty nodes should've been cached");
 
         let do_full_step = self.steps_per_update_log2 + 2 >= size_log2;
         let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
@@ -448,7 +452,7 @@ impl HashLifeEngine {
         });
 
         if depth == 0 {
-            panic!("Use `from_cells` instead");
+            panic!("Use `from_cells_array` instead");
         }
 
         let mut mem = MemoryManager::new();
@@ -469,7 +473,7 @@ impl HashLifeEngine {
                             }
                         }
                     }
-                    nodes_curr.push(mem.find_leaf(u64::from_le_bytes(data)));
+                    nodes_curr.push(mem.find_leaf_from_rows(data));
                 }
             }
             let mut t = OTCA_SIZE / LEAF_SIZE;
@@ -643,7 +647,7 @@ impl Engine for HashLifeEngine {
                     }
                 }
                 assert!(i <= 8);
-                mem.find_leaf(cells)
+                mem.find_leaf_from_u64(cells)
             };
             codes.insert(codes.len(), node);
             last_node = Some(node);
@@ -657,7 +661,7 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn from_cells(n_log2: u32, cells: Vec<u64>) -> Self {
+    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
         let mut mem = MemoryManager::new();
@@ -677,7 +681,7 @@ impl Engine for HashLifeEngine {
                         }
                     }
                 }
-                nodes_curr.push(mem.find_leaf(u64::from_le_bytes(data)));
+                nodes_curr.push(mem.find_leaf_from_rows(data));
             }
         }
         let mut t = n / LEAF_SIZE;
@@ -705,19 +709,24 @@ impl Engine for HashLifeEngine {
         }
     }
 
-    fn save_into_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&mut self) -> Vec<u8> {
+        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+        struct Key {
+            size_log2: u32,
+            idx: NodeIdx,
+        }
+
         fn inner(
-            node: NodeIdx,
+            idx: NodeIdx,
             size_log2: u32,
             mem: &MemoryManager,
-            population: &mut PopulationManager,
-            codes: &mut HashMap<NodeIdx, usize>,
+            codes: &mut HashMap<Key, usize>,
             result: &mut Vec<String>,
         ) {
-            if codes.contains_key(&node) {
+            if codes.contains_key(&Key { idx, size_log2 }) {
                 return;
             }
-            let n = mem.get(node, size_log2);
+            let n = mem.get(idx, size_log2);
             let mut s = String::new();
             if size_log2 == LEAF_SIZE_LOG2 {
                 let data = n.leaf_cells();
@@ -735,39 +744,52 @@ impl Engine for HashLifeEngine {
                     s.push('$');
                 }
             } else {
-                inner(n.nw, size_log2 - 1, mem, population, codes, result);
-                inner(n.ne, size_log2 - 1, mem, population, codes, result);
-                inner(n.sw, size_log2 - 1, mem, population, codes, result);
-                inner(n.se, size_log2 - 1, mem, population, codes, result);
+                inner(n.nw, size_log2 - 1, mem, codes, result);
+                inner(n.ne, size_log2 - 1, mem, codes, result);
+                inner(n.sw, size_log2 - 1, mem, codes, result);
+                inner(n.se, size_log2 - 1, mem, codes, result);
                 s = format!(
                     "{} {} {} {} {}",
                     size_log2,
-                    codes.get(&n.nw).unwrap(),
-                    codes.get(&n.ne).unwrap(),
-                    codes.get(&n.sw).unwrap(),
-                    codes.get(&n.se).unwrap(),
+                    codes
+                        .get(&Key {
+                            idx: n.nw,
+                            size_log2: size_log2 - 1
+                        })
+                        .unwrap(),
+                    codes
+                        .get(&Key {
+                            idx: n.ne,
+                            size_log2: size_log2 - 1
+                        })
+                        .unwrap(),
+                    codes
+                        .get(&Key {
+                            idx: n.sw,
+                            size_log2: size_log2 - 1
+                        })
+                        .unwrap(),
+                    codes
+                        .get(&Key {
+                            idx: n.se,
+                            size_log2: size_log2 - 1
+                        })
+                        .unwrap(),
                 );
             }
-            let v = if population.get(node, size_log2, mem) != 0. {
+            let v = if idx != NodeIdx(0) {
                 s.push('\n');
                 result.push(s);
                 result.len() - 1
             } else {
                 0
             };
-            codes.entry(node).or_insert(v);
+            codes.entry(Key { idx, size_log2 }).or_insert(v);
         }
 
         let mut codes = HashMap::new();
         let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
-        inner(
-            self.root,
-            self.n_log2,
-            &self.mem,
-            &mut self.population,
-            &mut codes,
-            &mut result,
-        );
+        inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
 
         result.iter().flat_map(|s| s.bytes()).collect()
     }
@@ -855,7 +877,7 @@ impl Engine for HashLifeEngine {
                 } else {
                     data[y as usize] &= !mask;
                 }
-                mem.find_leaf(u64::from_le_bytes(data))
+                mem.find_leaf_from_rows(data)
             } else {
                 let mut arr = [n.nw, n.ne, n.sw, n.se];
                 size_log2 -= 1;
@@ -914,18 +936,18 @@ impl Engine for HashLifeEngine {
         // pop frame of blank cells around the field if present
         if matches!(topology, Topology::Unbounded)
             && self.n_log2 > MIN_SIDE_LOG2
-            && self.population.get(nw.sw, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(nw.nw, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(nw.ne, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(ne.nw, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(ne.ne, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(ne.se, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(se.ne, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(se.se, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(se.sw, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(sw.se, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(sw.sw, self.n_log2 - 2, &self.mem) == 0.
-            && self.population.get(sw.nw, self.n_log2 - 2, &self.mem) == 0.
+            && nw.sw == NodeIdx(0)
+            && nw.nw == NodeIdx(0)
+            && nw.ne == NodeIdx(0)
+            && ne.nw == NodeIdx(0)
+            && ne.ne == NodeIdx(0)
+            && ne.se == NodeIdx(0)
+            && se.ne == NodeIdx(0)
+            && se.se == NodeIdx(0)
+            && se.sw == NodeIdx(0)
+            && sw.se == NodeIdx(0)
+            && sw.sw == NodeIdx(0)
+            && sw.nw == NodeIdx(0)
         {
             dx -= 1 << (self.n_log2 - 2);
             dy -= 1 << (self.n_log2 - 2);

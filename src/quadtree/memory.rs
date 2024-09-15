@@ -118,6 +118,10 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         se: NodeIdx,
         hash: usize,
     ) -> NodeIdx {
+        if nw == NodeIdx(0) && ne == NodeIdx(0) && sw == NodeIdx(0) && se == NodeIdx(0) {
+            return NodeIdx(0);
+        }
+
         let i = hash & (self.hashtable.len() - 1);
         let mut node = *self.hashtable.get_unchecked(i);
         let mut prev = NodeIdx(0);
@@ -184,23 +188,17 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     /// Get a const reference to the node with the given index.
     #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Meta> {
-        unsafe {
-            &self
-                .layers
-                .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
-                .storage[idx.0 as usize]
-        }
+        let (i, j) = ((size_log2 - LEAF_SIZE_LOG2) as usize, idx.0 as usize);
+        debug_assert!(self.layers.len() > i && self.layers[i].len() > j);
+        unsafe { &self.layers.get_unchecked(i).storage[j] }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Meta> {
-        unsafe {
-            &mut self
-                .layers
-                .get_unchecked_mut((size_log2 - LEAF_SIZE_LOG2) as usize)
-                .storage[idx.0 as usize]
-        }
+        let (i, j) = ((size_log2 - LEAF_SIZE_LOG2) as usize, idx.0 as usize);
+        debug_assert!(self.layers.len() > i && self.layers[i].len() > j);
+        unsafe { &mut self.layers.get_unchecked_mut(i).storage[j] }
     }
 
     /// Find a leaf node with the given parts.
@@ -227,14 +225,22 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
             se >>= 4;
             shift += 4;
         }
-        self.find_leaf(cells)
+        self.find_leaf_from_u64(cells)
     }
 
     /// Find a leaf node with the given cells.
     /// If the node is not found, it is created.
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_leaf(&mut self, cells: u64) -> NodeIdx {
+    pub fn find_leaf_from_rows(&mut self, cells: [u8; 8]) -> NodeIdx {
+        self.find_leaf_from_u64(u64::from_le_bytes(cells))
+    }
+
+    /// Find a leaf node with the given cells.
+    /// If the node is not found, it is created.
+    ///
+    /// `cells` is u64 built by concatenating rows of cells.
+    pub fn find_leaf_from_u64(&mut self, cells: u64) -> NodeIdx {
         let nw = NodeIdx(cells as u32);
         let ne = NodeIdx((cells >> 32) as u32);
         let [sw, se] = [NodeIdx(0); 2];

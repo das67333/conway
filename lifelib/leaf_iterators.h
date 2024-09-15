@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 // The first 32 bytes are arguments to (V)PSHUFB; the remaining
@@ -150,6 +151,57 @@ inline void r32_centre_to_z64_ssse3(uint32_t *b, uint64_t *c) {
         : "xmm0", "xmm1", "xmm2", "xmm3", "memory");
 }
 
+inline void r32_centre_to_z64_clean(uint32_t *b, uint64_t *c) {
+    /*
+     * Selects the 16-by-16 square in the centre of a 32-by-32
+     * square encoded as an array of rows, and converts it to a
+     * Z-ordered array of 4 uint64s, each representing a 8-by-8
+     * subsquare:
+     *
+     *    ####
+     *    #ab#
+     *    #cd# ---> [a, b, c, d]
+     *    ####
+     */
+
+    uint32_t temp[16];
+
+    // Загрузка данных из центра 32x32 массива
+    temp[0] = (b[31] >> 16) | (b[49] << 16);
+    temp[1] = (b[32] >> 16) | (b[50] << 16);
+    temp[2] = (b[33] >> 16) | (b[51] << 16);
+    temp[3] = (b[34] >> 16) | (b[52] << 16);
+    temp[4] = (b[35] >> 16) | (b[53] << 16);
+    temp[5] = (b[36] >> 16) | (b[54] << 16);
+    temp[6] = (b[37] >> 16) | (b[55] << 16);
+    temp[7] = (b[38] >> 16) | (b[56] << 16);
+    temp[8] = (b[63] >> 16) | (b[81] << 16);
+    temp[9] = (b[64] >> 16) | (b[82] << 16);
+    temp[10] = (b[65] >> 16) | (b[83] << 16);
+    temp[11] = (b[66] >> 16) | (b[84] << 16);
+    temp[12] = (b[67] >> 16) | (b[85] << 16);
+    temp[13] = (b[68] >> 16) | (b[86] << 16);
+    temp[14] = (b[69] >> 16) | (b[87] << 16);
+    temp[15] = (b[70] >> 16) | (b[88] << 16);
+
+    // Применение перестановки байтов (__lifeperm)
+    uint8_t *temp_bytes = reinterpret_cast<uint8_t*>(temp);
+    const uint8_t *perm_mask = reinterpret_cast<const uint8_t*>(__lifeperm);
+    uint8_t result[32];
+
+    for (int i = 0; i < 16; ++i) {
+        result[i] = temp_bytes[perm_mask[i]];
+    }
+
+    for (int i = 0; i < 16; ++i) {
+        result[16 + i] = temp_bytes[perm_mask[16 + i]];
+    }
+
+    // Копирование данных в выходной массив
+    std::memcpy(c, result, 32);
+}
+
+
 inline uint64_t r32_centre_to_u64(uint32_t *d, int x, int y) {
     // Not written in inline assembly for a change (!)
     uint64_t z = 0;
@@ -234,7 +286,8 @@ inline void iterate_var_leaf32(int n, uint64_t **inleafxs, uint64_t *outleaf) {
         std::swap(src, dst);
     }
 
-    r32_centre_to_z64_ssse3(src, outleaf);
+    // r32_centre_to_z64_ssse3(src, outleaf);
+    r32_centre_to_z64_clean(src, outleaf);
 }
 
 inline void iter4_var_leaf(uint64_t *inleaf, uint64_t *centres) {
