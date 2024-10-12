@@ -1,11 +1,11 @@
-use crate::{Engine, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
-pub struct PatternObliviousEngine {
+pub struct SimdEngine {
     data: Vec<u64>,
     n: u64,
 }
 
-impl PatternObliviousEngine {
+impl SimdEngine {
     const CELLS_IN_CHUNK: u64 = 64;
 
     fn update_row(row_prev: &[u64], row_curr: &[u64], row_next: &[u64], dst: &mut [u64]) {
@@ -104,7 +104,7 @@ impl PatternObliviousEngine {
     }
 }
 
-impl Engine for PatternObliviousEngine {
+impl Engine for SimdEngine {
     fn blank(n_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
         let n: u64 = 1 << n_log2;
@@ -184,12 +184,28 @@ impl Engine for PatternObliviousEngine {
         }
     }
 
+    fn population(&mut self) -> f64 {
+        self.data.iter().map(|x| x.count_ones() as u64).sum::<u64>() as f64
+    }
+
     fn stats_fast(&mut self) -> String {
-        format!("memory on field: {} bytes", self.data.len() * 8)
+        let mut s = "Engine: SIMD\n".to_string();
+        s += &format!("Side length: 2^{}\n", self.n.ilog2());
+        let timer = std::time::Instant::now();
+        s += &format!("Population: {}\n", NiceInt::from_f64(self.population()));
+        s += &format!(
+            "Population compute time: {}\n",
+            timer.elapsed().as_secs_f64()
+        );
+        s += &format!(
+            "Memory on field: {} MB",
+            (self.data.capacity() * size_of::<u64>()) >> 20
+        );
+        s
     }
 }
 
-impl Default for PatternObliviousEngine {
+impl Default for SimdEngine {
     fn default() -> Self {
         Self::blank(MIN_SIDE_LOG2)
     }

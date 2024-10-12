@@ -1,5 +1,5 @@
 use super::{BrightnessStrategy, Config, FieldSource, FpsLimiter};
-use crate::{Engine, HashLifeEngine, Topology};
+use crate::{DefaultEngine, Engine, Topology};
 use eframe::egui::{
     CentralPanel, Color32, ColorImage, Context, Frame, Rect, TextureHandle, TextureOptions,
 };
@@ -41,8 +41,7 @@ pub struct App {
 
 impl App {
     pub fn new(ctx: &Context) -> Self {
-        let life = HashLifeEngine::default();
-        // let life = crate::PatternObliviousEngine::random(7, None);
+        let life = DefaultEngine::default();
         Self {
             viewport_size: 2f64.powi(life.side_length_log2() as i32),
             life_engine: Box::new(life),

@@ -1,4 +1,4 @@
-use conway::{Config, Engine, HashLifeEngine, Topology};
+use conway::{Config, DefaultEngine, Engine, Topology};
 use std::time::Instant;
 
 fn main() {
@@ -6,7 +6,7 @@ fn main() {
 
     let depth = Config::OTCA_DEPTH;
     let top_pattern = Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect();
-    let mut engine = crate::HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern);
+    let mut engine = DefaultEngine::from_recursive_otca_metapixel(depth, top_pattern);
     println!("Time on building field: {:?}", timer.elapsed());
 
     let timer = Instant::now();

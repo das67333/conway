@@ -92,6 +92,10 @@ public:
         return basepattern<I>(lab, lab->advance(hnode, numgens), dx, dy, dt, minp);
     }
 
+    basepattern<I> advance(uint64_t mant, uint64_t exp) {
+        return basepattern<I>(lab, lab->advance(hnode, mant, exp), dx, dy, dt, minp);
+    }
+
     // Population counts:
 
     uint32_t popcount(uint32_t modprime, uint64_t layermask) {

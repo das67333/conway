@@ -302,10 +302,32 @@ public:
                         bool bothstages = (hnode.depth <= (1 + exponent));
                         uint64_t newmant = bothstages ? mantissa : 0;
                         for (uint64_t i = 0; i < 9; i++) {
-                            auto fh =
-                                iterate_recurse(hypernode<I>(ch91[i], ch92[i], hnode.depth - 1), newmant, exponent);
-                            ch91[i] = fh.index;
-                            ch92[i] = fh.index2;
+                            if (!bothstages) {
+                                auto update_node_null = [this](I index, int depth) -> I {
+                                    auto pptr = ind2ptr_nonleaf(depth, index);
+                                    if (depth == 1) {
+                                        nicearray<uint64_t, 4> parts;
+                                        for (int j = 0; j < 4; ++j) {
+                                            parts[j] = ind2ptr_leaf(pptr->key[j])->key[3 - j];
+                                        }
+                                        return this->make_leaf(parts);
+                                    } else {
+                                        nicearray<I, 4> parts;
+                                        for (int j = 0; j < 4; ++j) {
+                                            parts[j] = ind2ptr_nonleaf(depth - 1, pptr->key[j])->key[3 - j];
+                                        }
+                                        return make_nonleaf(depth - 1, parts);
+                                    }
+                                };
+
+                                ch91[i] = update_node_null(ch91[i], hnode.depth - 1);
+                                ch92[i] = update_node_null(ch92[i], hnode.depth - 1);
+                            } else {
+                                auto fh =
+                                    iterate_recurse(hypernode<I>(ch91[i], ch92[i], hnode.depth - 1), newmant, exponent);
+                                ch91[i] = fh.index;
+                                ch92[i] = fh.index2;
+                            }
                         }
 
                         auto ch41 = fourchildren(part1, ch91);

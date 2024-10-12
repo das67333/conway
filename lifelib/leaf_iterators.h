@@ -286,8 +286,8 @@ inline void iterate_var_leaf32(int n, uint64_t **inleafxs, uint64_t *outleaf) {
         std::swap(src, dst);
     }
 
-    // r32_centre_to_z64_ssse3(src, outleaf);
-    r32_centre_to_z64_clean(src, outleaf);
+    r32_centre_to_z64_ssse3(src, outleaf);
+    // r32_centre_to_z64_clean(src, outleaf);
 }
 
 inline void iter4_var_leaf(uint64_t *inleaf, uint64_t *centres) {

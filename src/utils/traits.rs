@@ -87,6 +87,8 @@ pub trait Engine {
         dst: &mut Vec<f64>,
     );
 
+    fn population(&mut self) -> f64;
+
     /// Returns multiline string reporting engine stats.
     ///
     /// This function is fast enough to be called every frame.

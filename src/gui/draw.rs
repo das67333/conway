@@ -1,5 +1,5 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
-use crate::{Engine, HashLifeEngine, NiceInt, Topology};
+use crate::{DefaultEngine, Engine, NiceInt, Topology};
 use eframe::egui::{
     load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, Color32, ColorImage,
     Context, DragValue, Frame, Image, Margin, Rect, Response, RichText, ScrollArea, Slider, Stroke,
@@ -162,7 +162,7 @@ impl App {
             FieldSource::RecursiveOTCA => {
                 ui.horizontal(|ui| {
                     if ui.add(Self::new_button("Recreate with depth:")).clicked() {
-                        self.life_engine = Box::new(HashLifeEngine::from_recursive_otca_metapixel(
+                        self.life_engine = Box::new(DefaultEngine::from_recursive_otca_metapixel(
                             self.field_source_otca_depth,
                             Config::TOP_PATTERN.iter().map(|row| row.to_vec()).collect(),
                         ));
@@ -183,7 +183,7 @@ impl App {
                 );
                 if let Some(file_path) = self.opened_file.take() {
                     let data = std::fs::read(file_path).unwrap();
-                    self.life_engine = Box::new(HashLifeEngine::from_macrocell(&data));
+                    self.life_engine = Box::new(DefaultEngine::from_macrocell(&data));
                     self.reset_viewport();
                 }
             }
@@ -199,7 +199,7 @@ impl App {
                 );
                 if let Some(file_path) = self.opened_file.take() {
                     let data = std::fs::read(file_path).unwrap();
-                    self.life_engine = Box::new(HashLifeEngine::from_rle(&data));
+                    self.life_engine = Box::new(DefaultEngine::from_rle(&data));
                     self.reset_viewport();
                 }
             }
