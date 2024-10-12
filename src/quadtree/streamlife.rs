@@ -617,7 +617,7 @@ impl StreamLifeEngine {
         if size_log2 == LEAF_SIZE_LOG2 {
             let l0 = u64::from_le_bytes(m0.leaf_cells());
             let l1 = u64::from_le_bytes(m1.leaf_cells());
-            assert!(l0 & l1 == 0, "universes overlap");
+            debug_assert!(l0 & l1 == 0, "universes overlap");
             self.mem.find_leaf_from_u64(l0 | l1)
         } else {
             let nw = self.merge_universes((m0.nw, m1.nw), size_log2 - 1);
@@ -863,27 +863,37 @@ impl StreamLifeEngine {
     }
 
     fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
-        let r = self.mem.get(self.root, self.n_log2).clone();
-        let [nw, ne, sw, se] = match topology {
-            Topology::Torus => {
-                let t = self.mem.find_node(r.se, r.sw, r.ne, r.nw, self.n_log2);
-                [t; 4]
-            }
-            Topology::Unbounded => {
-                let b = NodeIdx(0);
-                [
-                    self.mem.find_node(b, b, b, r.nw, self.n_log2),
-                    self.mem.find_node(b, b, r.ne, b, self.n_log2),
-                    self.mem.find_node(b, r.sw, b, b, self.n_log2),
-                    self.mem.find_node(r.se, b, b, b, self.n_log2),
-                ]
-            }
+        let mut with_frame = |idx: NodeIdx, size_log2: u32| -> NodeIdx {
+            let n = self.mem.get(idx, size_log2).clone();
+            let [nw, ne, sw, se] = match topology {
+                Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
+                Topology::Unbounded => {
+                    let b = NodeIdx(0);
+                    [
+                        self.mem.find_node(b, b, b, n.nw, size_log2),
+                        self.mem.find_node(b, b, n.ne, b, size_log2),
+                        self.mem.find_node(b, n.sw, b, b, size_log2),
+                        self.mem.find_node(n.se, b, b, b, size_log2),
+                    ]
+                }
+            };
+            self.mem.find_node(nw, ne, sw, se, size_log2 + 1)
         };
+
+        self.root = with_frame(self.root, self.n_log2);
+        self.biroot = if let Some(biroot) = self.biroot {
+            Some((
+                with_frame(biroot.0, self.n_log2),
+                with_frame(biroot.1, self.n_log2),
+            ))
+        } else {
+            None
+        };
+
+        *dx += 1 << (self.n_log2 - 1);
+        *dy += 1 << (self.n_log2 - 1);
         self.n_log2 += 1;
         assert!(self.n_log2 <= MAX_SIDE_LOG2);
-        self.root = self.mem.find_node(nw, ne, sw, se, self.n_log2);
-        *dx += 1 << (self.n_log2 - 2);
-        *dy += 1 << (self.n_log2 - 2);
     }
 
     fn frame_is_blank(&self) -> bool {
@@ -910,18 +920,31 @@ impl StreamLifeEngine {
     }
 
     fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        let root = self.mem.get(self.root, self.n_log2);
-        let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.n_log2 - 1).clone(),
-            self.mem.get(root.ne, self.n_log2 - 1).clone(),
-            self.mem.get(root.sw, self.n_log2 - 1).clone(),
-            self.mem.get(root.se, self.n_log2 - 1).clone(),
-        ];
         self.n_log2 -= 1;
         assert!(self.n_log2 >= MIN_SIDE_LOG2);
-        self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
         *dx -= 1 << (self.n_log2 - 1);
         *dy -= 1 << (self.n_log2 - 1);
+
+        let mut without_frame = |idx: NodeIdx, n_log2: u32| {
+            let n = self.mem.get(idx, n_log2 + 1);
+            let [nw, ne, sw, se] = [
+                self.mem.get(n.nw, n_log2).clone(),
+                self.mem.get(n.ne, n_log2).clone(),
+                self.mem.get(n.sw, n_log2).clone(),
+                self.mem.get(n.se, n_log2).clone(),
+            ];
+            self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, n_log2)
+        };
+
+        self.root = without_frame(self.root, self.n_log2);
+        self.biroot = if let Some(biroot) = self.biroot {
+            Some((
+                without_frame(biroot.0, self.n_log2),
+                without_frame(biroot.1, self.n_log2),
+            ))
+        } else {
+            None
+        };
     }
 }
 

@@ -465,27 +465,25 @@ impl HashLifeEngine {
     }
 
     fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
-        let r = self.mem.get(self.root, self.n_log2).clone();
+        let n = self.mem.get(self.root, self.n_log2).clone();
         let [nw, ne, sw, se] = match topology {
-            Topology::Torus => {
-                let t = self.mem.find_node(r.se, r.sw, r.ne, r.nw, self.n_log2);
-                [t; 4]
-            }
+            Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, self.n_log2); 4],
             Topology::Unbounded => {
                 let b = NodeIdx(0);
                 [
-                    self.mem.find_node(b, b, b, r.nw, self.n_log2),
-                    self.mem.find_node(b, b, r.ne, b, self.n_log2),
-                    self.mem.find_node(b, r.sw, b, b, self.n_log2),
-                    self.mem.find_node(r.se, b, b, b, self.n_log2),
+                    self.mem.find_node(b, b, b, n.nw, self.n_log2),
+                    self.mem.find_node(b, b, n.ne, b, self.n_log2),
+                    self.mem.find_node(b, n.sw, b, b, self.n_log2),
+                    self.mem.find_node(n.se, b, b, b, self.n_log2),
                 ]
             }
         };
+        self.root = self.mem.find_node(nw, ne, sw, se, self.n_log2 + 1);
+
+        *dx += 1 << (self.n_log2 - 1);
+        *dy += 1 << (self.n_log2 - 1);
         self.n_log2 += 1;
         assert!(self.n_log2 <= MAX_SIDE_LOG2);
-        self.root = self.mem.find_node(nw, ne, sw, se, self.n_log2);
-        *dx += 1 << (self.n_log2 - 2);
-        *dy += 1 << (self.n_log2 - 2);
     }
 
     fn frame_is_blank(&self) -> bool {
@@ -512,21 +510,21 @@ impl HashLifeEngine {
     }
 
     fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        let root = self.mem.get(self.root, self.n_log2);
-        let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.n_log2 - 1).clone(),
-            self.mem.get(root.ne, self.n_log2 - 1).clone(),
-            self.mem.get(root.sw, self.n_log2 - 1).clone(),
-            self.mem.get(root.se, self.n_log2 - 1).clone(),
-        ];
         self.n_log2 -= 1;
         assert!(self.n_log2 >= MIN_SIDE_LOG2);
-        self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
         *dx -= 1 << (self.n_log2 - 1);
         *dy -= 1 << (self.n_log2 - 1);
+
+        let n = self.mem.get(self.root, self.n_log2 + 1);
+        let [nw, ne, sw, se] = [
+            self.mem.get(n.nw, self.n_log2).clone(),
+            self.mem.get(n.ne, self.n_log2).clone(),
+            self.mem.get(n.sw, self.n_log2).clone(),
+            self.mem.get(n.se, self.n_log2).clone(),
+        ];
+        self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
     }
 }
-
 impl Engine for HashLifeEngine {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
