@@ -1,5 +1,5 @@
-use super::{NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIZE_LOG2};
+use crate::{Engine, NiceInt, Topology, MIN_SIDE_LOG2};
 use eframe::egui::ahash::AHashMap as HashMap;
 
 type MemoryManager = super::MemoryManager<u64>;
@@ -8,329 +8,23 @@ pub static mut UPDATE_NODE: u64 = 0;
 pub static mut ITERATE_RECURSE: u64 = 0;
 
 pub struct StreamLifeEngine {
-    n_log2: u32,
-    root: NodeIdx,
-    steps_per_update_log2: u32,
-    has_cache: bool,
-    mem: MemoryManager,
-    population: PopulationManager,
+    base: HashLifeEngine<u64>,
     // streamlife-specific
     biroot: Option<(NodeIdx, NodeIdx)>,
     bicache: HashMap<((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx)>,
 }
 
 impl StreamLifeEngine {
-    fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
-        let b = row_prev;
-        let a = b << 1;
-        let c = b >> 1;
-        let i = row_curr;
-        let h = i << 1;
-        let d = i >> 1;
-        let f = row_next;
-        let g = f << 1;
-        let e = f >> 1;
-
-        let ab0 = a ^ b;
-        let ab1 = a & b;
-        let cd0 = c ^ d;
-        let cd1 = c & d;
-
-        let ef0 = e ^ f;
-        let ef1 = e & f;
-        let gh0 = g ^ h;
-        let gh1 = g & h;
-
-        let ad0 = ab0 ^ cd0;
-        let ad1 = (ab1 ^ cd1) ^ (ab0 & cd0);
-        let ad2 = ab1 & cd1;
-
-        let eh0 = ef0 ^ gh0;
-        let eh1 = (ef1 ^ gh1) ^ (ef0 & gh0);
-        let eh2 = ef1 & gh1;
-
-        let ah0 = ad0 ^ eh0;
-        let xx = ad0 & eh0;
-        let yy = ad1 ^ eh1;
-        let ah1 = xx ^ yy;
-        let ah23 = (ad2 | eh2) | (ad1 & eh1) | (xx & yy);
-        let z = !ah23 & ah1;
-        let i2 = !ah0 & z;
-        let i3 = ah0 & z;
-        (i & i2) | i3
-    }
-
-    #[inline(never)]
-    fn update_leaves(
-        &mut self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        steps: u64,
-    ) -> NodeIdx {
-        let [nw, ne, sw, se] =
-            [nw, ne, sw, se].map(|x| self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells());
-
-        let mut src: [u16; 16] = nw
-            .iter()
-            .zip(ne.iter())
-            .chain(sw.iter().zip(se.iter()))
-            .map(|(&l, &r)| u16::from_le_bytes([l, r]))
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        let mut dst = [0; 16];
-
-        for t in 1..=steps as usize {
-            for y in t..16 - t {
-                dst[y] = Self::update_row(src[y - 1], src[y], src[y + 1]);
-            }
-            std::mem::swap(&mut src, &mut dst);
-        }
-
-        let arr: [u16; 8] = src[4..12].try_into().unwrap();
-        self.mem.find_leaf_from_rows(arr.map(|x| (x >> 4) as u8))
-    }
-
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and result
-    fn update_nodes_single(
-        &mut self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> NodeIdx {
-        let [nwnw, nwne, nwsw, nwse] = {
-            let n = self.mem.get(nw, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [nenw, nene, nesw, nese] = {
-            let n = self.mem.get(ne, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [swnw, swne, swsw, swse] = {
-            let n = self.mem.get(sw, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [senw, sene, sesw, sese] = {
-            let n = self.mem.get(se, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-
-        let [t00, t01, t02, t10, t11, t12, t20, t21, t22] = if size_log2 >= LEAF_SIZE_LOG2 + 2 {
-            [
-                self.mem.find_node(
-                    self.mem.get(nwnw, size_log2 - 1).se,
-                    self.mem.get(nwne, size_log2 - 1).sw,
-                    self.mem.get(nwsw, size_log2 - 1).ne,
-                    self.mem.get(nwse, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwne, size_log2 - 1).se,
-                    self.mem.get(nenw, size_log2 - 1).sw,
-                    self.mem.get(nwse, size_log2 - 1).ne,
-                    self.mem.get(nesw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nenw, size_log2 - 1).se,
-                    self.mem.get(nene, size_log2 - 1).sw,
-                    self.mem.get(nesw, size_log2 - 1).ne,
-                    self.mem.get(nese, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwsw, size_log2 - 1).se,
-                    self.mem.get(nwse, size_log2 - 1).sw,
-                    self.mem.get(swnw, size_log2 - 1).ne,
-                    self.mem.get(swne, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwse, size_log2 - 1).se,
-                    self.mem.get(nesw, size_log2 - 1).sw,
-                    self.mem.get(swne, size_log2 - 1).ne,
-                    self.mem.get(senw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nesw, size_log2 - 1).se,
-                    self.mem.get(nese, size_log2 - 1).sw,
-                    self.mem.get(senw, size_log2 - 1).ne,
-                    self.mem.get(sene, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(swnw, size_log2 - 1).se,
-                    self.mem.get(swne, size_log2 - 1).sw,
-                    self.mem.get(swsw, size_log2 - 1).ne,
-                    self.mem.get(swse, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(swne, size_log2 - 1).se,
-                    self.mem.get(senw, size_log2 - 1).sw,
-                    self.mem.get(swse, size_log2 - 1).ne,
-                    self.mem.get(sesw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(senw, size_log2 - 1).se,
-                    self.mem.get(sene, size_log2 - 1).sw,
-                    self.mem.get(sesw, size_log2 - 1).ne,
-                    self.mem.get(sese, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-            ]
-        } else {
-            [
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nwnw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nwne, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nwsw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nwne, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nenw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nenw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nene, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nese, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nwsw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swnw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nese, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sene, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(swnw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swsw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(swse, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swse, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sesw, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(sene, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(sesw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sese, LEAF_SIZE_LOG2).leaf_nw(),
-                ),
-            ]
-        };
-        let q00 = self.mem.find_node(t00, t01, t10, t11, size_log2);
-        let q01 = self.mem.find_node(t01, t02, t11, t12, size_log2);
-        let q10 = self.mem.find_node(t10, t11, t20, t21, size_log2);
-        let q11 = self.mem.find_node(t11, t12, t21, t22, size_log2);
-
-        let [s00, s01, s10, s11] = [q00, q01, q10, q11].map(|x| self.update_node(x, size_log2));
-
-        self.mem.find_node(s00, s01, s10, s11, size_log2)
-    }
-
-    #[inline(never)]
-    fn update_nodes_double(
-        &mut self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> NodeIdx {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
-
-        // First stage
-        let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
-        let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
-        let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
-        let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
-        let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
-
-        let t00 = self.update_node(nw, size_log2);
-        let t01 = self.update_node(p01.find(), size_log2);
-        let t02 = self.update_node(ne, size_log2);
-        let t12 = self.update_node(p12.find(), size_log2);
-        let t11 = self.update_node(p11.find(), size_log2);
-        let t10 = self.update_node(p10.find(), size_log2);
-        let t20 = self.update_node(sw, size_log2);
-        let t21 = self.update_node(p21.find(), size_log2);
-        let t22 = self.update_node(se, size_log2);
-
-        // Second stage
-        let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
-        let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
-        let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
-        let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
-        let t_se = self.update_node(pse.find(), size_log2);
-        let t_sw = self.update_node(psw.find(), size_log2);
-        let t_nw = self.update_node(pnw.find(), size_log2);
-        let t_ne = self.update_node(pne.find(), size_log2);
-        self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
-    }
-
-    /// `size_log2` is related to `node`
-    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        let n = self.mem.get(node, size_log2);
-        if n.has_cache {
-            return n.cache;
-        }
-        assert!(node != NodeIdx(0), "Empty nodes should've been cached");
-        unsafe { UPDATE_NODE += 1 };
-
-        let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
-        let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
-            let steps = if both_stages {
-                LEAF_SIZE / 2
-            } else {
-                1 << self.steps_per_update_log2
-            };
-            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
-        } else if both_stages {
-            self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
-        } else {
-            self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
-        };
-        let n = self.mem.get_mut(node, size_log2);
-        n.cache = cache;
-        n.has_cache = true;
-        cache
-    }
-
     fn determine_direction(&mut self, idx: NodeIdx) -> u64 {
         let (nw, ne, sw, se) = {
-            let n = self.mem.get(idx, LEAF_SIZE_LOG2 + 1);
+            let n = self.base.mem.get(idx, LEAF_SIZE_LOG2 + 1);
             (n.nw, n.ne, n.sw, n.se)
         };
-        let m = self.update_leaves(nw, ne, sw, se, 4);
-        let centre = u64::from_le_bytes(self.mem.get(m, LEAF_SIZE_LOG2).leaf_cells());
+        let m = self.base.update_leaves(nw, ne, sw, se, 4);
+        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIZE_LOG2).leaf_cells());
 
         let [nw, ne, sw, se] = [nw, ne, sw, se]
-            .map(|x| u64::from_le_bytes(self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()));
+            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()));
 
         let z64_centre_to_u64 = |x, y| {
             let xs = (4 + x) as u64;
@@ -388,14 +82,15 @@ impl StreamLifeEngine {
         }
 
         if size_log2 == LEAF_SIZE_LOG2 + 1 {
-            if self.mem.get(idx, size_log2).meta & 0xffff0000 != 1 << 16 {
-                self.mem.get_mut(idx, size_log2).meta = self.determine_direction(idx) | (1 << 16);
+            if self.base.mem.get(idx, size_log2).meta & 0xffff0000 != 1 << 16 {
+                self.base.mem.get_mut(idx, size_log2).meta =
+                    self.determine_direction(idx) | (1 << 16);
             }
-            return self.mem.get(idx, size_log2).meta & 0xffffffff0000ffff;
+            return self.base.mem.get(idx, size_log2).meta & 0xffffffff0000ffff;
         }
 
         let (nw, ne, sw, se, meta) = {
-            let n = self.mem.get(idx, size_log2);
+            let n = self.base.mem.get(idx, size_log2);
             (n.nw, n.ne, n.sw, n.se, n.meta)
         };
         if (meta & 0xffff0000) != (1 << 16) {
@@ -422,30 +117,34 @@ impl StreamLifeEngine {
                 adml &= childlanes[8];
             }
             if adml == 0 {
-                self.mem.get_mut(idx, size_log2).meta = 1 << 16;
+                self.base.mem.get_mut(idx, size_log2).meta = 1 << 16;
                 return 0;
             }
 
             if size_log2 == LEAF_SIZE_LOG2 + 2 {
                 let tlx = {
-                    let nw = self.mem.get(nw, LEAF_SIZE_LOG2 + 1);
-                    [nw.nw, nw.ne, nw.sw, nw.se]
-                        .map(|x| u64::from_le_bytes(self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()))
+                    let nw = self.base.mem.get(nw, LEAF_SIZE_LOG2 + 1);
+                    [nw.nw, nw.ne, nw.sw, nw.se].map(|x| {
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                    })
                 };
                 let trx = {
-                    let ne = self.mem.get(ne, LEAF_SIZE_LOG2 + 1);
-                    [ne.nw, ne.ne, ne.sw, ne.se]
-                        .map(|x| u64::from_le_bytes(self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()))
+                    let ne = self.base.mem.get(ne, LEAF_SIZE_LOG2 + 1);
+                    [ne.nw, ne.ne, ne.sw, ne.se].map(|x| {
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                    })
                 };
                 let blx = {
-                    let sw = self.mem.get(sw, LEAF_SIZE_LOG2 + 1);
-                    [sw.nw, sw.ne, sw.sw, sw.se]
-                        .map(|x| u64::from_le_bytes(self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()))
+                    let sw = self.base.mem.get(sw, LEAF_SIZE_LOG2 + 1);
+                    [sw.nw, sw.ne, sw.sw, sw.se].map(|x| {
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                    })
                 };
                 let brx = {
-                    let se = self.mem.get(se, LEAF_SIZE_LOG2 + 1);
-                    [se.nw, se.ne, se.sw, se.se]
-                        .map(|x| u64::from_le_bytes(self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()))
+                    let se = self.base.mem.get(se, LEAF_SIZE_LOG2 + 1);
+                    [se.nw, se.ne, se.sw, se.se].map(|x| {
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                    })
                 };
 
                 let cc = [tlx[3], trx[2], blx[1], brx[0]];
@@ -463,23 +162,23 @@ impl StreamLifeEngine {
                     mem.find_node(nw, ne, sw, se, LEAF_SIZE_LOG2 + 1)
                 };
 
-                let x = prepared(&mut self.mem, &tc);
+                let x = prepared(&mut self.base.mem, &tc);
                 childlanes[1] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
-                let x = prepared(&mut self.mem, &cl);
+                let x = prepared(&mut self.base.mem, &cl);
                 childlanes[3] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
-                let x = prepared(&mut self.mem, &cc);
+                let x = prepared(&mut self.base.mem, &cc);
                 childlanes[4] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
-                let x = prepared(&mut self.mem, &cr);
+                let x = prepared(&mut self.base.mem, &cr);
                 childlanes[5] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
-                let x = prepared(&mut self.mem, &bc);
+                let x = prepared(&mut self.base.mem, &bc);
                 childlanes[7] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 adml &=
                     childlanes[1] & childlanes[3] & childlanes[4] & childlanes[5] & childlanes[7];
             } else {
-                let pptr_tl = self.mem.get(nw, size_log2 - 1);
-                let pptr_tr = self.mem.get(ne, size_log2 - 1);
-                let pptr_bl = self.mem.get(sw, size_log2 - 1);
-                let pptr_br = self.mem.get(se, size_log2 - 1);
+                let pptr_tl = self.base.mem.get(nw, size_log2 - 1);
+                let pptr_tr = self.base.mem.get(ne, size_log2 - 1);
+                let pptr_bl = self.base.mem.get(sw, size_log2 - 1);
+                let pptr_br = self.base.mem.get(se, size_log2 - 1);
                 let cc = [pptr_tl.se, pptr_tr.sw, pptr_bl.ne, pptr_br.nw];
                 let tc = [pptr_tl.ne, pptr_tr.nw, pptr_tl.se, pptr_tr.sw];
                 let bc = [pptr_bl.ne, pptr_br.nw, pptr_bl.se, pptr_br.sw];
@@ -490,15 +189,15 @@ impl StreamLifeEngine {
                     mem.find_node(x[0], x[1], x[2], x[3], size_log2 - 1)
                 };
 
-                let x = prepared(&mut self.mem, &tc);
+                let x = prepared(&mut self.base.mem, &tc);
                 childlanes[1] = self.node2lanes(x, size_log2 - 1);
-                let x = prepared(&mut self.mem, &cl);
+                let x = prepared(&mut self.base.mem, &cl);
                 childlanes[3] = self.node2lanes(x, size_log2 - 1);
-                let x = prepared(&mut self.mem, &cc);
+                let x = prepared(&mut self.base.mem, &cc);
                 childlanes[4] = self.node2lanes(x, size_log2 - 1);
-                let x = prepared(&mut self.mem, &cr);
+                let x = prepared(&mut self.base.mem, &cr);
                 childlanes[5] = self.node2lanes(x, size_log2 - 1);
-                let x = prepared(&mut self.mem, &bc);
+                let x = prepared(&mut self.base.mem, &bc);
                 childlanes[7] = self.node2lanes(x, size_log2 - 1);
                 adml &=
                     childlanes[1] & childlanes[3] & childlanes[4] & childlanes[5] & childlanes[7];
@@ -552,10 +251,10 @@ impl StreamLifeEngine {
                 lanes |= rotr32(childlanes[6], a2);
             }
 
-            self.mem.get_mut(idx, size_log2).meta = adml | (1 << 16) | (lanes << 32);
+            self.base.mem.get_mut(idx, size_log2).meta = adml | (1 << 16) | (lanes << 32);
         }
 
-        self.mem.get(idx, size_log2).meta & 0xffffffff0000ffff
+        self.base.mem.get(idx, size_log2).meta & 0xffffffff0000ffff
     }
 
     fn is_solitonic(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> bool {
@@ -576,37 +275,47 @@ impl StreamLifeEngine {
 
     fn fourchildren(&mut self, frags: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
         [
-            self.mem
+            self.base
+                .mem
                 .find_node(frags[0], frags[1], frags[3], frags[4], size_log2 + 1),
-            self.mem
+            self.base
+                .mem
                 .find_node(frags[1], frags[2], frags[4], frags[5], size_log2 + 1),
-            self.mem
+            self.base
+                .mem
                 .find_node(frags[3], frags[4], frags[6], frags[7], size_log2 + 1),
-            self.mem
+            self.base
+                .mem
                 .find_node(frags[4], frags[5], frags[7], frags[8], size_log2 + 1),
         ]
     }
 
     fn ninechildren(&mut self, idx: NodeIdx, size_log2: u32) -> [NodeIdx; 9] {
         let [nw, ne, sw, se] = {
-            let n = self.mem.get(idx, size_log2);
+            let n = self.base.mem.get(idx, size_log2);
             [n.nw, n.ne, n.sw, n.se]
         };
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2 - 1).clone());
+        let [nw_, ne_, sw_, se_] =
+            [nw, ne, sw, se].map(|x| self.base.mem.get(x, size_log2 - 1).clone());
 
         [
             nw,
-            self.mem
+            self.base
+                .mem
                 .find_node(nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2 - 1),
             ne,
-            self.mem
+            self.base
+                .mem
                 .find_node(nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2 - 1),
-            self.mem
+            self.base
+                .mem
                 .find_node(nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2 - 1),
-            self.mem
+            self.base
+                .mem
                 .find_node(ne_.sw, ne_.se, se_.nw, se_.ne, size_log2 - 1),
             sw,
-            self.mem
+            self.base
+                .mem
                 .find_node(sw_.ne, se_.nw, sw_.se, se_.sw, size_log2 - 1),
             se,
         ]
@@ -616,26 +325,26 @@ impl StreamLifeEngine {
         if idx.1 == NodeIdx(0) {
             return idx.0;
         }
-        let m0 = self.mem.get(idx.0, size_log2).clone();
-        let m1 = self.mem.get(idx.1, size_log2).clone();
+        let m0 = self.base.mem.get(idx.0, size_log2).clone();
+        let m1 = self.base.mem.get(idx.1, size_log2).clone();
         if size_log2 == LEAF_SIZE_LOG2 {
             let l0 = u64::from_le_bytes(m0.leaf_cells());
             let l1 = u64::from_le_bytes(m1.leaf_cells());
             debug_assert!(l0 & l1 == 0, "universes overlap");
-            self.mem.find_leaf_from_u64(l0 | l1)
+            self.base.mem.find_leaf_from_u64(l0 | l1)
         } else {
             let nw = self.merge_universes((m0.nw, m1.nw), size_log2 - 1);
             let ne = self.merge_universes((m0.ne, m1.ne), size_log2 - 1);
             let sw = self.merge_universes((m0.sw, m1.sw), size_log2 - 1);
             let se = self.merge_universes((m0.se, m1.se), size_log2 - 1);
-            self.mem.find_node(nw, ne, sw, se, size_log2)
+            self.base.mem.find_node(nw, ne, sw, se, size_log2)
         }
     }
 
     fn iterate_recurse(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> (NodeIdx, NodeIdx) {
         if self.is_solitonic(idx, size_log2) {
-            let i1 = self.update_node(idx.0, size_log2);
-            let i2 = self.update_node(idx.1, size_log2);
+            let i1 = self.base.update_node(idx.0, size_log2);
+            let i2 = self.base.update_node(idx.1, size_log2);
 
             return if idx.0 == NodeIdx(0) || idx.1 == NodeIdx(0) {
                 let i3 = NodeIdx(i1.0 | i2.0);
@@ -659,7 +368,7 @@ impl StreamLifeEngine {
         if size_log2 == LEAF_SIZE_LOG2 + 2 {
             // TODO: inline merging universities
             let hnode2 = self.merge_universes(idx, size_log2);
-            let i3 = self.update_node(hnode2, size_log2);
+            let i3 = self.base.update_node(hnode2, size_log2);
 
             if i3 != NodeIdx(0) {
                 let lanes = self.node2lanes(hnode2, size_log2);
@@ -675,18 +384,19 @@ impl StreamLifeEngine {
             let mut ch91 = self.ninechildren(idx.0, size_log2);
             let mut ch92 = self.ninechildren(idx.1, size_log2);
 
-            // size_log2 - 4 <= 1 + self.steps_per_update_log2
-            let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
+            let both_stages = self.base.steps_per_update_log2 + 2 >= size_log2;
 
             for i in 0..9 {
                 if !both_stages {
                     let mut update_node_null = |node: NodeIdx, size_log2: u32| -> NodeIdx {
-                        let n = self.mem.get(node, size_log2);
-                        let nwse = self.mem.get(n.nw, size_log2 - 1).se;
-                        let nesw = self.mem.get(n.ne, size_log2 - 1).sw;
-                        let swne = self.mem.get(n.sw, size_log2 - 1).ne;
-                        let senw = self.mem.get(n.se, size_log2 - 1).nw;
-                        self.mem.find_node(nwse, nesw, swne, senw, size_log2 - 1)
+                        let n = self.base.mem.get(node, size_log2);
+                        let nwse = self.base.mem.get(n.nw, size_log2 - 1).se;
+                        let nesw = self.base.mem.get(n.ne, size_log2 - 1).sw;
+                        let swne = self.base.mem.get(n.sw, size_log2 - 1).ne;
+                        let senw = self.base.mem.get(n.se, size_log2 - 1).nw;
+                        self.base
+                            .mem
+                            .find_node(nwse, nesw, swne, senw, size_log2 - 1)
                     };
 
                     ch91[i] = update_node_null(ch91[i], size_log2 - 1);
@@ -706,9 +416,11 @@ impl StreamLifeEngine {
             }
 
             let res = (
-                self.mem
+                self.base
+                    .mem
                     .find_node(ch41[0], ch41[1], ch41[2], ch41[3], size_log2 - 1),
-                self.mem
+                self.base
+                    .mem
                     .find_node(ch42[0], ch42[1], ch42[2], ch42[3], size_log2 - 1),
             );
             self.bicache.insert((idx, size_log2), res);
@@ -716,274 +428,47 @@ impl StreamLifeEngine {
         }
     }
 
-    /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.
-    ///
-    /// If `depth` == 0, every cell is a regular cell, if 1 it is
-    /// an OTCA build from regular cells and so on.
-    ///
-    /// `top_pattern` must consist of zeros and ones.
-    pub fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
-        let k = top_pattern.len();
-        assert!(top_pattern.iter().all(|row| row.len() == k));
-        assert!(k.is_power_of_two());
-
-        const OTCA_SIZE: u64 = 2048;
-
-        let otca_patterns = [
-            include_bytes!("../../res/otca_0.rle").as_slice(),
-            include_bytes!("../../res/otca_1.rle").as_slice(),
-        ]
-        .map(|buf| {
-            let (n_log2, data) = crate::parse_rle(buf);
-            assert_eq!(1 << n_log2, OTCA_SIZE);
-            data
-        });
-
-        if depth == 0 {
-            panic!("Use `from_cells_array` instead");
-        }
-
-        let mut mem = MemoryManager::new();
-        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
-        // creating first-level OTCA nodes
-        let mut otca_nodes = [0, 1].map(|i| {
-            for y in 0..OTCA_SIZE / LEAF_SIZE {
-                for x in 0..OTCA_SIZE / LEAF_SIZE {
-                    let mut data = [0; LEAF_SIZE as usize];
-                    for sy in 0..LEAF_SIZE {
-                        for sx in 0..LEAF_SIZE {
-                            let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                            let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
-                            let idx =
-                                ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize;
-                            if otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0 {
-                                data[pos as usize] |= mask;
-                            }
-                        }
-                    }
-                    nodes_curr.push(mem.find_leaf_from_rows(data));
-                }
-            }
-            let mut t = OTCA_SIZE / LEAF_SIZE;
-            while t != 1 {
-                for y in (0..t).step_by(2) {
-                    for x in (0..t).step_by(2) {
-                        let nw = nodes_curr[(x + y * t) as usize];
-                        let ne = nodes_curr[((x + 1) + y * t) as usize];
-                        let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                        let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                        nodes_next.push(mem.find_node(
-                            nw,
-                            ne,
-                            sw,
-                            se,
-                            OTCA_SIZE.ilog2() - t.ilog2() + 1,
-                        ));
-                    }
-                }
-                std::mem::swap(&mut nodes_curr, &mut nodes_next);
-                nodes_next.clear();
-                t >>= 1;
-            }
-            assert_eq!(nodes_curr.len(), 1);
-            nodes_curr.pop().unwrap()
-        });
-        // creating next-levels OTCA nodes
-        for d in 1..depth {
-            let otca_nodes_next = [0, 1].map(|i| {
-                for y in 0..OTCA_SIZE {
-                    for x in 0..OTCA_SIZE {
-                        let idx = (x + y * OTCA_SIZE) as usize;
-                        let state = (otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0) as usize;
-                        nodes_curr.push(otca_nodes[state]);
-                    }
-                }
-                let mut t = OTCA_SIZE;
-                while t != 1 {
-                    for y in (0..t).step_by(2) {
-                        for x in (0..t).step_by(2) {
-                            let nw = nodes_curr[(x + y * t) as usize];
-                            let ne = nodes_curr[((x + 1) + y * t) as usize];
-                            let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                            let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                            nodes_next.push(mem.find_node(
-                                nw,
-                                ne,
-                                sw,
-                                se,
-                                (d + 1) * OTCA_SIZE.ilog2() - t.ilog2() + 1,
-                            ));
-                        }
-                    }
-                    std::mem::swap(&mut nodes_curr, &mut nodes_next);
-                    nodes_next.clear();
-                    t >>= 1;
-                }
-                assert_eq!(nodes_curr.len(), 1);
-                nodes_curr.pop().unwrap()
-            });
-            otca_nodes = otca_nodes_next;
-        }
-        // creating field from `top_pattern` using top-level OTCA nodes
-        for row in top_pattern {
-            for state in row {
-                assert!(state == 0 || state == 1);
-                let state = state as usize;
-                nodes_curr.push(otca_nodes[state]);
-            }
-        }
-        let mut t = k;
-        while t != 1 {
-            for y in (0..t).step_by(2) {
-                for x in (0..t).step_by(2) {
-                    let nw = nodes_curr[x + y * t];
-                    let ne = nodes_curr[(x + 1) + y * t];
-                    let sw = nodes_curr[x + (y + 1) * t];
-                    let se = nodes_curr[(x + 1) + (y + 1) * t];
-                    nodes_next.push(mem.find_node(
-                        nw,
-                        ne,
-                        sw,
-                        se,
-                        depth * OTCA_SIZE.ilog2() + k.ilog2() - t.ilog2() + 1,
-                    ));
-                }
-            }
-            std::mem::swap(&mut nodes_curr, &mut nodes_next);
-            nodes_next.clear();
-            t >>= 1;
-        }
-        assert_eq!(nodes_curr.len(), 1);
-        let root = nodes_curr.pop().unwrap();
-
-        let n_log2 = OTCA_SIZE.ilog2() * depth + k.ilog2();
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        Self {
-            n_log2,
-            root,
-            mem,
-            ..Default::default()
-        }
-    }
-
     fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
-        let mut with_frame = |idx: NodeIdx, size_log2: u32| -> NodeIdx {
-            let n = self.mem.get(idx, size_log2).clone();
-            let [nw, ne, sw, se] = match topology {
-                Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
-                Topology::Unbounded => {
-                    let b = NodeIdx(0);
-                    [
-                        self.mem.find_node(b, b, b, n.nw, size_log2),
-                        self.mem.find_node(b, b, n.ne, b, size_log2),
-                        self.mem.find_node(b, n.sw, b, b, size_log2),
-                        self.mem.find_node(n.se, b, b, b, size_log2),
-                    ]
-                }
-            };
-            self.mem.find_node(nw, ne, sw, se, size_log2 + 1)
-        };
-
-        self.root = with_frame(self.root, self.n_log2);
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                with_frame(biroot.0, self.n_log2),
-                with_frame(biroot.1, self.n_log2),
+                self.base.with_frame(biroot.0, self.base.n_log2, topology),
+                self.base.with_frame(biroot.1, self.base.n_log2, topology),
             ))
         } else {
             None
         };
-
-        *dx += 1 << (self.n_log2 - 1);
-        *dy += 1 << (self.n_log2 - 1);
-        self.n_log2 += 1;
-        assert!(self.n_log2 <= MAX_SIDE_LOG2);
-    }
-
-    fn frame_is_blank(&self) -> bool {
-        let root = self.mem.get(self.root, self.n_log2);
-        let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.n_log2 - 1).clone(),
-            self.mem.get(root.ne, self.n_log2 - 1).clone(),
-            self.mem.get(root.sw, self.n_log2 - 1).clone(),
-            self.mem.get(root.se, self.n_log2 - 1).clone(),
-        ];
-        self.n_log2 > MIN_SIDE_LOG2
-            && nw.sw == NodeIdx(0)
-            && nw.nw == NodeIdx(0)
-            && nw.ne == NodeIdx(0)
-            && ne.nw == NodeIdx(0)
-            && ne.ne == NodeIdx(0)
-            && ne.se == NodeIdx(0)
-            && se.ne == NodeIdx(0)
-            && se.se == NodeIdx(0)
-            && se.sw == NodeIdx(0)
-            && sw.se == NodeIdx(0)
-            && sw.sw == NodeIdx(0)
-            && sw.nw == NodeIdx(0)
+        self.base.add_frame(topology, dx, dy);
     }
 
     fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        self.n_log2 -= 1;
-        assert!(self.n_log2 >= MIN_SIDE_LOG2);
-        *dx -= 1 << (self.n_log2 - 1);
-        *dy -= 1 << (self.n_log2 - 1);
-
-        let mut without_frame = |idx: NodeIdx, n_log2: u32| {
-            let n = self.mem.get(idx, n_log2 + 1);
-            let [nw, ne, sw, se] = [
-                self.mem.get(n.nw, n_log2).clone(),
-                self.mem.get(n.ne, n_log2).clone(),
-                self.mem.get(n.sw, n_log2).clone(),
-                self.mem.get(n.se, n_log2).clone(),
-            ];
-            self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, n_log2)
-        };
-
-        self.root = without_frame(self.root, self.n_log2);
+        self.base.pop_frame(dx, dy);
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                without_frame(biroot.0, self.n_log2),
-                without_frame(biroot.1, self.n_log2),
+                self.base.without_frame(biroot.0, self.base.n_log2),
+                self.base.without_frame(biroot.1, self.base.n_log2),
             ))
         } else {
             None
         };
-    }
-
-    /// Recursively mark nodes to rescue them from garbage-collection
-    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
-        if idx == NodeIdx(0) {
-            return;
-        }
-
-        self.mem.get_mut(idx, size_log2).gc_marked = true;
-        if size_log2 == LEAF_SIZE_LOG2 {
-            return;
-        }
-        
-        let n = self.mem.get(idx, size_log2).clone();
-        self.gc_mark(n.nw, size_log2 - 1);
-        self.gc_mark(n.ne, size_log2 - 1);
-        self.gc_mark(n.sw, size_log2 - 1);
-        self.gc_mark(n.se, size_log2 - 1);
     }
 }
 
 impl Engine for StreamLifeEngine {
     fn blank(size_log2: u32) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let mut mem = MemoryManager::new();
-        let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
         Self {
-            n_log2: size_log2,
-            root,
-            steps_per_update_log2: 0,
-            has_cache: false,
-            mem,
-            population: PopulationManager::new(),
+            base: HashLifeEngine::<u64>::blank(size_log2),
+            bicache: HashMap::default(),
             biroot: None,
-            bicache: HashMap::new(),
+        }
+    }
+
+    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            base: HashLifeEngine::<u64>::from_recursive_otca_metapixel(depth, top_pattern),
+            ..Default::default()
         }
     }
 
@@ -991,308 +476,46 @@ impl Engine for StreamLifeEngine {
     where
         Self: Sized,
     {
-        let mut mem = MemoryManager::new();
-        let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
-        codes.insert(0, NodeIdx(0));
-        let mut last_node = None;
-        let mut size_log2 = 0;
-
-        for s in data
-            .split(|&x| x == b'\n')
-            .skip(1)
-            .filter(|&s| !s.is_empty() && s[0] != b'#')
-        {
-            let node = if s[0].is_ascii_digit() {
-                // non-leaf
-                let mut iter = s.split(|&x| x == b' ');
-                let [k, nw, ne, sw, se] = [0; 5].map(|_| {
-                    std::str::from_utf8(iter.next().unwrap())
-                        .unwrap()
-                        .parse::<usize>()
-                        .unwrap()
-                });
-                size_log2 = k as u32;
-                assert!((LEAF_SIZE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
-                let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
-                    codes
-                        .get(&x)
-                        .copied()
-                        .unwrap_or_else(|| panic!("Node with code {} not found", x))
-                });
-                mem.find_node(nw, ne, sw, se, size_log2)
-            } else {
-                // is leaf
-                let mut cells = 0u64;
-                let (mut i, mut j) = (0, 0);
-                for &c in s {
-                    match c {
-                        b'$' => (i, j) = (i + 1, 0),
-                        b'*' => {
-                            cells |= 1 << (i * 8 + j);
-                            j += 1;
-                            assert!(j <= 8);
-                        }
-                        b'.' => {
-                            j += 1;
-                            assert!(j <= 8);
-                        }
-                        _ => panic!("Unexpected symbol"),
-                    }
-                }
-                assert!(i <= 8);
-                mem.find_leaf_from_u64(cells)
-            };
-            codes.insert(codes.len(), node);
-            last_node = Some(node);
-        }
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         Self {
-            n_log2: size_log2,
-            root: last_node.unwrap(),
-            mem,
+            base: HashLifeEngine::<u64>::from_macrocell(data),
             ..Default::default()
         }
     }
 
     fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
-        let mut mem = MemoryManager::new();
-        let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
-        let n = 1 << n_log2;
-
-        for y in 0..n / LEAF_SIZE {
-            for x in 0..n / LEAF_SIZE {
-                let mut data = [0; LEAF_SIZE as usize];
-                for sy in 0..LEAF_SIZE {
-                    for sx in 0..LEAF_SIZE {
-                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
-                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
-                        if cells[idx / 64] & (1 << (idx % 64)) != 0 {
-                            data[pos as usize] |= mask;
-                        }
-                    }
-                }
-                nodes_curr.push(mem.find_leaf_from_rows(data));
-            }
-        }
-        let mut t = n / LEAF_SIZE;
-        while t != 1 {
-            for y in (0..t).step_by(2) {
-                for x in (0..t).step_by(2) {
-                    let nw = nodes_curr[(x + y * t) as usize];
-                    let ne = nodes_curr[((x + 1) + y * t) as usize];
-                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(mem.find_node(nw, ne, sw, se, n_log2 - t.ilog2() + 1));
-                }
-            }
-            std::mem::swap(&mut nodes_curr, &mut nodes_next);
-            nodes_next.clear();
-            t >>= 1;
-        }
-        assert_eq!(nodes_curr.len(), 1);
-        let root = nodes_curr.pop().unwrap();
         Self {
-            n_log2,
-            root,
-            mem,
+            base: HashLifeEngine::<u64>::from_cells_array(n_log2, cells),
             ..Default::default()
         }
     }
 
     fn save_as_macrocell(&mut self) -> Vec<u8> {
-        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-        struct Key {
-            size_log2: u32,
-            idx: NodeIdx,
-        }
-
-        fn inner(
-            idx: NodeIdx,
-            size_log2: u32,
-            mem: &MemoryManager,
-            codes: &mut HashMap<Key, usize>,
-            result: &mut Vec<String>,
-        ) {
-            if codes.contains_key(&Key { idx, size_log2 }) {
-                return;
-            }
-            let n = mem.get(idx, size_log2);
-            let mut s = String::new();
-            if size_log2 == LEAF_SIZE_LOG2 {
-                let data = n.leaf_cells();
-                for t in data.iter() {
-                    for i in 0..8 {
-                        if t >> i & 1 != 0 {
-                            s.push('*');
-                        } else {
-                            s.push('.');
-                        }
-                    }
-                    while s.ends_with('.') {
-                        s.pop();
-                    }
-                    s.push('$');
-                }
-            } else {
-                inner(n.nw, size_log2 - 1, mem, codes, result);
-                inner(n.ne, size_log2 - 1, mem, codes, result);
-                inner(n.sw, size_log2 - 1, mem, codes, result);
-                inner(n.se, size_log2 - 1, mem, codes, result);
-                s = format!(
-                    "{} {} {} {} {}",
-                    size_log2,
-                    codes
-                        .get(&Key {
-                            idx: n.nw,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.ne,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.sw,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.se,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                );
-            }
-            let v = if idx != NodeIdx(0) {
-                s.push('\n');
-                result.push(s);
-                result.len() - 1
-            } else {
-                0
-            };
-            codes.entry(Key { idx, size_log2 }).or_insert(v);
-        }
-
-        let mut codes = HashMap::new();
-        let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
-        inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
-
-        result.iter().flat_map(|s| s.bytes()).collect()
+        self.base.save_as_macrocell()
     }
 
     fn get_cells(&self) -> Vec<u64> {
-        fn inner(
-            x: u64,
-            y: u64,
-            root_size: u64,
-            size_log2: u32,
-            node: NodeIdx,
-            mem: &MemoryManager,
-            result: &mut Vec<u64>,
-        ) {
-            if size_log2 == LEAF_SIZE_LOG2 {
-                let mut idx = x + y * root_size;
-                for row in mem.get(node, LEAF_SIZE_LOG2).leaf_cells() {
-                    result[idx as usize / 64] |= (row as u64) << (idx % 64);
-                    idx += root_size;
-                }
-            } else {
-                let n = mem.get(node, size_log2);
-                let size_log2 = size_log2 - 1;
-                for (i, &child) in [n.nw, n.ne, n.sw, n.se].iter().enumerate() {
-                    let x = x + (((i & 1 != 0) as u64) << size_log2);
-                    let y = y + (((i & 2 != 0) as u64) << size_log2);
-                    inner(x, y, root_size, size_log2, child, mem, result);
-                }
-            }
-        }
-
-        let mut result = vec![0; 1 << (self.n_log2 * 2 - 6)];
-        inner(
-            0,
-            0,
-            1 << self.n_log2,
-            self.n_log2,
-            self.root,
-            &self.mem,
-            &mut result,
-        );
-        result
+        self.base.get_cells()
     }
 
     fn side_length_log2(&self) -> u32 {
-        self.n_log2
+        self.base.side_length_log2()
     }
 
-    fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
-        let mut node = self.root;
-        let mut size_log2 = self.n_log2;
-        while size_log2 != LEAF_SIZE_LOG2 {
-            let n = self.mem.get(node, size_log2);
-            size_log2 -= 1;
-            let size = 1 << size_log2;
-            let idx = (x >= size) as usize + 2 * (y >= size) as usize;
-            x -= ((x >= size) as u64) << size_log2;
-            y -= ((y >= size) as u64) << size_log2;
-            node = match idx {
-                0 => n.nw,
-                1 => n.ne,
-                2 => n.sw,
-                3 => n.se,
-                _ => unreachable!(),
-            };
-        }
-        self.mem.get(node, LEAF_SIZE_LOG2).leaf_cells()[y as usize] >> x & 1 != 0
+    fn get_cell(&self, x: u64, y: u64) -> bool {
+        self.base.get_cell(x, y)
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        fn inner(
-            mut x: u64,
-            mut y: u64,
-            mut size_log2: u32,
-            node: NodeIdx,
-            state: bool,
-            mem: &mut MemoryManager,
-        ) -> NodeIdx {
-            let n = mem.get(node, size_log2);
-            if size_log2 == LEAF_SIZE_LOG2 {
-                let mut data = n.leaf_cells();
-                let mask = 1 << x;
-                if state {
-                    data[y as usize] |= mask;
-                } else {
-                    data[y as usize] &= !mask;
-                }
-                mem.find_leaf_from_rows(data)
-            } else {
-                let mut arr = [n.nw, n.ne, n.sw, n.se];
-                size_log2 -= 1;
-                let size = 1 << size_log2;
-                let idx: usize = (x >= size) as usize + 2 * (y >= size) as usize;
-                x -= (x >= size) as u64 * size;
-                y -= (y >= size) as u64 * size;
-                arr[idx] = inner(x, y, size_log2, arr[idx], state, mem);
-                mem.find_node(arr[0], arr[1], arr[2], arr[3], size_log2 + 1)
-            }
-        }
-
-        self.root = inner(x, y, self.n_log2, self.root, state, &mut self.mem);
+        self.base.set_cell(x, y, state);
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
-        if self.has_cache && self.steps_per_update_log2 != steps_log2 {
-            self.mem.drop_cache();
+        if self.base.has_cache && self.base.steps_per_update_log2 != steps_log2 {
+            self.base.mem.drop_cache();
         }
 
-        self.has_cache = true;
-        self.steps_per_update_log2 = steps_log2;
+        self.base.has_cache = true;
+        self.base.steps_per_update_log2 = steps_log2;
 
         const FRAMES_CNT: usize = 2; // TODO: from steps_log2
         let (mut dx, mut dy) = (0, 0);
@@ -1300,13 +523,13 @@ impl Engine for StreamLifeEngine {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        let biroot = self.biroot.unwrap_or((self.root, NodeIdx(0)));
-        let biroot = self.iterate_recurse(biroot, self.n_log2);
-        self.n_log2 -= 1;
+        let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
+        let biroot = self.iterate_recurse(biroot, self.base.n_log2);
+        self.base.n_log2 -= 1;
         self.biroot = Some(biroot);
-        self.root = self.merge_universes(biroot, self.n_log2);
-        dx -= 1 << (self.n_log2 - 1);
-        dy -= 1 << (self.n_log2 - 1);
+        self.base.root = self.merge_universes(biroot, self.base.n_log2);
+        dx -= 1 << (self.base.n_log2 - 1);
+        dy -= 1 << (self.base.n_log2 - 1);
 
         match topology {
             Topology::Torus => {
@@ -1315,7 +538,7 @@ impl Engine for StreamLifeEngine {
                 }
             }
             Topology::Unbounded => {
-                while self.frame_is_blank() {
+                while self.base.frame_is_blank() {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -1332,118 +555,17 @@ impl Engine for StreamLifeEngine {
         resolution: &mut f64,
         dst: &mut Vec<f64>,
     ) {
-        struct Args<'a> {
-            node: NodeIdx,
-            x: i64,
-            y: i64,
-            size_log2: u32,
-            dst: &'a mut Vec<f64>,
-            viewport_x: i64,
-            viewport_y: i64,
-            resolution: i64,
-            viewport_size: i64,
-            step_log2: u32,
-            mem: &'a MemoryManager,
-            population: &'a mut PopulationManager,
-        }
-
-        fn inner(args: &mut Args) {
-            if args.step_log2 == args.size_log2 {
-                let j = (args.x - args.viewport_x) >> args.step_log2;
-                let i = (args.y - args.viewport_y) >> args.step_log2;
-                args.dst[(j + i * args.resolution) as usize] =
-                    args.population.get(args.node, args.size_log2, args.mem);
-                return;
-            }
-            const LEAF_ISIZE: i64 = LEAF_SIZE as i64;
-            let n = args.mem.get(args.node, args.size_log2);
-            if args.size_log2 == LEAF_SIZE_LOG2 {
-                let data = n.leaf_cells();
-                let k = LEAF_ISIZE >> args.step_log2;
-                let step = 1 << args.step_log2;
-                for sy in 0..k {
-                    for sx in 0..k {
-                        let mut sum = 0;
-                        for dy in 0..step {
-                            for dx in 0..step {
-                                let x = (sx * step + dx) % LEAF_ISIZE;
-                                let y = (sy * step + dy) % LEAF_ISIZE;
-                                let pos = (x + y * LEAF_ISIZE) / LEAF_ISIZE;
-                                let offset = (x + y * LEAF_ISIZE) % LEAF_ISIZE;
-                                sum += data[pos as usize] >> offset & 1;
-                            }
-                        }
-                        let j = sx + ((args.x - args.viewport_x) >> args.step_log2);
-                        let i = sy + ((args.y - args.viewport_y) >> args.step_log2);
-                        args.dst[(j + i * args.resolution) as usize] = sum as f64;
-                    }
-                }
-            } else {
-                args.size_log2 -= 1;
-                let half = 1 << args.size_log2;
-                for (i, &child) in [n.nw, n.ne, n.sw, n.se].iter().enumerate() {
-                    let mut x = args.x + half * (i & 1 != 0) as i64;
-                    let mut y = args.y + half * (i & 2 != 0) as i64;
-                    let mut node = child;
-                    if x + half > args.viewport_x
-                        && x < args.viewport_x + args.viewport_size
-                        && y + half > args.viewport_y
-                        && y < args.viewport_y + args.viewport_size
-                    {
-                        std::mem::swap(&mut x, &mut args.x);
-                        std::mem::swap(&mut y, &mut args.y);
-                        std::mem::swap(&mut node, &mut args.node);
-                        inner(args);
-                        std::mem::swap(&mut x, &mut args.x);
-                        std::mem::swap(&mut y, &mut args.y);
-                        std::mem::swap(&mut node, &mut args.node);
-                    }
-                }
-                args.size_log2 += 1;
-            }
-        }
-
-        let step_log2 = ((*size / *resolution) as u64).max(1).ilog2();
-        let step: u64 = 1 << step_log2;
-        let com_mul = step.max(LEAF_SIZE);
-        let size_int = (*size as u64).next_multiple_of(com_mul) as i64 + com_mul as i64 * 2;
-        *size = size_int as f64;
-        let resolution_int = size_int / step as i64;
-        *resolution = resolution_int as f64;
-        let x_int = (*viewport_x as u64 + 1).next_multiple_of(com_mul) as i64 - com_mul as i64 * 2;
-        *viewport_x = x_int as f64;
-        let y_int = (*viewport_y as u64 + 1).next_multiple_of(com_mul) as i64 - com_mul as i64 * 2;
-        *viewport_y = y_int as f64;
-
-        dst.clear();
-        dst.resize((resolution_int * resolution_int) as usize, 0.);
-        if step_log2 > self.n_log2 {
-            return;
-        }
-        let mut args = Args {
-            node: self.root,
-            x: 0,
-            y: 0,
-            size_log2: self.n_log2,
-            dst,
-            viewport_x: x_int,
-            viewport_y: y_int,
-            resolution: resolution_int,
-            viewport_size: size_int,
-            step_log2,
-            mem: &self.mem,
-            population: &mut self.population,
-        };
-        inner(&mut args);
+        self.base
+            .fill_texture(viewport_x, viewport_y, size, resolution, dst);
     }
 
     fn population(&mut self) -> f64 {
-        self.population.get(self.root, self.n_log2, &self.mem)
+        self.base.population()
     }
 
-    fn stats_fast(&mut self) -> String {
+    fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.n_log2);
+        s += &format!("Side length: 2^{}\n", self.base.n_log2);
         let (population, duration) = {
             let timer = std::time::Instant::now();
             let population = self.population();
@@ -1451,19 +573,15 @@ impl Engine for StreamLifeEngine {
         };
         s += &format!("Population: {}\n", NiceInt::from_f64(population));
         s += &format!("Population compute time: {}\n", duration.as_secs_f64());
-        s += &self.mem.stats_fast();
+        s += &self.base.mem.stats_fast();
         s
-    }
-
-    fn stats_slow(&mut self) -> String {
-        self.mem.stats_slow()
     }
 
     fn run_gc(&mut self) {
         self.bicache.clear();
         self.biroot = None;
-        self.gc_mark(self.root, self.n_log2);
-        // self.mem.deallocate_unmarked_and_unmark();
+        self.base.gc_mark(self.base.root, self.base.n_log2);
+        self.base.mem.gc_finish();
     }
 }
 

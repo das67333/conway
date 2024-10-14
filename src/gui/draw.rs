@@ -275,14 +275,8 @@ impl App {
         }
     }
 
-    fn draw_stats(&mut self, ui: &mut Ui) {
-        if ui.add(Self::new_button("Update slow stats")).clicked() {
-            self.cached_verbose_stats = self.life_engine.stats_slow();
-        }
-
-        ui.label(Self::new_text(
-            &(self.life_engine.stats_fast() + &self.cached_verbose_stats),
-        ));
+    fn draw_statistics(&mut self, ui: &mut Ui) {
+        ui.label(Self::new_text(&self.life_engine.statistics()));
     }
 
     fn draw_controls(&mut self, ctx: &Context, ui: &mut Ui) {
@@ -304,7 +298,7 @@ impl App {
 
                     ui.add_space(Config::WIDGET_GAP);
 
-                    self.draw_stats(ui);
+                    self.draw_statistics(ui);
                 });
 
                 // to adjust the bounds

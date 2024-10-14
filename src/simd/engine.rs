@@ -1,4 +1,4 @@
-use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, HashLifeEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub struct SimdEngine {
     data: Vec<u64>,
@@ -114,6 +114,15 @@ impl Engine for SimdEngine {
         }
     }
 
+    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
+        where
+            Self: Sized {
+        let cells = HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern).get_cells();
+        assert!(cells.len().is_power_of_two());
+        let n_log2 = (cells.len().ilog2() + 6) / 2;
+        Self::from_cells_array(n_log2, cells)
+    }
+
     fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized,
@@ -188,7 +197,7 @@ impl Engine for SimdEngine {
         self.data.iter().map(|x| x.count_ones() as u64).sum::<u64>() as f64
     }
 
-    fn stats_fast(&mut self) -> String {
+    fn statistics(&mut self) -> String {
         let mut s = "Engine: SIMD\n".to_string();
         s += &format!("Side length: 2^{}\n", self.n.ilog2());
         let timer = std::time::Instant::now();

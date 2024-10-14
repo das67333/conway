@@ -5,14 +5,14 @@ use super::Topology;
 
 /// Engine trait for Game of Life with edges stitched together.
 pub trait Engine {
-    /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`
+    /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`.
     ///
     /// `MIN_SIDE_LOG2 <= n_log2 <= MAX_SIDE_LOG2`
     fn blank(n_log2: u32) -> Self
     where
         Self: Sized;
 
-    /// Create a field with random cells
+    /// Create a field with random cells.
     ///
     /// `seed` - random seed (if `None`, then random seed is generated)
     fn random(n_log2: u32, seed: Option<u64>) -> Self
@@ -31,7 +31,17 @@ pub trait Engine {
         Self::from_cells_array(n_log2, cells)
     }
 
-    /// Parse RLE format into the field
+    /// Recursively builds OTCA megapixels `depth` times, using `top_pattern` as the top level.
+    ///
+    /// If `depth` == 0, every cell is a regular cell, if 1 it is
+    /// an OTCA build from regular cells and so on.
+    ///
+    /// `top_pattern` must consist of zeros and ones.
+    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
+    where
+        Self: Sized;
+
+    /// Parse RLE format into the field.
     fn from_rle(data: &[u8]) -> Self
     where
         Self: Sized,
@@ -40,6 +50,7 @@ pub trait Engine {
         Self::from_cells_array(n_log2, cells)
     }
 
+    /// Parse MacroCell format into the field.
     fn from_macrocell(_data: &[u8]) -> Self
     where
         Self: Sized,
@@ -47,32 +58,32 @@ pub trait Engine {
         unimplemented!()
     }
 
-    /// Create a square field from a vector of cells
+    /// Create a square field from a vector of cells.
     fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized;
 
-    /// Save the field in MacroCell format
+    /// Save the field in MacroCell format.
     fn save_as_macrocell(&mut self) -> Vec<u8> {
         unimplemented!()
     }
 
     fn get_cells(&self) -> Vec<u64>;
 
-    /// Get the side length of the field in log2
+    /// Get log2 side length of the field.
     fn side_length_log2(&self) -> u32;
 
     fn get_cell(&self, x: u64, y: u64) -> bool;
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool);
 
-    /// Update the field `2^{iters_log2}` times
+    /// Update the field `2^{iters_log2}` times.
     ///
     /// Returns coordinate shift caused by the update.
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
 
     /// Fills the texture of given resolution with a part of field
-    /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`)
+    /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`).
     ///
     /// It's allowed to fill the texture with a bigger part of the field by
     /// changing `viewport_x`, `viewport_y`, `size` and `resolution`.
@@ -92,14 +103,7 @@ pub trait Engine {
     /// Returns multiline string reporting engine stats.
     ///
     /// This function is fast enough to be called every frame.
-    fn stats_fast(&mut self) -> String {
-        String::new()
-    }
-
-    /// Additional stats that are slow to compute.
-    fn stats_slow(&mut self) -> String {
-        String::new()
-    }
+    fn statistics(&mut self) -> String;
 
     /// Some engines accumulate cache that can be freed by calling this function.
     fn run_gc(&mut self) {}

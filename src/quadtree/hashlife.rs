@@ -1,19 +1,19 @@
-use super::{NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE, LEAF_SIZE_LOG2};
+use super::{
+    memory::MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE, LEAF_SIZE_LOG2,
+};
 use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use eframe::egui::ahash::AHashMap as HashMap;
 
-type MemoryManager = super::MemoryManager<()>;
-
-pub struct HashLifeEngine {
-    n_log2: u32,
-    root: NodeIdx,
-    steps_per_update_log2: u32,
-    has_cache: bool,
-    mem: MemoryManager,
-    population: PopulationManager,
+pub struct HashLifeEngine<Meta> {
+    pub(super) n_log2: u32,
+    pub(super) root: NodeIdx,
+    pub(super) steps_per_update_log2: u32,
+    pub(super) has_cache: bool,
+    pub(super) mem: MemoryManager<Meta>,
+    pub(super) population: PopulationManager,
 }
 
-impl HashLifeEngine {
+impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -54,8 +54,7 @@ impl HashLifeEngine {
         (i & i2) | i3
     }
 
-    #[inline(never)]
-    fn update_leaves(
+    pub(super) fn update_leaves(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -288,7 +287,7 @@ impl HashLifeEngine {
     }
 
     /// `size_log2` is related to `node`
-    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    pub(super) fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
             return n.cache;
@@ -314,13 +313,115 @@ impl HashLifeEngine {
         cache
     }
 
-    /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.
-    ///
-    /// If `depth` == 0, every cell is a regular cell, if 1 it is
-    /// an OTCA build from regular cells and so on.
-    ///
-    /// `top_pattern` must consist of zeros and ones.
-    pub fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
+    pub(super) fn with_frame(
+        &mut self,
+        idx: NodeIdx,
+        size_log2: u32,
+        topology: Topology,
+    ) -> NodeIdx {
+        let n = self.mem.get(idx, size_log2).clone();
+        let [nw, ne, sw, se] = match topology {
+            Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
+            Topology::Unbounded => {
+                let b = NodeIdx(0);
+                [
+                    self.mem.find_node(b, b, b, n.nw, size_log2),
+                    self.mem.find_node(b, b, n.ne, b, size_log2),
+                    self.mem.find_node(b, n.sw, b, b, size_log2),
+                    self.mem.find_node(n.se, b, b, b, size_log2),
+                ]
+            }
+        };
+        self.mem.find_node(nw, ne, sw, se, size_log2 + 1)
+    }
+
+    pub(super) fn without_frame(&mut self, idx: NodeIdx, n_log2: u32) -> NodeIdx {
+        let n = self.mem.get(idx, n_log2 + 1);
+        let [nw, ne, sw, se] = [
+            self.mem.get(n.nw, n_log2).clone(),
+            self.mem.get(n.ne, n_log2).clone(),
+            self.mem.get(n.sw, n_log2).clone(),
+            self.mem.get(n.se, n_log2).clone(),
+        ];
+        self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, n_log2)
+    }
+
+    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+        self.root = self.with_frame(self.root, self.n_log2, topology);
+
+        *dx += 1 << (self.n_log2 - 1);
+        *dy += 1 << (self.n_log2 - 1);
+        self.n_log2 += 1;
+        assert!(self.n_log2 <= MAX_SIDE_LOG2);
+    }
+
+    pub(super) fn frame_is_blank(&self) -> bool {
+        let root = self.mem.get(self.root, self.n_log2);
+        let [nw, ne, sw, se] = [
+            self.mem.get(root.nw, self.n_log2 - 1).clone(),
+            self.mem.get(root.ne, self.n_log2 - 1).clone(),
+            self.mem.get(root.sw, self.n_log2 - 1).clone(),
+            self.mem.get(root.se, self.n_log2 - 1).clone(),
+        ];
+        self.n_log2 > MIN_SIDE_LOG2
+            && nw.sw == NodeIdx(0)
+            && nw.nw == NodeIdx(0)
+            && nw.ne == NodeIdx(0)
+            && ne.nw == NodeIdx(0)
+            && ne.ne == NodeIdx(0)
+            && ne.se == NodeIdx(0)
+            && se.ne == NodeIdx(0)
+            && se.se == NodeIdx(0)
+            && se.sw == NodeIdx(0)
+            && sw.se == NodeIdx(0)
+            && sw.sw == NodeIdx(0)
+            && sw.nw == NodeIdx(0)
+    }
+
+    pub(super) fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+        self.n_log2 -= 1;
+        assert!(self.n_log2 >= MIN_SIDE_LOG2);
+        *dx -= 1 << (self.n_log2 - 1);
+        *dy -= 1 << (self.n_log2 - 1);
+
+        self.root = self.without_frame(self.root, self.n_log2);
+    }
+
+    /// Recursively mark nodes to rescue them from garbage-collection
+    pub(super) fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+        if idx == NodeIdx(0) {
+            return;
+        }
+
+        self.mem.get_mut(idx, size_log2).gc_marked = true;
+        if size_log2 == LEAF_SIZE_LOG2 {
+            return;
+        }
+
+        let n = self.mem.get(idx, size_log2).clone();
+        self.gc_mark(n.nw, size_log2 - 1);
+        self.gc_mark(n.ne, size_log2 - 1);
+        self.gc_mark(n.sw, size_log2 - 1);
+        self.gc_mark(n.se, size_log2 - 1);
+    }
+}
+
+impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
+    fn blank(size_log2: u32) -> Self {
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
+        let mut mem = MemoryManager::new();
+        let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
+        Self {
+            n_log2: size_log2,
+            root,
+            steps_per_update_log2: 0,
+            has_cache: false,
+            mem,
+            population: PopulationManager::new(),
+        }
+    }
+
+    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
         let k = top_pattern.len();
         assert!(top_pattern.iter().all(|row| row.len() == k));
         assert!(k.is_power_of_two());
@@ -464,101 +565,6 @@ impl HashLifeEngine {
         }
     }
 
-    fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
-        let n = self.mem.get(self.root, self.n_log2).clone();
-        let [nw, ne, sw, se] = match topology {
-            Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, self.n_log2); 4],
-            Topology::Unbounded => {
-                let b = NodeIdx(0);
-                [
-                    self.mem.find_node(b, b, b, n.nw, self.n_log2),
-                    self.mem.find_node(b, b, n.ne, b, self.n_log2),
-                    self.mem.find_node(b, n.sw, b, b, self.n_log2),
-                    self.mem.find_node(n.se, b, b, b, self.n_log2),
-                ]
-            }
-        };
-        self.root = self.mem.find_node(nw, ne, sw, se, self.n_log2 + 1);
-
-        *dx += 1 << (self.n_log2 - 1);
-        *dy += 1 << (self.n_log2 - 1);
-        self.n_log2 += 1;
-        assert!(self.n_log2 <= MAX_SIDE_LOG2);
-    }
-
-    fn frame_is_blank(&self) -> bool {
-        let root = self.mem.get(self.root, self.n_log2);
-        let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.n_log2 - 1).clone(),
-            self.mem.get(root.ne, self.n_log2 - 1).clone(),
-            self.mem.get(root.sw, self.n_log2 - 1).clone(),
-            self.mem.get(root.se, self.n_log2 - 1).clone(),
-        ];
-        self.n_log2 > MIN_SIDE_LOG2
-            && nw.sw == NodeIdx(0)
-            && nw.nw == NodeIdx(0)
-            && nw.ne == NodeIdx(0)
-            && ne.nw == NodeIdx(0)
-            && ne.ne == NodeIdx(0)
-            && ne.se == NodeIdx(0)
-            && se.ne == NodeIdx(0)
-            && se.se == NodeIdx(0)
-            && se.sw == NodeIdx(0)
-            && sw.se == NodeIdx(0)
-            && sw.sw == NodeIdx(0)
-            && sw.nw == NodeIdx(0)
-    }
-
-    fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        self.n_log2 -= 1;
-        assert!(self.n_log2 >= MIN_SIDE_LOG2);
-        *dx -= 1 << (self.n_log2 - 1);
-        *dy -= 1 << (self.n_log2 - 1);
-
-        let n = self.mem.get(self.root, self.n_log2 + 1);
-        let [nw, ne, sw, se] = [
-            self.mem.get(n.nw, self.n_log2).clone(),
-            self.mem.get(n.ne, self.n_log2).clone(),
-            self.mem.get(n.sw, self.n_log2).clone(),
-            self.mem.get(n.se, self.n_log2).clone(),
-        ];
-        self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
-    }
-
-    /// Recursively mark nodes to rescue them from garbage-collection
-    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
-        if idx == NodeIdx(0) {
-            return;
-        }
-
-        self.mem.get_mut(idx, size_log2).gc_marked = true;
-        if size_log2 == LEAF_SIZE_LOG2 {
-            return;
-        }
-        
-        let n = self.mem.get(idx, size_log2).clone();
-        self.gc_mark(n.nw, size_log2 - 1);
-        self.gc_mark(n.ne, size_log2 - 1);
-        self.gc_mark(n.sw, size_log2 - 1);
-        self.gc_mark(n.se, size_log2 - 1);
-    }
-}
-
-impl Engine for HashLifeEngine {
-    fn blank(size_log2: u32) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let mut mem = MemoryManager::new();
-        let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
-        Self {
-            n_log2: size_log2,
-            root,
-            steps_per_update_log2: 0,
-            has_cache: false,
-            mem,
-            population: PopulationManager::new(),
-        }
-    }
-
     fn from_macrocell(data: &[u8]) -> Self
     where
         Self: Sized,
@@ -681,10 +687,10 @@ impl Engine for HashLifeEngine {
             idx: NodeIdx,
         }
 
-        fn inner(
+        fn inner<Meta: Clone + Default>(
             idx: NodeIdx,
             size_log2: u32,
-            mem: &MemoryManager,
+            mem: &MemoryManager<Meta>,
             codes: &mut HashMap<Key, usize>,
             result: &mut Vec<String>,
         ) {
@@ -760,13 +766,13 @@ impl Engine for HashLifeEngine {
     }
 
     fn get_cells(&self) -> Vec<u64> {
-        fn inner(
+        fn inner<Meta: Clone + Default>(
             x: u64,
             y: u64,
             root_size: u64,
             size_log2: u32,
             node: NodeIdx,
-            mem: &MemoryManager,
+            mem: &MemoryManager<Meta>,
             result: &mut Vec<u64>,
         ) {
             if size_log2 == LEAF_SIZE_LOG2 {
@@ -825,13 +831,13 @@ impl Engine for HashLifeEngine {
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        fn inner(
+        fn inner<Meta: Clone + Default>(
             mut x: u64,
             mut y: u64,
             mut size_log2: u32,
             node: NodeIdx,
             state: bool,
-            mem: &mut MemoryManager,
+            mem: &mut MemoryManager<Meta>,
         ) -> NodeIdx {
             let n = mem.get(node, size_log2);
             if size_log2 == LEAF_SIZE_LOG2 {
@@ -901,7 +907,7 @@ impl Engine for HashLifeEngine {
         resolution: &mut f64,
         dst: &mut Vec<f64>,
     ) {
-        struct Args<'a> {
+        struct Args<'a, Meta: Clone + Default> {
             node: NodeIdx,
             x: i64,
             y: i64,
@@ -912,11 +918,11 @@ impl Engine for HashLifeEngine {
             resolution: i64,
             viewport_size: i64,
             step_log2: u32,
-            mem: &'a MemoryManager,
+            mem: &'a MemoryManager<Meta>,
             population: &'a mut PopulationManager,
         }
 
-        fn inner(args: &mut Args) {
+        fn inner<'a, Meta: Clone + Default>(args: &mut Args<'a, Meta>) {
             if args.step_log2 == args.size_log2 {
                 let j = (args.x - args.viewport_x) >> args.step_log2;
                 let i = (args.y - args.viewport_y) >> args.step_log2;
@@ -1011,7 +1017,7 @@ impl Engine for HashLifeEngine {
         self.population.get(self.root, self.n_log2, &self.mem)
     }
 
-    fn stats_fast(&mut self) -> String {
+    fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
         s += &format!("Side length: 2^{}\n", self.n_log2);
         let (population, duration) = {
@@ -1025,17 +1031,13 @@ impl Engine for HashLifeEngine {
         s
     }
 
-    fn stats_slow(&mut self) -> String {
-        self.mem.stats_slow()
-    }
-
     fn run_gc(&mut self) {
         self.gc_mark(self.root, self.n_log2);
         self.mem.gc_finish();
     }
 }
 
-impl Default for HashLifeEngine {
+impl<Meta: Clone + Default> Default for HashLifeEngine<Meta> {
     fn default() -> Self {
         Self::blank(MIN_SIDE_LOG2)
     }
