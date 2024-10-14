@@ -16,7 +16,7 @@ pub struct PrefetchedNode<Meta> {
 /// Hashtable that stores nodes of the quadtree
 pub struct KIVMap<Meta> {
     // all allocated nodes
-    storage: ChunkVec<CHUNK_SIZE, QuadTreeNode<Meta>>,
+    storage: ChunkVec<CHUNK_SIZE, Meta>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
     // how many times elements were found
@@ -70,23 +70,12 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         assert!(CHUNK_SIZE.is_power_of_two(), "important for performance");
         assert!(u32::try_from(CHUNK_SIZE).is_ok(), "u32 is insufficient");
         // reserving NodeIdx(0) for blank node
-        let mut storage = ChunkVec::new();
-        storage.push(QuadTreeNode::<Meta>::default());
-        storage[0].has_cache = true;
         Self {
-            storage,
+            storage: ChunkVec::new(),
             hashtable: vec![NodeIdx(0); CHUNK_SIZE],
             hits: 0,
             misses: 0,
         }
-    }
-
-    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Meta> {
-        &self.storage[idx.0 as usize]
-    }
-
-    pub fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Meta> {
-        &mut self.storage[idx.0 as usize]
     }
 
     pub unsafe fn rehash(&mut self) {
@@ -95,11 +84,11 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         let mut new_buf = vec![NodeIdx(0); new_size];
         for mut node in std::mem::take(&mut self.hashtable) {
             while node != NodeIdx(0) {
-                let n = self.get(node);
+                let n = &self.storage[node];
                 let hash = QuadTreeNode::<Meta>::hash(n.nw, n.ne, n.sw, n.se);
                 let next = n.next;
                 let index = hash & (new_size - 1);
-                self.get_mut(node).next = *new_buf.get_unchecked(index);
+                self.storage[node].next = *new_buf.get_unchecked(index);
                 *new_buf.get_unchecked_mut(index) = node;
                 node = next;
             }
@@ -127,13 +116,13 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         let mut prev = NodeIdx(0);
         // search for the node in the linked list
         while node != NodeIdx(0) {
-            let n = self.get(node);
+            let n = &self.storage[node];
             let next = n.next;
             if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if prev != NodeIdx(0) {
-                    self.get_mut(prev).next = next;
-                    self.get_mut(node).next = *self.hashtable.get_unchecked(i);
+                    self.storage[prev].next = next;
+                    self.storage[node].next = *self.hashtable.get_unchecked(i);
                     *self.hashtable.get_unchecked_mut(i) = node;
                 }
                 self.hits += 1;
@@ -144,15 +133,15 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         }
 
         self.misses += 1;
-        let idx = NodeIdx(u32::try_from(self.storage.len()).unwrap());
-        self.storage.push(QuadTreeNode {
+        let idx = self.storage.allocate();
+        self.storage[idx] = QuadTreeNode {
             nw,
             ne,
             sw,
             se,
             next: *self.hashtable.get_unchecked(i),
             ..Default::default()
-        });
+        };
         *self.hashtable.get_unchecked_mut(i) = idx;
         if self.storage.len() > self.hashtable.len() {
             // TODO: как удалять мусор
@@ -161,11 +150,29 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         idx
     }
 
-    pub fn clear_cache(&mut self) {
-        for i in 0..self.storage.len() {
-            self.storage[i].has_cache = false;
-            self.storage[i].cache = NodeIdx(0);
+    pub fn filter_unmarked_from_hashtable(&mut self) {
+        for idx in self.hashtable.iter_mut() {
+            let (mut curr, mut marked) = (*idx, NodeIdx(0));
+            while curr != NodeIdx(0) {
+                let next = self.storage[curr].next;
+                if self.storage[curr].gc_marked {
+                    self.storage[curr].next = marked;
+                    marked = curr;
+                }
+                curr = next;
+            }
+
+            *idx = marked;
         }
+    }
+
+    pub fn drop_cache(&mut self) {
+        self.storage.drop_caches();
+    }
+
+    pub fn gc_finish(&mut self) {
+        self.filter_unmarked_from_hashtable();
+        self.storage.deallocate_unmarked_and_unmark();
     }
 
     pub fn bytes_total(&self) -> usize {
@@ -174,6 +181,10 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
 
     pub fn len(&self) -> usize {
         self.storage.len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.storage.capacity()
     }
 }
 
@@ -188,17 +199,17 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     /// Get a const reference to the node with the given index.
     #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Meta> {
-        let (i, j) = ((size_log2 - LEAF_SIZE_LOG2) as usize, idx.0 as usize);
-        debug_assert!(self.layers.len() > i && self.layers[i].len() > j);
-        unsafe { &self.layers.get_unchecked(i).storage[j] }
+        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
+        unsafe { &self.layers.get_unchecked(i).storage[idx] }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Meta> {
-        let (i, j) = ((size_log2 - LEAF_SIZE_LOG2) as usize, idx.0 as usize);
-        debug_assert!(self.layers.len() > i && self.layers[i].len() > j);
-        unsafe { &mut self.layers.get_unchecked_mut(i).storage[j] }
+        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
+        unsafe { &mut self.layers.get_unchecked_mut(i).storage[idx] }
     }
 
     /// Find a leaf node with the given parts.
@@ -270,9 +281,15 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
         unsafe { self.layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
     }
 
-    pub fn clear_cache(&mut self) {
+    pub fn drop_cache(&mut self) {
         for kiv in self.layers.iter_mut() {
-            kiv.clear_cache();
+            kiv.drop_cache();
+        }
+    }
+
+    pub fn gc_finish(&mut self) {
+        for kiv in self.layers.iter_mut() {
+            kiv.gc_finish();
         }
     }
 

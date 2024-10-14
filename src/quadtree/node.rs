@@ -11,6 +11,7 @@ pub struct QuadTreeNode<Meta> {
     pub next: NodeIdx,  // next item in hashtable bucket
     pub cache: NodeIdx, // cached result of update
     pub has_cache: bool,
+    pub gc_marked: bool,
     pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife
 }
 

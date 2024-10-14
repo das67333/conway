@@ -4,6 +4,9 @@ use eframe::egui::ahash::AHashMap as HashMap;
 
 type MemoryManager = super::MemoryManager<u64>;
 
+pub static mut UPDATE_NODE: u64 = 0;
+pub static mut ITERATE_RECURSE: u64 = 0;
+
 pub struct StreamLifeEngine {
     n_log2: u32,
     root: NodeIdx,
@@ -297,6 +300,7 @@ impl StreamLifeEngine {
             return n.cache;
         }
         assert!(node != NodeIdx(0), "Empty nodes should've been cached");
+        unsafe { UPDATE_NODE += 1 };
 
         let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
         let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
@@ -647,69 +651,69 @@ impl StreamLifeEngine {
             };
         }
 
-        let p = self.bicache.get(&(idx, size_log2));
-        if p.is_none() {
-            let mut res = (NodeIdx(0), NodeIdx(0));
-            if size_log2 == LEAF_SIZE_LOG2 + 2 {
-                // TODO: inline merging universities
-                let hnode2 = self.merge_universes(idx, size_log2);
-                let i3 = self.update_node(hnode2, size_log2);
-
-                if i3 != NodeIdx(0) {
-                    let lanes = self.node2lanes(hnode2, size_log2);
-                    if lanes & 0xf0 != 0 {
-                        res.1 = i3;
-                    } else {
-                        res.0 = i3;
-                    }
-                }
-            } else {
-                let mut ch91 = self.ninechildren(idx.0, size_log2);
-                let mut ch92 = self.ninechildren(idx.1, size_log2);
-
-                // size_log2 - 4 <= 1 + self.steps_per_update_log2
-                let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
-
-                for i in 0..9 {
-                    if !both_stages {
-                        let mut update_node_null = |node: NodeIdx, size_log2: u32| -> NodeIdx {
-                            let n = self.mem.get(node, size_log2);
-                            let nwse = self.mem.get(n.nw, size_log2 - 1).se;
-                            let nesw = self.mem.get(n.ne, size_log2 - 1).sw;
-                            let swne = self.mem.get(n.sw, size_log2 - 1).ne;
-                            let senw = self.mem.get(n.se, size_log2 - 1).nw;
-                            self.mem.find_node(nwse, nesw, swne, senw, size_log2 - 1)
-                        };
-
-                        ch91[i] = update_node_null(ch91[i], size_log2 - 1);
-                        ch92[i] = update_node_null(ch92[i], size_log2 - 1);
-                    } else {
-                        (ch91[i], ch92[i]) =
-                            self.iterate_recurse((ch91[i], ch92[i]), size_log2 - 1);
-                    }
-                }
-
-                let mut ch41 = self.fourchildren(&ch91, size_log2 - 2);
-                let mut ch42 = self.fourchildren(&ch92, size_log2 - 2);
-
-                for i in 0..4 {
-                    let fh = self.iterate_recurse((ch41[i], ch42[i]), size_log2 - 1);
-                    ch41[i] = fh.0;
-                    ch42[i] = fh.1;
-                }
-
-                res = (
-                    self.mem
-                        .find_node(ch41[0], ch41[1], ch41[2], ch41[3], size_log2 - 1),
-                    self.mem
-                        .find_node(ch42[0], ch42[1], ch42[2], ch42[3], size_log2 - 1),
-                );
-            }
-
-            self.bicache.insert((idx, size_log2), res);
+        if let Some(cache) = self.bicache.get(&(idx, size_log2)) {
+            return *cache;
         }
 
-        *self.bicache.get(&(idx, size_log2)).unwrap()
+        unsafe { ITERATE_RECURSE += 1 };
+        if size_log2 == LEAF_SIZE_LOG2 + 2 {
+            // TODO: inline merging universities
+            let hnode2 = self.merge_universes(idx, size_log2);
+            let i3 = self.update_node(hnode2, size_log2);
+
+            if i3 != NodeIdx(0) {
+                let lanes = self.node2lanes(hnode2, size_log2);
+                if lanes & 0xf0 != 0 {
+                    (NodeIdx(0), i3)
+                } else {
+                    (i3, NodeIdx(0))
+                }
+            } else {
+                (NodeIdx(0), NodeIdx(0))
+            }
+        } else {
+            let mut ch91 = self.ninechildren(idx.0, size_log2);
+            let mut ch92 = self.ninechildren(idx.1, size_log2);
+
+            // size_log2 - 4 <= 1 + self.steps_per_update_log2
+            let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
+
+            for i in 0..9 {
+                if !both_stages {
+                    let mut update_node_null = |node: NodeIdx, size_log2: u32| -> NodeIdx {
+                        let n = self.mem.get(node, size_log2);
+                        let nwse = self.mem.get(n.nw, size_log2 - 1).se;
+                        let nesw = self.mem.get(n.ne, size_log2 - 1).sw;
+                        let swne = self.mem.get(n.sw, size_log2 - 1).ne;
+                        let senw = self.mem.get(n.se, size_log2 - 1).nw;
+                        self.mem.find_node(nwse, nesw, swne, senw, size_log2 - 1)
+                    };
+
+                    ch91[i] = update_node_null(ch91[i], size_log2 - 1);
+                    ch92[i] = update_node_null(ch92[i], size_log2 - 1);
+                } else {
+                    (ch91[i], ch92[i]) = self.iterate_recurse((ch91[i], ch92[i]), size_log2 - 1);
+                }
+            }
+
+            let mut ch41 = self.fourchildren(&ch91, size_log2 - 2);
+            let mut ch42 = self.fourchildren(&ch92, size_log2 - 2);
+
+            for i in 0..4 {
+                let fh = self.iterate_recurse((ch41[i], ch42[i]), size_log2 - 1);
+                ch41[i] = fh.0;
+                ch42[i] = fh.1;
+            }
+
+            let res = (
+                self.mem
+                    .find_node(ch41[0], ch41[1], ch41[2], ch41[3], size_log2 - 1),
+                self.mem
+                    .find_node(ch42[0], ch42[1], ch42[2], ch42[3], size_log2 - 1),
+            );
+            self.bicache.insert((idx, size_log2), res);
+            res
+        }
     }
 
     /// Recursively builds OTCA megapixels `depth` times, uses `top_pattern` as the top level.
@@ -945,6 +949,24 @@ impl StreamLifeEngine {
         } else {
             None
         };
+    }
+
+    /// Recursively mark nodes to rescue them from garbage-collection
+    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+        if idx == NodeIdx(0) {
+            return;
+        }
+
+        self.mem.get_mut(idx, size_log2).gc_marked = true;
+        if size_log2 == LEAF_SIZE_LOG2 {
+            return;
+        }
+        
+        let n = self.mem.get(idx, size_log2).clone();
+        self.gc_mark(n.nw, size_log2 - 1);
+        self.gc_mark(n.ne, size_log2 - 1);
+        self.gc_mark(n.sw, size_log2 - 1);
+        self.gc_mark(n.se, size_log2 - 1);
     }
 }
 
@@ -1266,7 +1288,7 @@ impl Engine for StreamLifeEngine {
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
         if self.has_cache && self.steps_per_update_log2 != steps_log2 {
-            self.mem.clear_cache();
+            self.mem.drop_cache();
         }
 
         self.has_cache = true;
@@ -1435,6 +1457,13 @@ impl Engine for StreamLifeEngine {
 
     fn stats_slow(&mut self) -> String {
         self.mem.stats_slow()
+    }
+
+    fn run_gc(&mut self) {
+        self.bicache.clear();
+        self.biroot = None;
+        self.gc_mark(self.root, self.n_log2);
+        // self.mem.deallocate_unmarked_and_unmark();
     }
 }
 

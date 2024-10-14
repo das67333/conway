@@ -64,13 +64,44 @@ mod tests {
     }
 
     #[test]
-    fn test_update_nodes() {
+    fn test_single_updates() {
         for n_log2 in [7, 9] {
             for steps_log2 in 0..n_log2 {
                 let mut engines = randomly_filled(n_log2, SEED);
 
                 for engine in engines.iter_mut() {
                     engine.update(steps_log2, Topology::Torus);
+                }
+
+                assert_fields_equal(&engines);
+            }
+        }
+    }
+
+    #[test]
+    fn test_repetitive_updates_without_gc() {
+        for n_log2 in [7, 9] {
+            let mut engines = randomly_filled(n_log2, SEED);
+
+            for steps_log2 in 0..n_log2 {
+                for engine in engines.iter_mut() {
+                    engine.update(steps_log2, Topology::Torus);
+                }
+
+                assert_fields_equal(&engines);
+            }
+        }
+    }
+
+    #[test]
+    fn test_repetitive_updates_with_gc() {
+        for n_log2 in [7, 9] {
+            let mut engines = randomly_filled(n_log2, SEED);
+
+            for steps_log2 in 0..n_log2 {
+                for engine in engines.iter_mut() {
+                    engine.update(steps_log2, Topology::Torus);
+                    engine.run_gc();
                 }
 
                 assert_fields_equal(&engines);

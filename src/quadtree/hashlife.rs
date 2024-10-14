@@ -524,7 +524,26 @@ impl HashLifeEngine {
         ];
         self.root = self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, self.n_log2);
     }
+
+    /// Recursively mark nodes to rescue them from garbage-collection
+    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+        if idx == NodeIdx(0) {
+            return;
+        }
+
+        self.mem.get_mut(idx, size_log2).gc_marked = true;
+        if size_log2 == LEAF_SIZE_LOG2 {
+            return;
+        }
+        
+        let n = self.mem.get(idx, size_log2).clone();
+        self.gc_mark(n.nw, size_log2 - 1);
+        self.gc_mark(n.ne, size_log2 - 1);
+        self.gc_mark(n.sw, size_log2 - 1);
+        self.gc_mark(n.se, size_log2 - 1);
+    }
 }
+
 impl Engine for HashLifeEngine {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
@@ -841,7 +860,7 @@ impl Engine for HashLifeEngine {
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
         if self.has_cache && self.steps_per_update_log2 != steps_log2 {
-            self.mem.clear_cache();
+            self.mem.drop_cache();
         }
 
         self.has_cache = true;
@@ -970,6 +989,7 @@ impl Engine for HashLifeEngine {
         if step_log2 > self.n_log2 {
             return;
         }
+
         let mut args = Args {
             node: self.root,
             x: 0,
@@ -1007,6 +1027,11 @@ impl Engine for HashLifeEngine {
 
     fn stats_slow(&mut self) -> String {
         self.mem.stats_slow()
+    }
+
+    fn run_gc(&mut self) {
+        self.gc_mark(self.root, self.n_log2);
+        self.mem.gc_finish();
     }
 }
 

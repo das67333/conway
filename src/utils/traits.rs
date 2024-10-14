@@ -100,4 +100,7 @@ pub trait Engine {
     fn stats_slow(&mut self) -> String {
         String::new()
     }
+
+    /// Some engines accumulate cache that can be freed by calling this function.
+    fn run_gc(&mut self) {}
 }
