@@ -4,8 +4,9 @@ use super::{
 use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use eframe::egui::ahash::AHashMap as HashMap;
 
+/// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngine<Meta> {
-    pub(super) n_log2: u32,
+    pub(super) size_log2: u32,
     pub(super) root: NodeIdx,
     pub(super) steps_per_update_log2: u32,
     pub(super) has_cache: bool,
@@ -54,6 +55,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         (i & i2) | i3
     }
 
+    /// `nw`, `ne`, `sw`, `se` must be leaves
     pub(super) fn update_leaves(
         &mut self,
         nw: NodeIdx,
@@ -86,7 +88,8 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         self.mem.find_leaf_from_rows(arr.map(|x| (x >> 4) as u8))
     }
 
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and result
+    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
+    #[inline(never)]
     fn update_nodes_single(
         &mut self,
         nw: NodeIdx,
@@ -246,6 +249,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         self.mem.find_node(s00, s01, s10, s11, size_log2)
     }
 
+    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
     #[inline(never)]
     fn update_nodes_double(
         &mut self,
@@ -286,13 +290,15 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
     }
 
+    /// Recursively updates nodes in graph.
+    ///
     /// `size_log2` is related to `node`
     pub(super) fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
             return n.cache;
         }
-        assert!(node != NodeIdx(0), "Empty nodes should've been cached");
+        debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
 
         let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
         let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
@@ -313,6 +319,9 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         cache
     }
 
+    /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
+    /// and if `topology` is Torus, frame mirrors the field.
+    /// The field becomes two times bigger.
     pub(super) fn with_frame(
         &mut self,
         idx: NodeIdx,
@@ -335,35 +344,28 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         self.mem.find_node(nw, ne, sw, se, size_log2 + 1)
     }
 
-    pub(super) fn without_frame(&mut self, idx: NodeIdx, n_log2: u32) -> NodeIdx {
-        let n = self.mem.get(idx, n_log2 + 1);
+    /// Remove a frame around the field, making it two times smaller.
+    pub(super) fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+        let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = [
-            self.mem.get(n.nw, n_log2).clone(),
-            self.mem.get(n.ne, n_log2).clone(),
-            self.mem.get(n.sw, n_log2).clone(),
-            self.mem.get(n.se, n_log2).clone(),
+            self.mem.get(n.nw, size_log2 - 1).clone(),
+            self.mem.get(n.ne, size_log2 - 1).clone(),
+            self.mem.get(n.sw, size_log2 - 1).clone(),
+            self.mem.get(n.se, size_log2 - 1).clone(),
         ];
-        self.mem.find_node(nw.se, ne.sw, sw.ne, se.nw, n_log2)
-    }
-
-    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
-        self.root = self.with_frame(self.root, self.n_log2, topology);
-
-        *dx += 1 << (self.n_log2 - 1);
-        *dy += 1 << (self.n_log2 - 1);
-        self.n_log2 += 1;
-        assert!(self.n_log2 <= MAX_SIDE_LOG2);
+        self.mem
+            .find_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
     }
 
     pub(super) fn frame_is_blank(&self) -> bool {
-        let root = self.mem.get(self.root, self.n_log2);
+        let root = self.mem.get(self.root, self.size_log2);
         let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.n_log2 - 1).clone(),
-            self.mem.get(root.ne, self.n_log2 - 1).clone(),
-            self.mem.get(root.sw, self.n_log2 - 1).clone(),
-            self.mem.get(root.se, self.n_log2 - 1).clone(),
+            self.mem.get(root.nw, self.size_log2 - 1).clone(),
+            self.mem.get(root.ne, self.size_log2 - 1).clone(),
+            self.mem.get(root.sw, self.size_log2 - 1).clone(),
+            self.mem.get(root.se, self.size_log2 - 1).clone(),
         ];
-        self.n_log2 > MIN_SIDE_LOG2
+        self.size_log2 > MIN_SIDE_LOG2
             && nw.sw == NodeIdx(0)
             && nw.nw == NodeIdx(0)
             && nw.ne == NodeIdx(0)
@@ -378,16 +380,23 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             && sw.nw == NodeIdx(0)
     }
 
-    pub(super) fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        self.n_log2 -= 1;
-        assert!(self.n_log2 >= MIN_SIDE_LOG2);
-        *dx -= 1 << (self.n_log2 - 1);
-        *dy -= 1 << (self.n_log2 - 1);
-
-        self.root = self.without_frame(self.root, self.n_log2);
+    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+        self.root = self.with_frame(self.root, self.size_log2, topology);
+        *dx += 1 << (self.size_log2 - 1);
+        *dy += 1 << (self.size_log2 - 1);
+        self.size_log2 += 1;
+        assert!(self.size_log2 <= MAX_SIDE_LOG2);
     }
 
-    /// Recursively mark nodes to rescue them from garbage-collection
+    pub(super) fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+        self.root = self.without_frame(self.root, self.size_log2);
+        *dx -= 1 << (self.size_log2 - 2);
+        *dy -= 1 << (self.size_log2 - 2);
+        self.size_log2 -= 1;
+        assert!(self.size_log2 >= MIN_SIDE_LOG2);
+    }
+
+    /// Recursively mark nodes to rescue them from garbage collection.
     pub(super) fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
         if idx == NodeIdx(0) {
             return;
@@ -412,7 +421,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         let mut mem = MemoryManager::new();
         let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
         Self {
-            n_log2: size_log2,
+            size_log2,
             root,
             steps_per_update_log2: 0,
             has_cache: false,
@@ -423,7 +432,10 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
     fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
         let k = top_pattern.len();
-        assert!(top_pattern.iter().all(|row| row.len() == k));
+        assert!(
+            top_pattern.iter().all(|row| row.len() == k),
+            "Top pattern must be square"
+        );
         assert!(k.is_power_of_two());
 
         const OTCA_SIZE: u64 = 2048;
@@ -433,8 +445,8 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             include_bytes!("../../res/otca_1.rle").as_slice(),
         ]
         .map(|buf| {
-            let (n_log2, data) = crate::parse_rle(buf);
-            assert_eq!(1 << n_log2, OTCA_SIZE);
+            let (size_log2, data) = crate::parse_rle(buf);
+            assert_eq!(1 << size_log2, OTCA_SIZE);
             data
         });
 
@@ -555,10 +567,10 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         assert_eq!(nodes_curr.len(), 1);
         let root = nodes_curr.pop().unwrap();
 
-        let n_log2 = OTCA_SIZE.ilog2() * depth + k.ilog2();
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
+        let size_log2 = OTCA_SIZE.ilog2() * depth + k.ilog2();
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         Self {
-            n_log2,
+            size_log2,
             root,
             mem,
             ..Default::default()
@@ -625,19 +637,19 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         }
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         Self {
-            n_log2: size_log2,
+            size_log2,
             root: last_node.unwrap(),
             mem,
             ..Default::default()
         }
     }
 
-    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        assert_eq!(cells.len(), 1 << (n_log2 * 2 - 6));
+    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self {
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
+        assert_eq!(cells.len(), 1 << (size_log2 * 2 - 6));
         let mut mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
-        let n = 1 << n_log2;
+        let n = 1 << size_log2;
 
         for y in 0..n / LEAF_SIZE {
             for x in 0..n / LEAF_SIZE {
@@ -663,7 +675,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                     let ne = nodes_curr[((x + 1) + y * t) as usize];
                     let sw = nodes_curr[(x + (y + 1) * t) as usize];
                     let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(mem.find_node(nw, ne, sw, se, n_log2 - t.ilog2() + 1));
+                    nodes_next.push(mem.find_node(nw, ne, sw, se, size_log2 - t.ilog2() + 1));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -673,7 +685,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         assert_eq!(nodes_curr.len(), 1);
         let root = nodes_curr.pop().unwrap();
         Self {
-            n_log2,
+            size_log2,
             root,
             mem,
             ..Default::default()
@@ -760,7 +772,13 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
         let mut codes = HashMap::new();
         let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
-        inner(self.root, self.n_log2, &self.mem, &mut codes, &mut result);
+        inner(
+            self.root,
+            self.size_log2,
+            &self.mem,
+            &mut codes,
+            &mut result,
+        );
 
         result.iter().flat_map(|s| s.bytes()).collect()
     }
@@ -792,12 +810,12 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             }
         }
 
-        let mut result = vec![0; 1 << (self.n_log2 * 2 - 6)];
+        let mut result = vec![0; 1 << (self.size_log2 * 2 - 6)];
         inner(
             0,
             0,
-            1 << self.n_log2,
-            self.n_log2,
+            1 << self.size_log2,
+            self.size_log2,
             self.root,
             &self.mem,
             &mut result,
@@ -806,12 +824,12 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 
     fn side_length_log2(&self) -> u32 {
-        self.n_log2
+        self.size_log2
     }
 
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
         let mut node = self.root;
-        let mut size_log2 = self.n_log2;
+        let mut size_log2 = self.size_log2;
         while size_log2 != LEAF_SIZE_LOG2 {
             let n = self.mem.get(node, size_log2);
             size_log2 -= 1;
@@ -861,12 +879,12 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             }
         }
 
-        self.root = inner(x, y, self.n_log2, self.root, state, &mut self.mem);
+        self.root = inner(x, y, self.size_log2, self.root, state, &mut self.mem);
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
         if self.has_cache && self.steps_per_update_log2 != steps_log2 {
-            self.mem.drop_cache();
+            self.run_gc();
         }
 
         self.has_cache = true;
@@ -878,10 +896,10 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        self.root = self.update_node(self.root, self.n_log2);
-        self.n_log2 -= 1;
-        dx -= 1 << (self.n_log2 - 1);
-        dy -= 1 << (self.n_log2 - 1);
+        self.root = self.update_node(self.root, self.size_log2);
+        self.size_log2 -= 1;
+        dx -= 1 << (self.size_log2 - 1);
+        dy -= 1 << (self.size_log2 - 1);
 
         match topology {
             Topology::Torus => {
@@ -922,7 +940,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             population: &'a mut PopulationManager,
         }
 
-        fn inner<'a, Meta: Clone + Default>(args: &mut Args<'a, Meta>) {
+        fn inner<Meta: Clone + Default>(args: &mut Args<'_, Meta>) {
             if args.step_log2 == args.size_log2 {
                 let j = (args.x - args.viewport_x) >> args.step_log2;
                 let i = (args.y - args.viewport_y) >> args.step_log2;
@@ -992,7 +1010,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
         dst.clear();
         dst.resize((resolution_int * resolution_int) as usize, 0.);
-        if step_log2 > self.n_log2 {
+        if step_log2 > self.size_log2 {
             return;
         }
 
@@ -1000,7 +1018,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             node: self.root,
             x: 0,
             y: 0,
-            size_log2: self.n_log2,
+            size_log2: self.size_log2,
             dst,
             viewport_x: x_int,
             viewport_y: y_int,
@@ -1014,12 +1032,12 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 
     fn population(&mut self) -> f64 {
-        self.population.get(self.root, self.n_log2, &self.mem)
+        self.population.get(self.root, self.size_log2, &self.mem)
     }
 
     fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.n_log2);
+        s += &format!("Side length: 2^{}\n", self.size_log2);
         let (population, duration) = {
             let timer = std::time::Instant::now();
             let population = self.population();
@@ -1032,8 +1050,9 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 
     fn run_gc(&mut self) {
-        self.gc_mark(self.root, self.n_log2);
+        self.gc_mark(self.root, self.size_log2);
         self.mem.gc_finish();
+        self.population.clear_cache();
     }
 }
 

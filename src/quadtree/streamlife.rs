@@ -7,6 +7,7 @@ type MemoryManager = super::MemoryManager<u64>;
 pub static mut UPDATE_NODE: u64 = 0;
 pub static mut ITERATE_RECURSE: u64 = 0;
 
+/// Implementation of [StreamLife algorithm](https://conwaylife.com/wiki/StreamLife)
 pub struct StreamLifeEngine {
     base: HashLifeEngine<u64>,
     // streamlife-specific
@@ -431,8 +432,10 @@ impl StreamLifeEngine {
     fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                self.base.with_frame(biroot.0, self.base.n_log2, topology),
-                self.base.with_frame(biroot.1, self.base.n_log2, topology),
+                self.base
+                    .with_frame(biroot.0, self.base.size_log2, topology),
+                self.base
+                    .with_frame(biroot.1, self.base.size_log2, topology),
             ))
         } else {
             None
@@ -441,15 +444,15 @@ impl StreamLifeEngine {
     }
 
     fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
-        self.base.pop_frame(dx, dy);
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                self.base.without_frame(biroot.0, self.base.n_log2),
-                self.base.without_frame(biroot.1, self.base.n_log2),
+                self.base.without_frame(biroot.0, self.base.size_log2),
+                self.base.without_frame(biroot.1, self.base.size_log2),
             ))
         } else {
             None
         };
+        self.base.pop_frame(dx, dy);
     }
 }
 
@@ -482,9 +485,9 @@ impl Engine for StreamLifeEngine {
         }
     }
 
-    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self {
+    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self {
         Self {
-            base: HashLifeEngine::<u64>::from_cells_array(n_log2, cells),
+            base: HashLifeEngine::<u64>::from_cells_array(size_log2, cells),
             ..Default::default()
         }
     }
@@ -511,7 +514,7 @@ impl Engine for StreamLifeEngine {
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
         if self.base.has_cache && self.base.steps_per_update_log2 != steps_log2 {
-            self.base.mem.drop_cache();
+            self.run_gc();
         }
 
         self.base.has_cache = true;
@@ -524,12 +527,12 @@ impl Engine for StreamLifeEngine {
         }
 
         let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
-        let biroot = self.iterate_recurse(biroot, self.base.n_log2);
-        self.base.n_log2 -= 1;
+        let biroot = self.iterate_recurse(biroot, self.base.size_log2);
+        self.base.size_log2 -= 1;
         self.biroot = Some(biroot);
-        self.base.root = self.merge_universes(biroot, self.base.n_log2);
-        dx -= 1 << (self.base.n_log2 - 1);
-        dy -= 1 << (self.base.n_log2 - 1);
+        self.base.root = self.merge_universes(biroot, self.base.size_log2);
+        dx -= 1 << (self.base.size_log2 - 1);
+        dy -= 1 << (self.base.size_log2 - 1);
 
         match topology {
             Topology::Torus => {
@@ -565,7 +568,7 @@ impl Engine for StreamLifeEngine {
 
     fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.base.n_log2);
+        s += &format!("Side length: 2^{}\n", self.base.size_log2);
         let (population, duration) = {
             let timer = std::time::Instant::now();
             let population = self.population();
@@ -573,6 +576,12 @@ impl Engine for StreamLifeEngine {
         };
         s += &format!("Population: {}\n", NiceInt::from_f64(population));
         s += &format!("Population compute time: {}\n", duration.as_secs_f64());
+        let total_bytes =
+            self.bicache.capacity() * size_of::<(((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx))>();
+        s += &format!(
+            "Memory spent on bicache: {} MB\n",
+            NiceInt::from_usize(total_bytes >> 20),
+        );
         s += &self.base.mem.stats_fast();
         s
     }
@@ -580,8 +589,9 @@ impl Engine for StreamLifeEngine {
     fn run_gc(&mut self) {
         self.bicache.clear();
         self.biroot = None;
-        self.base.gc_mark(self.base.root, self.base.n_log2);
+        self.base.gc_mark(self.base.root, self.base.size_log2);
         self.base.mem.gc_finish();
+        self.base.population.clear_cache();
     }
 }
 

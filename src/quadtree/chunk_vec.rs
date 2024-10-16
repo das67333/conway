@@ -4,6 +4,10 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// Deque-like structure storing QuadTreeNode elements.
+/// It is chosen instead of a vector to avoid reallocation freezes.
+///
+/// First element should always be reserved for blank node.
 pub struct ChunkVec<const CHUNK_SIZE: usize, Meta> {
     chunks: Vec<*mut QuadTreeNode<Meta>>,
     next_free_node: NodeIdx,
@@ -27,6 +31,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
         }
     }
 
+    /// Allocate memory for a new node and return its NodeIdx.
     #[inline]
     pub fn allocate(&mut self) -> NodeIdx {
         if self.next_free_node == NodeIdx(0) {
@@ -45,12 +50,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
         allocated
     }
 
-    pub fn drop_caches(&mut self) {
-        for i in (1..self.capacity()).map(|i| NodeIdx(i as u32)) {
-            self[i].has_cache = false;
-        }
-    }
-
+    /// Assuming all necessary nodes are marked, deallocate every unmarked node and leave all nodes unmarked.
     pub fn deallocate_unmarked_and_unmark(&mut self) {
         let mut next_free_node = NodeIdx(0);
         let mut free_nodes_cnt = 0;
@@ -79,7 +79,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len as usize
+        self.len
     }
 
     #[inline]

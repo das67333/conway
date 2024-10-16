@@ -5,17 +5,17 @@ use super::Topology;
 
 /// Engine trait for Game of Life with edges stitched together.
 pub trait Engine {
-    /// Create a blank field with dimensions `2^{n_log2} x 2^{n_log2}`.
+    /// Create a blank field with dimensions `2^{size_log2} x 2^{size_log2}`.
     ///
-    /// `MIN_SIDE_LOG2 <= n_log2 <= MAX_SIDE_LOG2`
-    fn blank(n_log2: u32) -> Self
+    /// `MIN_SIDE_LOG2 <= size_log2 <= MAX_SIDE_LOG2`
+    fn blank(size_log2: u32) -> Self
     where
         Self: Sized;
 
     /// Create a field with random cells.
     ///
     /// `seed` - random seed (if `None`, then random seed is generated)
-    fn random(n_log2: u32, seed: Option<u64>) -> Self
+    fn random(size_log2: u32, seed: Option<u64>) -> Self
     where
         Self: Sized,
     {
@@ -25,10 +25,10 @@ pub trait Engine {
         } else {
             rand_chacha::ChaCha8Rng::from_entropy()
         };
-        let cells = (0..(1 << (n_log2 * 2 - 6)))
+        let cells = (0..(1 << (size_log2 * 2 - 6)))
             .map(|_| rng.gen::<u64>())
             .collect();
-        Self::from_cells_array(n_log2, cells)
+        Self::from_cells_array(size_log2, cells)
     }
 
     /// Recursively builds OTCA megapixels `depth` times, using `top_pattern` as the top level.
@@ -46,8 +46,8 @@ pub trait Engine {
     where
         Self: Sized,
     {
-        let (n_log2, cells) = crate::parse_rle(data);
-        Self::from_cells_array(n_log2, cells)
+        let (size_log2, cells) = crate::parse_rle(data);
+        Self::from_cells_array(size_log2, cells)
     }
 
     /// Parse MacroCell format into the field.
@@ -59,7 +59,7 @@ pub trait Engine {
     }
 
     /// Create a square field from a vector of cells.
-    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
+    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized;
 
@@ -68,16 +68,20 @@ pub trait Engine {
         unimplemented!()
     }
 
+    /// Get cells of the field as a single vector of packed cells.
     fn get_cells(&self) -> Vec<u64>;
 
     /// Get log2 side length of the field.
     fn side_length_log2(&self) -> u32;
 
+    /// Get cell state at (x, y).
     fn get_cell(&self, x: u64, y: u64) -> bool;
 
+    /// Set cell state at (x, y).
     fn set_cell(&mut self, x: u64, y: u64, state: bool);
 
     /// Update the field `2^{iters_log2}` times.
+    /// This function may change the size of the field.
     ///
     /// Returns coordinate shift caused by the update.
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
@@ -98,6 +102,7 @@ pub trait Engine {
         dst: &mut Vec<f64>,
     );
 
+    /// Total number of alive cells in the field.
     fn population(&mut self) -> f64;
 
     /// Returns multiline string reporting engine stats.

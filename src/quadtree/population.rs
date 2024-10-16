@@ -7,6 +7,7 @@ struct Key {
     idx: NodeIdx,
 }
 
+/// Calculates population of a node and caches the result.
 #[derive(Default)]
 pub struct PopulationManager {
     cache: HashMap<Key, f64>,

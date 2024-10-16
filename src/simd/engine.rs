@@ -105,35 +105,36 @@ impl SimdEngine {
 }
 
 impl Engine for SimdEngine {
-    fn blank(n_log2: u32) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&n_log2));
-        let n: u64 = 1 << n_log2;
+    fn blank(size_log2: u32) -> Self {
+        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
+        let n: u64 = 1 << size_log2;
         Self {
-            data: vec![0; 1 << (n_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())],
+            data: vec![0; 1 << (size_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())],
             n,
         }
     }
 
     fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
-        where
-            Self: Sized {
+    where
+        Self: Sized,
+    {
         let cells = HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern).get_cells();
         assert!(cells.len().is_power_of_two());
-        let n_log2 = (cells.len().ilog2() + 6) / 2;
-        Self::from_cells_array(n_log2, cells)
+        let size_log2 = (cells.len().ilog2() + 6) / 2;
+        Self::from_cells_array(size_log2, cells)
     }
 
-    fn from_cells_array(n_log2: u32, cells: Vec<u64>) -> Self
+    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self
     where
         Self: Sized,
     {
         assert_eq!(
             cells.len(),
-            1 << (n_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())
+            1 << (size_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())
         );
         Self {
             data: cells,
-            n: 1 << n_log2,
+            n: 1 << size_log2,
         }
     }
 

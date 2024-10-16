@@ -4,11 +4,11 @@ mod tests {
 
     const SEED: u64 = 42;
 
-    fn randomly_filled(n_log2: u32, seed: u64) -> Vec<Box<dyn Engine>> {
+    fn randomly_filled(size_log2: u32, seed: u64) -> Vec<Box<dyn Engine>> {
         let engines: Vec<Box<dyn Engine>> = vec![
-            Box::new(SimdEngine::random(n_log2, Some(seed))),
-            Box::new(HashLifeEngine::random(n_log2, Some(seed))),
-            Box::new(StreamLifeEngine::random(n_log2, Some(seed))),
+            Box::new(SimdEngine::random(size_log2, Some(seed))),
+            Box::new(HashLifeEngine::random(size_log2, Some(seed))),
+            Box::new(StreamLifeEngine::random(size_log2, Some(seed))),
         ];
 
         assert_fields_equal(&engines);
@@ -65,9 +65,9 @@ mod tests {
 
     #[test]
     fn test_single_updates() {
-        for n_log2 in [7, 9] {
-            for steps_log2 in 0..n_log2 {
-                let mut engines = randomly_filled(n_log2, SEED);
+        for size_log2 in [7, 9] {
+            for steps_log2 in 0..size_log2 {
+                let mut engines = randomly_filled(size_log2, SEED);
 
                 for engine in engines.iter_mut() {
                     engine.update(steps_log2, Topology::Torus);
@@ -80,10 +80,10 @@ mod tests {
 
     #[test]
     fn test_repetitive_updates_without_gc() {
-        for n_log2 in [7, 9] {
-            let mut engines = randomly_filled(n_log2, SEED);
+        for size_log2 in [7, 9] {
+            let mut engines = randomly_filled(size_log2, SEED);
 
-            for steps_log2 in 0..n_log2 {
+            for steps_log2 in 0..size_log2 {
                 for engine in engines.iter_mut() {
                     engine.update(steps_log2, Topology::Torus);
                 }
@@ -95,10 +95,10 @@ mod tests {
 
     #[test]
     fn test_repetitive_updates_with_gc() {
-        for n_log2 in [7, 9] {
-            let mut engines = randomly_filled(n_log2, SEED);
+        for size_log2 in [7, 9] {
+            let mut engines = randomly_filled(size_log2, SEED);
 
-            for steps_log2 in 0..n_log2 {
+            for steps_log2 in 0..size_log2 {
                 for engine in engines.iter_mut() {
                     engine.update(steps_log2, Topology::Torus);
                     engine.run_gc();

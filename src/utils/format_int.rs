@@ -1,3 +1,4 @@
+/// Used for printing integers with delimiters.
 pub struct NiceInt(i128);
 
 impl NiceInt {

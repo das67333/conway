@@ -1,6 +1,10 @@
+/// Location of a node is determined by its `idx` and `size_log2`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
 
+/// A node of the quadtree.
+///
+/// If the node is a leaf, `nw` and `ne` are the data.
 #[repr(align(4))]
 #[derive(Clone, Default)]
 pub struct QuadTreeNode<Meta> {

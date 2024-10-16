@@ -1,4 +1,4 @@
-/// Returns `n_log2` and row-major vector filled with cells of the parsed RLE pattern.
+/// Returns `size_log2` and row-major vector filled with cells of the parsed RLE pattern.
 pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
     let parse_next_number = |i: &mut usize| {
         while !data[*i].is_ascii_digit() {
@@ -28,7 +28,7 @@ pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
         i += 1;
     }
     // next line must start with 'x'; parsing sizes
-    let n_log2 = {
+    let size_log2 = {
         let width = parse_next_number(&mut i);
         let height = parse_next_number(&mut i);
         width
@@ -37,7 +37,7 @@ pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
             .ilog2()
             .max(crate::MIN_SIDE_LOG2)
     };
-    let n = 1 << n_log2;
+    let n = 1 << size_log2;
     let mut result = vec![0; n * n / 64];
     while data[i] != b'\n' {
         i += 1;
@@ -74,5 +74,5 @@ pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
         };
     }
     assert!(y <= n);
-    (n_log2, result)
+    (size_log2, result)
 }

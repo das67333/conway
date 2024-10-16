@@ -13,7 +13,7 @@ pub struct PrefetchedNode<Meta> {
     pub hash: usize,
 }
 
-/// Hashtable that stores nodes of the quadtree
+/// Hashtable that stores nodes of the quadtree.
 pub struct KIVMap<Meta> {
     // all allocated nodes
     storage: ChunkVec<CHUNK_SIZE, Meta>,
@@ -166,10 +166,6 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         }
     }
 
-    pub fn drop_cache(&mut self) {
-        self.storage.drop_caches();
-    }
-
     pub fn gc_finish(&mut self) {
         self.filter_unmarked_from_hashtable();
         self.storage.deallocate_unmarked_and_unmark();
@@ -281,12 +277,6 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
         unsafe { self.layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
     }
 
-    pub fn drop_cache(&mut self) {
-        for kiv in self.layers.iter_mut() {
-            kiv.drop_cache();
-        }
-    }
-
     pub fn gc_finish(&mut self) {
         for kiv in self.layers.iter_mut() {
             kiv.gc_finish();
@@ -299,14 +289,14 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
 
         let total_bytes = self.layers.iter().map(|m| m.bytes_total()).sum::<usize>();
         s += &format!(
-            "memory consumption: {} MB\n",
+            "Memory spent on kivtables: {} MB\n",
             NiceInt::from_usize(total_bytes >> 20),
         );
 
         let total_misses = self.layers.iter().map(|m| m.misses).sum::<u64>();
         let total_hits = self.layers.iter().map(|m| m.hits).sum::<u64>();
         s += &format!(
-            "hashtable misses / hits: {} / {}\n",
+            "Hashtable misses / hits: {} / {}\n",
             NiceInt::from(total_misses),
             NiceInt::from(total_hits),
         );
@@ -322,9 +312,5 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
             s += &format!("2^{:<2} -{:>3}%\n", LEAF_SIZE_LOG2 + i as u32, percent,);
         }
         s
-    }
-
-    pub fn stats_slow(&self) -> String {
-        "No slow statistics are collected\n".to_string()
     }
 }
