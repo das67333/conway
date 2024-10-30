@@ -1035,6 +1035,10 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         self.population.get(self.root, self.size_log2, &self.mem)
     }
 
+    fn bytes_total(&self) -> usize {
+        self.mem.bytes_total() + self.population.bytes_total()
+    }
+
     fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
         s += &format!("Side length: 2^{}\n", self.size_log2);

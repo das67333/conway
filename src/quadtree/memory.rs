@@ -172,7 +172,7 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.storage.bytes_total() + self.hashtable.len() * std::mem::size_of::<NodeIdx>()
+        self.storage.bytes_total() + self.hashtable.capacity() * std::mem::size_of::<NodeIdx>()
     }
 
     pub fn len(&self) -> usize {
@@ -283,14 +283,17 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
         }
     }
 
+    pub fn bytes_total(&self) -> usize {
+        self.layers.iter().map(|m| m.bytes_total()).sum::<usize>()
+    }
+
     /// Get statistics about the memory manager.
     pub fn stats_fast(&self) -> String {
         let mut s = String::new();
 
-        let total_bytes = self.layers.iter().map(|m| m.bytes_total()).sum::<usize>();
         s += &format!(
             "Memory spent on kivtables: {} MB\n",
-            NiceInt::from_usize(total_bytes >> 20),
+            NiceInt::from_usize(self.bytes_total() >> 20),
         );
 
         let total_misses = self.layers.iter().map(|m| m.misses).sum::<u64>();

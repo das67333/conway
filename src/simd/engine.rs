@@ -198,6 +198,10 @@ impl Engine for SimdEngine {
         self.data.iter().map(|x| x.count_ones() as u64).sum::<u64>() as f64
     }
 
+    fn bytes_total(&self) -> usize {
+        self.data.capacity() * size_of::<u64>()
+    }
+
     fn statistics(&mut self) -> String {
         let mut s = "Engine: SIMD\n".to_string();
         s += &format!("Side length: 2^{}\n", self.n.ilog2());
@@ -207,10 +211,7 @@ impl Engine for SimdEngine {
             "Population compute time: {}\n",
             timer.elapsed().as_secs_f64()
         );
-        s += &format!(
-            "Memory on field: {} MB",
-            (self.data.capacity() * size_of::<u64>()) >> 20
-        );
+        s += &format!("Memory on field: {} MB", self.bytes_total() >> 20);
         s
     }
 }

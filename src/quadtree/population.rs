@@ -44,6 +44,10 @@ impl PopulationManager {
         }
     }
 
+    pub fn bytes_total(&self) -> usize {
+        self.cache.capacity() * size_of::<(Key, f64)>()
+    }
+
     pub fn clear_cache(&mut self) {
         self.cache.clear();
     }

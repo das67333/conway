@@ -105,6 +105,9 @@ pub trait Engine {
     /// Total number of alive cells in the field.
     fn population(&mut self) -> f64;
 
+    /// Heap memory used by the engine.
+    fn bytes_total(&self) -> usize;
+
     /// Returns multiline string reporting engine stats.
     ///
     /// This function is fast enough to be called every frame.

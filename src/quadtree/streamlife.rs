@@ -566,6 +566,12 @@ impl Engine for StreamLifeEngine {
         self.base.population()
     }
 
+    fn bytes_total(&self) -> usize {
+        let bicache_bytes =
+            self.bicache.capacity() * size_of::<(((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx))>();
+        self.base.bytes_total() + bicache_bytes
+    }
+
     fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
         s += &format!("Side length: 2^{}\n", self.base.size_log2);
