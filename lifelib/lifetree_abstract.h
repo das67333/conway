@@ -60,6 +60,7 @@ public:
     virtual I make_nonleaf(uint32_t depth, nicearray<I, 4> contents) = 0;
     virtual hypernode<I> make_nonleaf_hn(uint32_t depth, nicearray<I, 4> contents) = 0;
     virtual I getpop_recurse(hypernode<I> hnode, I modprime, uint64_t layermask) = 0;
+    virtual uint64_t hash(hypernode<I> hnode, bool is_root=true) = 0;
 
     virtual hypernode<I> getchild(hypernode<I> hnode, uint32_t n) = 0;
     virtual uint64_t leafpart(I index, uint32_t part) = 0;

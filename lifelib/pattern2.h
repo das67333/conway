@@ -106,6 +106,10 @@ public:
         return this->popcount(modprime, -1);
     }
 
+    uint64_t hash() const {
+        return lab->hash(hnode);
+    }
+
     basepattern<I> metafy(const basepattern<I> &other, const basepattern<I> &other2) {
         uint64_t trans = 8 << other.gethnode().depth;
         basepattern<I> x = tensor(other.getchild(0), other2.getchild(0));

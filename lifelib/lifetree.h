@@ -1,9 +1,29 @@
 #pragma once
 
 #include <sstream>
+#include <unordered_map>
 
 #include "leaf_iterators.h"
 #include "lifetree_abstract.h"
+
+template <typename I>
+struct Key {
+    I index;
+    uint32_t depth;
+
+    bool operator==(const Key<I>&) const = default;
+};
+
+namespace std {
+
+template <typename I>
+struct hash<Key<I>> {
+    size_t operator()(const Key<I>& x) const {
+        return size_t{x.index} | (size_t{x.depth} >> 32);
+    }
+};
+
+}
 
 namespace apg {
 
@@ -12,6 +32,8 @@ class lifetree_generic : public lifetree_abstract<I> {
 
 public:
     hypertree<I, 4, J, nicearray<uint64_t, 4>, J> htree;
+
+    std::unordered_map<Key<I>, uint64_t> hash_cache;
 
     using lifetree_abstract<I>::breach;
 
@@ -353,6 +375,39 @@ public:
                 return pop;
             }
         }
+    }
+
+    uint64_t hash(hypernode<I> hnode, bool is_root) override {
+        if (is_root) {
+            hnode = this->breach(hnode);
+        }
+
+        if (auto it = hash_cache.find({hnode.index, hnode.depth}); it != hash_cache.end()) {
+            return it->second;
+        }
+
+        auto combine = [](uint64_t x, uint64_t y) -> uint64_t {
+            return x ^(y + 0x9e3779b9 + (x<<6) + (x>>2));
+        };
+
+        uint64_t result = 0;
+        if (hnode.depth == 0) {
+            kiventry<nicearray<uint64_t, 4>, I, J>* pptr = ind2ptr_leaf(hnode.index);
+            for (int i = 0; i != 4; ++i) {
+                result = combine(result, pptr->key[i]);
+            }
+        } else {
+            kiventry<nicearray<I, 4>, I, J>* pptr = ind2ptr_nonleaf(hnode.depth, hnode.index);
+            for (int i = 0; i != 4; ++i) {
+                result = combine(result, hash(hypernode(pptr->key[i], hnode.depth - 1), false));
+            }
+        }
+        hash_cache.insert_or_assign({hnode.index, hnode.depth}, result);
+
+        if (is_root) {
+            hash_cache.clear();
+        }
+        return result;
     }
 
     hypernode<I> subnode(hypernode<I> hnode, uint64_t x, uint64_t y, uint64_t n) {

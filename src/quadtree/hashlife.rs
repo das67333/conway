@@ -1035,6 +1035,44 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         self.population.get(self.root, self.size_log2, &self.mem)
     }
 
+    fn hash(&self) -> u64 {
+        #[derive(Clone, PartialEq, Eq, Hash)]
+        struct Key(NodeIdx, u32);
+
+        fn inner<Meta: Clone + Default>(
+            idx: NodeIdx,
+            size_log2: u32,
+            cache: &mut HashMap<Key, u64>,
+            mem: &MemoryManager<Meta>,
+        ) -> u64 {
+            if let Some(&val) = cache.get(&Key(idx, size_log2)) {
+                return val;
+            }
+
+            let combine = |x: u64, y: u64| -> u64 {
+                x ^ y
+                    .wrapping_add(0x9e3779b9)
+                    .wrapping_add(x << 6)
+                    .wrapping_add(x >> 2)
+            };
+
+            let n = mem.get(idx, size_log2).clone();
+            if size_log2 == LEAF_SIZE_LOG2 {
+                u64::from_le_bytes(n.leaf_cells())
+            } else {
+                let mut result = 0;
+                for x in [n.nw, n.ne, n.sw, n.se] {
+                    result = combine(result, inner(x, size_log2 - 1, cache, mem));
+                }
+                cache.insert(Key(idx, size_log2), result);
+                result
+            }
+        }
+
+        let mut cache = HashMap::new();
+        inner(self.root, self.size_log2, &mut cache, &self.mem)
+    }
+
     fn bytes_total(&self) -> usize {
         self.mem.bytes_total() + self.population.bytes_total()
     }

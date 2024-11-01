@@ -105,6 +105,11 @@ pub trait Engine {
     /// Total number of alive cells in the field.
     fn population(&mut self) -> f64;
 
+    /// Hash of the field's content.
+    fn hash(&self) -> u64 {
+        unimplemented!()
+    }
+
     /// Heap memory used by the engine.
     fn bytes_total(&self) -> usize;
 

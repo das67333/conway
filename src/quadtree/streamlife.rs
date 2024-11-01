@@ -561,6 +561,10 @@ impl Engine for StreamLifeEngine {
         self.base.population()
     }
 
+    fn hash(&self) -> u64 {
+        self.base.hash()
+    }
+
     fn bytes_total(&self) -> usize {
         let bicache_bytes =
             self.bicache.capacity() * size_of::<(((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx))>();
