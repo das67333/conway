@@ -4,9 +4,6 @@ use eframe::egui::ahash::AHashMap as HashMap;
 
 type MemoryManager = super::MemoryManager<u64>;
 
-pub static mut UPDATE_NODE: u64 = 0;
-pub static mut ITERATE_RECURSE: u64 = 0;
-
 /// Implementation of [StreamLife algorithm](https://conwaylife.com/wiki/StreamLife)
 pub struct StreamLifeEngine {
     base: HashLifeEngine<u64>,
@@ -159,7 +156,6 @@ impl StreamLifeEngine {
                     let ne = mem.find_leaf_from_u64(x[1]);
                     let sw = mem.find_leaf_from_u64(x[2]);
                     let se = mem.find_leaf_from_u64(x[3]);
-                    assert!(size_log2 - 1 == LEAF_SIZE_LOG2 + 1);
                     mem.find_node(nw, ne, sw, se, LEAF_SIZE_LOG2 + 1)
                 };
 
@@ -365,7 +361,6 @@ impl StreamLifeEngine {
             return *cache;
         }
 
-        unsafe { ITERATE_RECURSE += 1 };
         if size_log2 == LEAF_SIZE_LOG2 + 2 {
             // TODO: inline merging universities
             let hnode2 = self.merge_universes(idx, size_log2);
@@ -520,9 +515,9 @@ impl Engine for StreamLifeEngine {
         self.base.has_cache = true;
         self.base.steps_per_update_log2 = steps_log2;
 
-        const FRAMES_CNT: usize = 2; // TODO: from steps_log2
+        let frames_cnt = (steps_log2 + 2).max(self.base.size_log2 + 1) - self.base.size_log2;
         let (mut dx, mut dy) = (0, 0);
-        for _ in 0..FRAMES_CNT {
+        for _ in 0..frames_cnt {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
@@ -536,7 +531,7 @@ impl Engine for StreamLifeEngine {
 
         match topology {
             Topology::Torus => {
-                for _ in 0..FRAMES_CNT - 1 {
+                for _ in 0..frames_cnt - 1 {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }

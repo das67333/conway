@@ -43,13 +43,13 @@ impl<Meta: Clone + Default> PrefetchedNode<Meta> {
             mem.layers
                 .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
         };
-        let idx = hash & (kiv.hashtable.len() - 1);
-        unsafe {
-            use std::arch::x86_64::*;
-            _mm_prefetch::<_MM_HINT_T0>(
-                kiv.hashtable.get_unchecked(idx) as *const NodeIdx as *const i8
-            );
-        }
+        // let idx = hash & (kiv.hashtable.len() - 1);
+        // unsafe {
+        //     use std::arch::x86_64::*;
+        //     _mm_prefetch::<_MM_HINT_T0>(
+        //         kiv.hashtable.get_unchecked(idx) as *const NodeIdx as *const i8
+        //     );
+        // }
         Self {
             kiv: kiv as *const KIVMap<Meta> as *mut KIVMap<Meta>,
             nw,

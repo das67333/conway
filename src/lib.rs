@@ -9,5 +9,3 @@ pub use simd::SimdEngine;
 pub use utils::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub type DefaultEngine = StreamLifeEngine;
-
-pub use quadtree::{ITERATE_RECURSE, UPDATE_NODE};

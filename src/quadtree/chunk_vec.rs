@@ -45,6 +45,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
         }
 
         let allocated = self.next_free_node;
+        assert!(allocated.0 >> 30 != 3, "Close to overflowing u32");
         self.next_free_node = self[allocated].next;
         self.len += 1;
         allocated

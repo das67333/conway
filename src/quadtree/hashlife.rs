@@ -890,9 +890,9 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         self.has_cache = true;
         self.steps_per_update_log2 = steps_log2;
 
-        const FRAMES_CNT: usize = 2; // TODO: from steps_log2
+        let frames_cnt = (steps_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
         let (mut dx, mut dy) = (0, 0);
-        for _ in 0..FRAMES_CNT {
+        for _ in 0..frames_cnt {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
@@ -903,7 +903,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
         match topology {
             Topology::Torus => {
-                for _ in 0..FRAMES_CNT - 1 {
+                for _ in 0..frames_cnt - 1 {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }

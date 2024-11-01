@@ -3,7 +3,7 @@ pub const MAX_SIDE_LOG2: u32 = 62;
 
 use super::Topology;
 
-/// Engine trait for Game of Life with edges stitched together.
+/// Game engine for Game of Life
 pub trait Engine {
     /// Create a blank field with dimensions `2^{size_log2} x 2^{size_log2}`.
     ///

@@ -15,5 +15,3 @@ use population::PopulationManager;
 
 pub type HashLifeEngine = hashlife::HashLifeEngine<()>;
 pub use streamlife::StreamLifeEngine;
-
-pub use streamlife::{ITERATE_RECURSE, UPDATE_NODE};
