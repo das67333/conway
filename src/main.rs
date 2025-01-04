@@ -1,4 +1,15 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+mod app;
+mod brightness;
+mod config;
+mod draw;
+mod field_source;
+mod fps_limit;
+
+pub use app::App;
+use brightness::BrightnessStrategy;
+pub use config::Config;
+use field_source::FieldSource;
+use fps_limit::FpsLimiter;
 
 fn main() {
     use eframe::egui::{vec2, ViewportBuilder};
@@ -14,27 +25,7 @@ fn main() {
     eframe::run_native(
         "Conway's Game of Life",
         options,
-        Box::new(move |cc| Ok(Box::new(conway::App::new(&cc.egui_ctx)))),
+        Box::new(move |cc| Ok(Box::new(app::App::new(&cc.egui_ctx)))),
     )
     .unwrap();
 }
-
-// async fn f(n: usize) {
-//     let mut handles = Vec::with_capacity(n);
-//     for h in handles.iter_mut() {
-//         *h = tokio::spawn(async {});
-//     }
-//     tokio::task::
-// }
-
-// fn main() {
-//     let mut x = 0u64;
-
-//     tokio::runtime::Builder::new_current_thread()
-//         .enable_all()
-//         .build()
-//         .unwrap()
-//         .block_on(async {
-//             println!("Hello world");
-//         })
-// }

@@ -1,4 +1,4 @@
-use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
+use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIDE_LOG2};
 use crate::NiceInt;
 
 const CHUNK_SIZE: usize = 1 << 13;
@@ -41,7 +41,7 @@ impl<Meta: Clone + Default> PrefetchedNode<Meta> {
         let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         let kiv = unsafe {
             mem.layers
-                .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
+                .get_unchecked((size_log2 - LEAF_SIDE_LOG2) as usize)
         };
         // let idx = hash & (kiv.hashtable.len() - 1);
         // unsafe {
@@ -195,7 +195,7 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     /// Get a const reference to the node with the given index.
     #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Meta> {
-        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
         unsafe { &self.layers.get_unchecked(i).storage[idx] }
     }
@@ -203,7 +203,7 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
     /// Get a mutable reference to the node with the given index.
     #[inline]
     pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Meta> {
-        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
         unsafe { &mut self.layers.get_unchecked_mut(i).storage[idx] }
     }
@@ -269,7 +269,7 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
         se: NodeIdx,
         size_log2: u32,
     ) -> NodeIdx {
-        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
+        let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         let hash = QuadTreeNode::<Meta>::hash(nw, ne, sw, se);
         if self.layers.len() <= i {
             self.layers.resize_with(i + 1, KIVMap::new);
@@ -312,7 +312,7 @@ impl<Meta: Clone + Default> MemoryManager<Meta> {
             if percent == 0 {
                 continue;
             }
-            s += &format!("2^{:<2} -{:>3}%\n", LEAF_SIZE_LOG2 + i as u32, percent,);
+            s += &format!("2^{:<2} -{:>3}%\n", LEAF_SIDE_LOG2 + i as u32, percent,);
         }
         s
     }

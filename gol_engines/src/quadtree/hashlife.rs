@@ -1,8 +1,6 @@
-use super::{
-    memory::MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE, LEAF_SIZE_LOG2,
-};
-use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
-use eframe::egui::ahash::AHashMap as HashMap;
+use super::{MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIDE, LEAF_SIDE_LOG2};
+use crate::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use ahash::AHashMap as HashMap;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngine<Meta> {
@@ -65,7 +63,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         steps: u64,
     ) -> NodeIdx {
         let [nw, ne, sw, se] =
-            [nw, ne, sw, se].map(|x| self.mem.get(x, LEAF_SIZE_LOG2).leaf_cells());
+            [nw, ne, sw, se].map(|x| self.mem.get(x, LEAF_SIDE_LOG2).leaf_cells());
 
         let mut src: [u16; 16] = nw
             .iter()
@@ -115,7 +113,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             [n.nw, n.ne, n.sw, n.se]
         };
 
-        let [t00, t01, t02, t10, t11, t12, t20, t21, t22] = if size_log2 >= LEAF_SIZE_LOG2 + 2 {
+        let [t00, t01, t02, t10, t11, t12, t20, t21, t22] = if size_log2 >= LEAF_SIDE_LOG2 + 2 {
             [
                 self.mem.find_node(
                     self.mem.get(nwnw, size_log2 - 1).se,
@@ -184,58 +182,58 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         } else {
             [
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwnw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nwne, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nwsw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nwnw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nwne, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(nwsw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwne, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nenw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nwne, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nenw, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nenw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nene, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(nese, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nenw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nene, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(nese, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwsw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swnw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nwsw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(swnw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwse, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nesw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(nese, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sene, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(nese, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(sene, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(swnw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swsw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(swse, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(swnw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(swsw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(swse, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(swne, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(swse, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sesw, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(swse, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(sesw, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(senw, LEAF_SIZE_LOG2).leaf_se(),
-                    self.mem.get(sene, LEAF_SIZE_LOG2).leaf_sw(),
-                    self.mem.get(sesw, LEAF_SIZE_LOG2).leaf_ne(),
-                    self.mem.get(sese, LEAF_SIZE_LOG2).leaf_nw(),
+                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_se(),
+                    self.mem.get(sene, LEAF_SIDE_LOG2).leaf_sw(),
+                    self.mem.get(sesw, LEAF_SIDE_LOG2).leaf_ne(),
+                    self.mem.get(sese, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
             ]
         };
@@ -301,9 +299,9 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
 
         let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
-        let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
+        let cache = if size_log2 == LEAF_SIDE_LOG2 + 1 {
             let steps = if both_stages {
-                LEAF_SIZE / 2
+                LEAF_SIDE / 2
             } else {
                 1 << self.steps_per_update_log2
             };
@@ -403,7 +401,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         }
 
         self.mem.get_mut(idx, size_log2).gc_marked = true;
-        if size_log2 == LEAF_SIZE_LOG2 {
+        if size_log2 == LEAF_SIDE_LOG2 {
             return;
         }
 
@@ -440,12 +438,9 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
         const OTCA_SIZE: u64 = 2048;
 
-        let otca_patterns = [
-            include_bytes!("../../res/otca_0.rle").as_slice(),
-            include_bytes!("../../res/otca_1.rle").as_slice(),
-        ]
-        .map(|buf| {
-            let (size_log2, data) = crate::parse_rle(buf);
+        let otca_patterns = ["res/otca_0.rle", "res/otca_1.rle"].map(|path| {
+            let buf = std::fs::read(path).unwrap();
+            let (size_log2, data) = parse_rle(&buf);
             assert_eq!(1 << size_log2, OTCA_SIZE);
             data
         });
@@ -458,15 +453,15 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
-            for y in 0..OTCA_SIZE / LEAF_SIZE {
-                for x in 0..OTCA_SIZE / LEAF_SIZE {
-                    let mut data = [0; LEAF_SIZE as usize];
-                    for sy in 0..LEAF_SIZE {
-                        for sx in 0..LEAF_SIZE {
-                            let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                            let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
+            for y in 0..OTCA_SIZE / LEAF_SIDE {
+                for x in 0..OTCA_SIZE / LEAF_SIDE {
+                    let mut data = [0; LEAF_SIDE as usize];
+                    for sy in 0..LEAF_SIDE {
+                        for sx in 0..LEAF_SIDE {
+                            let pos = (sx + sy * LEAF_SIDE) / LEAF_SIDE;
+                            let mask = 1 << ((sx + sy * LEAF_SIDE) % LEAF_SIDE);
                             let idx =
-                                ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * OTCA_SIZE) as usize;
+                                ((sx + x * LEAF_SIDE) + (sy + y * LEAF_SIDE) * OTCA_SIZE) as usize;
                             if otca_patterns[i][idx / 64] & (1 << (idx % 64)) != 0 {
                                 data[pos as usize] |= mask;
                             }
@@ -475,7 +470,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                     nodes_curr.push(mem.find_leaf_from_rows(data));
                 }
             }
-            let mut t = OTCA_SIZE / LEAF_SIZE;
+            let mut t = OTCA_SIZE / LEAF_SIDE;
             while t != 1 {
                 for y in (0..t).step_by(2) {
                     for x in (0..t).step_by(2) {
@@ -602,7 +597,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                         .unwrap()
                 });
                 size_log2 = k as u32;
-                assert!((LEAF_SIZE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
+                assert!((LEAF_SIDE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
                 let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
                     codes
                         .get(&x)
@@ -651,14 +646,14 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         let n = 1 << size_log2;
 
-        for y in 0..n / LEAF_SIZE {
-            for x in 0..n / LEAF_SIZE {
-                let mut data = [0; LEAF_SIZE as usize];
-                for sy in 0..LEAF_SIZE {
-                    for sx in 0..LEAF_SIZE {
-                        let pos = (sx + sy * LEAF_SIZE) / LEAF_SIZE;
-                        let mask = 1 << ((sx + sy * LEAF_SIZE) % LEAF_SIZE);
-                        let idx = ((sx + x * LEAF_SIZE) + (sy + y * LEAF_SIZE) * n) as usize;
+        for y in 0..n / LEAF_SIDE {
+            for x in 0..n / LEAF_SIDE {
+                let mut data = [0; LEAF_SIDE as usize];
+                for sy in 0..LEAF_SIDE {
+                    for sx in 0..LEAF_SIDE {
+                        let pos = (sx + sy * LEAF_SIDE) / LEAF_SIDE;
+                        let mask = 1 << ((sx + sy * LEAF_SIDE) % LEAF_SIDE);
+                        let idx = ((sx + x * LEAF_SIDE) + (sy + y * LEAF_SIDE) * n) as usize;
                         if cells[idx / 64] & (1 << (idx % 64)) != 0 {
                             data[pos as usize] |= mask;
                         }
@@ -667,7 +662,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                 nodes_curr.push(mem.find_leaf_from_rows(data));
             }
         }
-        let mut t = n / LEAF_SIZE;
+        let mut t = n / LEAF_SIDE;
         while t != 1 {
             for y in (0..t).step_by(2) {
                 for x in (0..t).step_by(2) {
@@ -711,7 +706,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             }
             let n = mem.get(idx, size_log2);
             let mut s = String::new();
-            if size_log2 == LEAF_SIZE_LOG2 {
+            if size_log2 == LEAF_SIDE_LOG2 {
                 let data = n.leaf_cells();
                 for t in data.iter() {
                     for i in 0..8 {
@@ -793,9 +788,9 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             mem: &MemoryManager<Meta>,
             result: &mut Vec<u64>,
         ) {
-            if size_log2 == LEAF_SIZE_LOG2 {
+            if size_log2 == LEAF_SIDE_LOG2 {
                 let mut idx = x + y * root_size;
-                for row in mem.get(node, LEAF_SIZE_LOG2).leaf_cells() {
+                for row in mem.get(node, LEAF_SIDE_LOG2).leaf_cells() {
                     result[idx as usize / 64] |= (row as u64) << (idx % 64);
                     idx += root_size;
                 }
@@ -830,7 +825,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     fn get_cell(&self, mut x: u64, mut y: u64) -> bool {
         let mut node = self.root;
         let mut size_log2 = self.size_log2;
-        while size_log2 != LEAF_SIZE_LOG2 {
+        while size_log2 != LEAF_SIDE_LOG2 {
             let n = self.mem.get(node, size_log2);
             size_log2 -= 1;
             let size = 1 << size_log2;
@@ -845,7 +840,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                 _ => unreachable!(),
             };
         }
-        self.mem.get(node, LEAF_SIZE_LOG2).leaf_cells()[y as usize] >> x & 1 != 0
+        self.mem.get(node, LEAF_SIDE_LOG2).leaf_cells()[y as usize] >> x & 1 != 0
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
@@ -858,7 +853,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             mem: &mut MemoryManager<Meta>,
         ) -> NodeIdx {
             let n = mem.get(node, size_log2);
-            if size_log2 == LEAF_SIZE_LOG2 {
+            if size_log2 == LEAF_SIDE_LOG2 {
                 let mut data = n.leaf_cells();
                 let mask = 1 << x;
                 if state {
@@ -948,9 +943,9 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                     args.population.get(args.node, args.size_log2, args.mem);
                 return;
             }
-            const LEAF_ISIZE: i64 = LEAF_SIZE as i64;
+            const LEAF_ISIZE: i64 = LEAF_SIDE as i64;
             let n = args.mem.get(args.node, args.size_log2);
-            if args.size_log2 == LEAF_SIZE_LOG2 {
+            if args.size_log2 == LEAF_SIDE_LOG2 {
                 let data = n.leaf_cells();
                 let k = LEAF_ISIZE >> args.step_log2;
                 let step = 1 << args.step_log2;
@@ -998,7 +993,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
 
         let step_log2 = ((*size / *resolution) as u64).max(1).ilog2();
         let step: u64 = 1 << step_log2;
-        let com_mul = step.max(LEAF_SIZE);
+        let com_mul = step.max(LEAF_SIDE);
         let size_int = (*size as u64).next_multiple_of(com_mul) as i64 + com_mul as i64 * 2;
         *size = size_int as f64;
         let resolution_int = size_int / step as i64;
@@ -1057,7 +1052,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             };
 
             let n = mem.get(idx, size_log2).clone();
-            if size_log2 == LEAF_SIZE_LOG2 {
+            if size_log2 == LEAF_SIDE_LOG2 {
                 u64::from_le_bytes(n.leaf_cells())
             } else {
                 let mut result = 0;

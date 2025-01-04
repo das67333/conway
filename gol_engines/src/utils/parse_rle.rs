@@ -1,3 +1,5 @@
+use crate::MIN_SIDE_LOG2;
+
 /// Returns `size_log2` and row-major vector filled with cells of the parsed RLE pattern.
 pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
     let parse_next_number = |i: &mut usize| {
@@ -35,7 +37,7 @@ pub fn parse_rle(data: &[u8]) -> (u32, Vec<u64>) {
             .max(height)
             .next_power_of_two()
             .ilog2()
-            .max(crate::MIN_SIDE_LOG2)
+            .max(MIN_SIDE_LOG2)
     };
     let n = 1 << size_log2;
     let mut result = vec![0; n * n / 64];

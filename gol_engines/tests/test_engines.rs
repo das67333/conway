@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use conway::{Engine, HashLifeEngine, SimdEngine, StreamLifeEngine, Topology};
+    use gol_engines::{Engine, HashLifeEngine, SimdEngine, StreamLifeEngine, Topology};
 
     const SEED: u64 = 42;
 

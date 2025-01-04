@@ -1,15 +1,11 @@
 use super::{field_source::FieldSource, App, BrightnessStrategy, Config};
-use crate::{DefaultEngine, Engine, NiceInt, Topology};
 use eframe::egui::{
     load::SizedTexture, pos2, scroll_area::ScrollBarVisibility, Button, Color32, ColorImage,
     Context, DragValue, Frame, Image, Margin, Rect, Response, RichText, ScrollArea, Slider, Stroke,
     TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
 };
 use egui_file::{DialogType, FileDialog};
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-};
+use gol_engines::{DefaultEngine, Engine, NiceInt, Topology};
 
 impl App {
     fn new_text(text: &str) -> RichText {
@@ -31,7 +27,7 @@ impl App {
         ctx: &Context,
         ui: &mut Ui,
         button_text: &str,
-        file_path: &mut Option<PathBuf>,
+        file_path: &mut Option<std::path::PathBuf>,
         file_dialog: &mut Option<FileDialog>,
         extension: &'static str,
         dialog_type: DialogType,
@@ -40,8 +36,10 @@ impl App {
             let response = ui.add(Self::new_button(button_text));
             if response.clicked() {
                 let filter = Box::new({
-                    let ext = Some(OsStr::new(extension));
-                    move |path: &Path| -> bool { path.extension() == ext }
+                    move |path: &std::path::Path| -> bool {
+                        path.extension()
+                            .map_or(false, |x| x.to_str() == Some(extension))
+                    }
                 });
                 let mut dialog = match dialog_type {
                     DialogType::OpenFile => {

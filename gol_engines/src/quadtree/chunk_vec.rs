@@ -1,8 +1,4 @@
 use super::{NodeIdx, QuadTreeNode};
-use std::{
-    alloc::{alloc_zeroed, dealloc, Layout},
-    ops::{Index, IndexMut},
-};
 
 /// Deque-like structure storing QuadTreeNode elements.
 /// It is chosen instead of a vector to avoid reallocation freezes.
@@ -70,6 +66,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
     }
 
     fn new_chunk() -> *mut QuadTreeNode<Meta> {
+        use std::alloc::*;
         let layout = Layout::array::<QuadTreeNode<Meta>>(CHUNK_SIZE).unwrap();
         unsafe { alloc_zeroed(layout) as *mut QuadTreeNode<Meta> }
     }
@@ -89,7 +86,7 @@ impl<const CHUNK_SIZE: usize, Meta: Default> ChunkVec<CHUNK_SIZE, Meta> {
     }
 }
 
-impl<const CHUNK_SIZE: usize, Meta> Index<NodeIdx> for ChunkVec<CHUNK_SIZE, Meta> {
+impl<const CHUNK_SIZE: usize, Meta> std::ops::Index<NodeIdx> for ChunkVec<CHUNK_SIZE, Meta> {
     type Output = QuadTreeNode<Meta>;
     fn index(&self, index: NodeIdx) -> &Self::Output {
         let i = index.0 as usize;
@@ -102,7 +99,7 @@ impl<const CHUNK_SIZE: usize, Meta> Index<NodeIdx> for ChunkVec<CHUNK_SIZE, Meta
     }
 }
 
-impl<const CHUNK_SIZE: usize, Meta> IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZE, Meta> {
+impl<const CHUNK_SIZE: usize, Meta> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZE, Meta> {
     fn index_mut(&mut self, index: NodeIdx) -> &mut Self::Output {
         let i = index.0 as usize;
         unsafe {
@@ -116,6 +113,7 @@ impl<const CHUNK_SIZE: usize, Meta> IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZE, M
 
 impl<const CHUNK_SIZE: usize, Meta> Drop for ChunkVec<CHUNK_SIZE, Meta> {
     fn drop(&mut self) {
+        use std::alloc::*;
         let layout = Layout::array::<QuadTreeNode<Meta>>(CHUNK_SIZE).unwrap();
         for ptr in self.chunks.iter().copied() {
             unsafe {

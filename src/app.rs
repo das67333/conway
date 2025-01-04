@@ -1,10 +1,9 @@
 use super::{BrightnessStrategy, Config, FieldSource, FpsLimiter};
-use crate::{DefaultEngine, Engine, Topology};
 use eframe::egui::{
     CentralPanel, Color32, ColorImage, Context, Frame, Rect, TextureHandle, TextureOptions,
 };
 use egui_file::FileDialog;
-use std::{path::PathBuf, time::Instant};
+use gol_engines::{DefaultEngine, Engine, Topology};
 
 pub struct App {
     pub(super) life_engine: Box<dyn Engine>, // Conway's GoL engine.
@@ -26,9 +25,9 @@ pub struct App {
     pub(super) brightness_strategy: BrightnessStrategy, // Strategy for normalizing brightness.
     pub(super) brightness_shift: f64,
 
-    pub(super) saved_file: Option<PathBuf>,
+    pub(super) saved_file: Option<std::path::PathBuf>,
     pub(super) save_file_dialog: Option<FileDialog>,
-    pub(super) opened_file: Option<PathBuf>,
+    pub(super) opened_file: Option<std::path::PathBuf>,
     pub(super) open_file_dialog: Option<FileDialog>,
 
     pub(super) field_source: FieldSource,
@@ -108,7 +107,7 @@ impl App {
             return;
         }
 
-        let timer = Instant::now();
+        let timer = std::time::Instant::now();
         {
             let [dx, dy] = self
                 .life_engine

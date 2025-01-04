@@ -1,15 +1,15 @@
-use conway::{DefaultEngine, Engine, NiceInt, Topology};
-use std::time::Instant;
+use gol_engines::{DefaultEngine, Engine, NiceInt, Topology};
 
 fn main() {
     // let timer = Instant::now();
     let data = std::fs::read("res/0e0p-metaglider.mc").unwrap();
 
-    for steps_log2 in 29..=36 {
+    let arr = [16];
+    for steps_log2 in /* 29..=36 */ arr {
         let mut engine = DefaultEngine::from_macrocell(&data);
         // println!("Time spent on building field: {:?}", timer.elapsed());
 
-        let timer = Instant::now();
+        let timer = std::time::Instant::now();
         engine.update(steps_log2, Topology::Unbounded);
         let elapsed = timer.elapsed();
         println!(

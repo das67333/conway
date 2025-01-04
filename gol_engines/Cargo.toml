@@ -1,0 +1,21 @@
+[package]
+name = "gol_engines"
+version = "0.1.0"
+edition = "2021"
+description = "Game of Life engines (simd, hashlife, streamlife)"
+repository = "https://github.com/das67333/conway"
+readme = "README.md"
+license = "GPL-3.0"
+keywords = ["game-of-life", "simd", "hashlife", "streamlife"]
+categories = ["algorithms", "concurrency", "simulation"]
+
+[[bin]]
+name = "bench_otca"
+
+[[bin]]
+name = "bench_0e0p"
+
+[dependencies]
+rand = "0.8"
+rand_chacha = "0.3"
+ahash = "0.8"

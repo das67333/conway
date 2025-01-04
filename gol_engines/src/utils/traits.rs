@@ -1,7 +1,4 @@
-pub const MIN_SIDE_LOG2: u32 = 7;
-pub const MAX_SIDE_LOG2: u32 = 62;
-
-use super::Topology;
+use crate::{parse_rle, Topology};
 
 /// Game engine for Game of Life
 pub trait Engine {
@@ -46,7 +43,7 @@ pub trait Engine {
     where
         Self: Sized,
     {
-        let (size_log2, cells) = crate::parse_rle(data);
+        let (size_log2, cells) = parse_rle(data);
         Self::from_cells_array(size_log2, cells)
     }
 

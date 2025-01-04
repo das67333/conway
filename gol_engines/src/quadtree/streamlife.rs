@@ -1,6 +1,6 @@
-use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIZE_LOG2};
+use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIDE_LOG2};
 use crate::{Engine, NiceInt, Topology, MIN_SIDE_LOG2};
-use eframe::egui::ahash::AHashMap as HashMap;
+use ahash::AHashMap as HashMap;
 
 type MemoryManager = super::MemoryManager<u64>;
 
@@ -15,14 +15,14 @@ pub struct StreamLifeEngine {
 impl StreamLifeEngine {
     fn determine_direction(&mut self, idx: NodeIdx) -> u64 {
         let (nw, ne, sw, se) = {
-            let n = self.base.mem.get(idx, LEAF_SIZE_LOG2 + 1);
+            let n = self.base.mem.get(idx, LEAF_SIDE_LOG2 + 1);
             (n.nw, n.ne, n.sw, n.se)
         };
         let m = self.base.update_leaves(nw, ne, sw, se, 4);
-        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIZE_LOG2).leaf_cells());
+        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIDE_LOG2).leaf_cells());
 
         let [nw, ne, sw, se] = [nw, ne, sw, se]
-            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()));
+            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells()));
 
         let z64_centre_to_u64 = |x, y| {
             let xs = (4 + x) as u64;
@@ -79,7 +79,7 @@ impl StreamLifeEngine {
             return 0xffff;
         }
 
-        if size_log2 == LEAF_SIZE_LOG2 + 1 {
+        if size_log2 == LEAF_SIDE_LOG2 + 1 {
             if self.base.mem.get(idx, size_log2).meta & 0xffff0000 != 1 << 16 {
                 self.base.mem.get_mut(idx, size_log2).meta =
                     self.determine_direction(idx) | (1 << 16);
@@ -119,29 +119,29 @@ impl StreamLifeEngine {
                 return 0;
             }
 
-            if size_log2 == LEAF_SIZE_LOG2 + 2 {
+            if size_log2 == LEAF_SIDE_LOG2 + 2 {
                 let tlx = {
-                    let nw = self.base.mem.get(nw, LEAF_SIZE_LOG2 + 1);
+                    let nw = self.base.mem.get(nw, LEAF_SIDE_LOG2 + 1);
                     [nw.nw, nw.ne, nw.sw, nw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
                     })
                 };
                 let trx = {
-                    let ne = self.base.mem.get(ne, LEAF_SIZE_LOG2 + 1);
+                    let ne = self.base.mem.get(ne, LEAF_SIDE_LOG2 + 1);
                     [ne.nw, ne.ne, ne.sw, ne.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
                     })
                 };
                 let blx = {
-                    let sw = self.base.mem.get(sw, LEAF_SIZE_LOG2 + 1);
+                    let sw = self.base.mem.get(sw, LEAF_SIDE_LOG2 + 1);
                     [sw.nw, sw.ne, sw.sw, sw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
                     })
                 };
                 let brx = {
-                    let se = self.base.mem.get(se, LEAF_SIZE_LOG2 + 1);
+                    let se = self.base.mem.get(se, LEAF_SIDE_LOG2 + 1);
                     [se.nw, se.ne, se.sw, se.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
                     })
                 };
 
@@ -156,19 +156,19 @@ impl StreamLifeEngine {
                     let ne = mem.find_leaf_from_u64(x[1]);
                     let sw = mem.find_leaf_from_u64(x[2]);
                     let se = mem.find_leaf_from_u64(x[3]);
-                    mem.find_node(nw, ne, sw, se, LEAF_SIZE_LOG2 + 1)
+                    mem.find_node(nw, ne, sw, se, LEAF_SIDE_LOG2 + 1)
                 };
 
                 let x = prepared(&mut self.base.mem, &tc);
-                childlanes[1] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
+                childlanes[1] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cl);
-                childlanes[3] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
+                childlanes[3] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cc);
-                childlanes[4] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
+                childlanes[4] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cr);
-                childlanes[5] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
+                childlanes[5] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &bc);
-                childlanes[7] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
+                childlanes[7] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
                 adml &=
                     childlanes[1] & childlanes[3] & childlanes[4] & childlanes[5] & childlanes[7];
             } else {
@@ -211,8 +211,8 @@ impl StreamLifeEngine {
              * Lane numbers are modulo 32, with each lane being either
              * 8 rows, 8 columns, or 8hd (in either diagonal direction)
              */
-            let a: u64 = if size_log2 - LEAF_SIZE_LOG2 - 2 <= 4 {
-                1 << (size_log2 - LEAF_SIZE_LOG2 - 2)
+            let a: u64 = if size_log2 - LEAF_SIDE_LOG2 - 2 <= 4 {
+                1 << (size_log2 - LEAF_SIDE_LOG2 - 2)
             } else {
                 0
             };
@@ -324,7 +324,7 @@ impl StreamLifeEngine {
         }
         let m0 = self.base.mem.get(idx.0, size_log2).clone();
         let m1 = self.base.mem.get(idx.1, size_log2).clone();
-        if size_log2 == LEAF_SIZE_LOG2 {
+        if size_log2 == LEAF_SIDE_LOG2 {
             let l0 = u64::from_le_bytes(m0.leaf_cells());
             let l1 = u64::from_le_bytes(m1.leaf_cells());
             debug_assert!(l0 & l1 == 0, "universes overlap");
@@ -361,7 +361,7 @@ impl StreamLifeEngine {
             return *cache;
         }
 
-        if size_log2 == LEAF_SIZE_LOG2 + 2 {
+        if size_log2 == LEAF_SIDE_LOG2 + 2 {
             // TODO: inline merging universities
             let hnode2 = self.merge_universes(idx, size_log2);
             let i3 = self.base.update_node(hnode2, size_log2);
