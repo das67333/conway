@@ -1,8 +1,0 @@
-low priority:
-- multiversion dependencies
-- docs
-- exhaustive tests
-
-huge:
-- ASYNC (1 thread -> many coroutines)
-- MMAP (ram -> ssd)

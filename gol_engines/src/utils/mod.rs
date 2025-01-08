@@ -6,4 +6,4 @@ mod traits;
 pub use format_int::NiceInt;
 pub use parse_rle::parse_rle;
 pub use topology::Topology;
-pub use traits::Engine;
+pub use traits::{AsyncEngine, Engine};

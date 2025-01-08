@@ -1,18 +1,18 @@
-use super::{MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIDE, LEAF_SIDE_LOG2};
-use crate::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use super::{MemoryManager, NodeIdx, PopulationManager, LEAF_SIDE, LEAF_SIDE_LOG2};
+use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
-pub struct HashLifeEngine<Meta> {
-    pub(super) size_log2: u32,
-    pub(super) root: NodeIdx,
-    pub(super) steps_per_update_log2: u32,
-    pub(super) has_cache: bool,
-    pub(super) mem: MemoryManager<Meta>,
-    pub(super) population: PopulationManager,
+pub struct HashLifeEngineAsync {
+    size_log2: u32,
+    root: NodeIdx,
+    steps_per_update_log2: u32,
+    has_cache: bool,
+    mem: MemoryManager,
+    population: PopulationManager,
 }
 
-impl<Meta: Clone + Default> HashLifeEngine<Meta> {
+impl HashLifeEngineAsync {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -54,7 +54,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     }
 
     /// `nw`, `ne`, `sw`, `se` must be leaves
-    pub(super) fn update_leaves(
+    fn update_leaves(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -86,16 +86,41 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         self.mem.find_leaf_from_rows(arr.map(|x| (x >> 4) as u8))
     }
 
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    #[inline(never)]
-    fn update_nodes_single(
+    fn nine_children_overlapping(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
         size_log2: u32,
-    ) -> NodeIdx {
+    ) -> [NodeIdx; 9] {
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2).clone());
+        [
+            nw,
+            self.mem
+                .find_node(nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2),
+            ne,
+            self.mem
+                .find_node(nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2),
+            self.mem
+                .find_node(nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2),
+            self.mem
+                .find_node(ne_.sw, ne_.se, se_.nw, se_.ne, size_log2),
+            sw,
+            self.mem
+                .find_node(sw_.ne, se_.nw, sw_.se, se_.sw, size_log2),
+            se,
+        ]
+    }
+
+    fn nine_children_disjoint(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> [NodeIdx; 9] {
         let [nwnw, nwne, nwsw, nwse] = {
             let n = self.mem.get(nw, size_log2);
             [n.nw, n.ne, n.sw, n.se]
@@ -113,7 +138,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             [n.nw, n.ne, n.sw, n.se]
         };
 
-        let [t00, t01, t02, t10, t11, t12, t20, t21, t22] = if size_log2 >= LEAF_SIDE_LOG2 + 2 {
+        if size_log2 >= LEAF_SIDE_LOG2 + 2 {
             [
                 self.mem.find_node(
                     self.mem.get(nwnw, size_log2 - 1).se,
@@ -236,62 +261,26 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
                     self.mem.get(sese, LEAF_SIDE_LOG2).leaf_nw(),
                 ),
             ]
-        };
-        let q00 = self.mem.find_node(t00, t01, t10, t11, size_log2);
-        let q01 = self.mem.find_node(t01, t02, t11, t12, size_log2);
-        let q10 = self.mem.find_node(t10, t11, t20, t21, size_log2);
-        let q11 = self.mem.find_node(t11, t12, t21, t22, size_log2);
-
-        let [s00, s01, s10, s11] = [q00, q01, q10, q11].map(|x| self.update_node(x, size_log2));
-
-        self.mem.find_node(s00, s01, s10, s11, size_log2)
+        }
     }
 
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    #[inline(never)]
-    fn update_nodes_double(
-        &mut self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> NodeIdx {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
-
-        // First stage
-        let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
-        let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
-        let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
-        let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
-        let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
-
-        let t00 = self.update_node(nw, size_log2);
-        let t01 = self.update_node(p01.find(), size_log2);
-        let t02 = self.update_node(ne, size_log2);
-        let t12 = self.update_node(p12.find(), size_log2);
-        let t11 = self.update_node(p11.find(), size_log2);
-        let t10 = self.update_node(p10.find(), size_log2);
-        let t20 = self.update_node(sw, size_log2);
-        let t21 = self.update_node(p21.find(), size_log2);
-        let t22 = self.update_node(se, size_log2);
-
-        // Second stage
-        let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
-        let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
-        let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
-        let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
-        let t_se = self.update_node(pse.find(), size_log2);
-        let t_sw = self.update_node(psw.find(), size_log2);
-        let t_nw = self.update_node(pnw.find(), size_log2);
-        let t_ne = self.update_node(pne.find(), size_log2);
-        self.mem.find_node(t_nw, t_ne, t_sw, t_se, size_log2)
+    fn four_children_overlapping(&mut self, arr: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
+        [
+            self.mem
+                .find_node(arr[0], arr[1], arr[3], arr[4], size_log2),
+            self.mem
+                .find_node(arr[1], arr[2], arr[4], arr[5], size_log2),
+            self.mem
+                .find_node(arr[3], arr[4], arr[6], arr[7], size_log2),
+            self.mem
+                .find_node(arr[4], arr[5], arr[7], arr[8], size_log2),
+        ]
     }
 
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    pub(super) fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
             return n.cache;
@@ -307,9 +296,26 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             };
             self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
         } else if both_stages {
-            self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+            let mut arr9 = self.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+            for x in &mut arr9 {
+                *x = self.update_node(*x, size_log2 - 1);
+            }
+
+            let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
+            for x in &mut arr4 {
+                *x = self.update_node(*x, size_log2 - 1);
+            }
+            let [nw, ne, sw, se] = arr4;
+            self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         } else {
-            self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+            let arr9 = self.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+
+            let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
+            for x in &mut arr4 {
+                *x = self.update_node(*x, size_log2 - 1);
+            }
+            let [nw, ne, sw, se] = arr4;
+            self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         };
         let n = self.mem.get_mut(node, size_log2);
         n.cache = cache;
@@ -320,12 +326,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
     /// and if `topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    pub(super) fn with_frame(
-        &mut self,
-        idx: NodeIdx,
-        size_log2: u32,
-        topology: Topology,
-    ) -> NodeIdx {
+    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
         let n = self.mem.get(idx, size_log2).clone();
         let [nw, ne, sw, se] = match topology {
             Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
@@ -343,7 +344,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     }
 
     /// Remove a frame around the field, making it two times smaller.
-    pub(super) fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = [
             self.mem.get(n.nw, size_log2 - 1).clone(),
@@ -355,7 +356,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             .find_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
     }
 
-    pub(super) fn frame_is_blank(&self) -> bool {
+    fn frame_is_blank(&self) -> bool {
         let root = self.mem.get(self.root, self.size_log2);
         let [nw, ne, sw, se] = [
             self.mem.get(root.nw, self.size_log2 - 1).clone(),
@@ -378,7 +379,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             && sw.nw == NodeIdx(0)
     }
 
-    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+    fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
         self.root = self.with_frame(self.root, self.size_log2, topology);
         *dx += 1 << (self.size_log2 - 1);
         *dy += 1 << (self.size_log2 - 1);
@@ -386,7 +387,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         assert!(self.size_log2 <= MAX_SIDE_LOG2);
     }
 
-    pub(super) fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+    fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
         self.root = self.without_frame(self.root, self.size_log2);
         *dx -= 1 << (self.size_log2 - 2);
         *dy -= 1 << (self.size_log2 - 2);
@@ -395,7 +396,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     }
 
     /// Recursively mark nodes to rescue them from garbage collection.
-    pub(super) fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
         if idx == NodeIdx(0) {
             return;
         }
@@ -413,7 +414,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     }
 }
 
-impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
+impl AsyncEngine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mut mem = MemoryManager::new();
@@ -698,10 +699,10 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             idx: NodeIdx,
         }
 
-        fn inner<Meta: Clone + Default>(
+        fn inner(
             idx: NodeIdx,
             size_log2: u32,
-            mem: &MemoryManager<Meta>,
+            mem: &MemoryManager,
             codes: &mut HashMap<Key, usize>,
             result: &mut Vec<String>,
         ) {
@@ -783,13 +784,13 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 
     fn get_cells(&self) -> Vec<u64> {
-        fn inner<Meta: Clone + Default>(
+        fn inner(
             x: u64,
             y: u64,
             root_size: u64,
             size_log2: u32,
             node: NodeIdx,
-            mem: &MemoryManager<Meta>,
+            mem: &MemoryManager,
             result: &mut Vec<u64>,
         ) {
             if size_log2 == LEAF_SIDE_LOG2 {
@@ -848,13 +849,13 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        fn inner<Meta: Clone + Default>(
+        fn inner(
             mut x: u64,
             mut y: u64,
             mut size_log2: u32,
             node: NodeIdx,
             state: bool,
-            mem: &mut MemoryManager<Meta>,
+            mem: &mut MemoryManager,
         ) -> NodeIdx {
             let n = mem.get(node, size_log2);
             if size_log2 == LEAF_SIDE_LOG2 {
@@ -924,7 +925,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         resolution: &mut f64,
         dst: &mut Vec<f64>,
     ) {
-        struct Args<'a, Meta: Clone + Default> {
+        struct Args<'a> {
             node: NodeIdx,
             x: i64,
             y: i64,
@@ -935,11 +936,11 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
             resolution: i64,
             viewport_size: i64,
             step_log2: u32,
-            mem: &'a MemoryManager<Meta>,
+            mem: &'a MemoryManager,
             population: &'a mut PopulationManager,
         }
 
-        fn inner<Meta: Clone + Default>(args: &mut Args<'_, Meta>) {
+        fn inner(args: &mut Args<'_>) {
             if args.step_log2 == args.size_log2 {
                 let j = (args.x - args.viewport_x) >> args.step_log2;
                 let i = (args.y - args.viewport_y) >> args.step_log2;
@@ -1038,11 +1039,11 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         #[derive(Clone, PartialEq, Eq, Hash)]
         struct Key(NodeIdx, u32);
 
-        fn inner<Meta: Clone + Default>(
+        fn inner(
             idx: NodeIdx,
             size_log2: u32,
             cache: &mut HashMap<Key, u64>,
-            mem: &MemoryManager<Meta>,
+            mem: &MemoryManager,
         ) -> u64 {
             if let Some(&val) = cache.get(&Key(idx, size_log2)) {
                 return val;
@@ -1097,7 +1098,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
     }
 }
 
-impl<Meta: Clone + Default> Default for HashLifeEngine<Meta> {
+impl Default for HashLifeEngineAsync {
     fn default() -> Self {
         Self::blank(MIN_SIDE_LOG2)
     }

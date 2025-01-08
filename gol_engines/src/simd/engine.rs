@@ -1,4 +1,4 @@
-use crate::{Engine, HashLifeEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub struct SimdEngine {
     data: Vec<u64>,
@@ -114,14 +114,15 @@ impl Engine for SimdEngine {
         }
     }
 
-    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
+    fn from_recursive_otca_metapixel(_depth: u32, _top_pattern: Vec<Vec<u8>>) -> Self
     where
         Self: Sized,
     {
-        let cells = HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern).get_cells();
-        assert!(cells.len().is_power_of_two());
-        let size_log2 = (cells.len().ilog2() + 6) / 2;
-        Self::from_cells_array(size_log2, cells)
+        // let cells = HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern).get_cells();
+        // assert!(cells.len().is_power_of_two());
+        // let size_log2 = (cells.len().ilog2() + 6) / 2;
+        // Self::from_cells_array(size_log2, cells)
+        unimplemented!()
     }
 
     fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self

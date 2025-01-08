@@ -1,4 +1,4 @@
-use gol_engines::{DefaultEngine, Engine, Topology};
+use gol_engines::*;
 
 fn main() {
     let otca_depth = 2;
@@ -15,10 +15,13 @@ fn main() {
 
     let timer = std::time::Instant::now();
 
-    let mut engine = DefaultEngine::from_recursive_otca_metapixel(otca_depth, top_pattern);
+    let mut engine = HashLifeEngineAsync::from_recursive_otca_metapixel(otca_depth, top_pattern);
     println!("Time on building field: {:?}", timer.elapsed());
 
     let timer = std::time::Instant::now();
-    engine.update(engine.side_length_log2() - 1, Topology::Unbounded);
+    let steps_log2 = 23;
+    engine.update(steps_log2, Topology::Unbounded);
     println!("Time on big update: {:?}", timer.elapsed());
+    assert_eq!(engine.hash(), 0xf35ef0ba0c9db279);
+    assert_eq!(engine.population(), 6_094_494_746_384.0);
 }
