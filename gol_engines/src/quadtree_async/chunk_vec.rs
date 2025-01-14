@@ -1,7 +1,7 @@
 use super::{NodeIdx, QuadTreeNode};
 
 /// Deque-like structure storing QuadTreeNode elements.
-/// It is chosen instead of a vector to avoid reallocation freezes.
+/// It is chosen instead of a vector to avoid reallocation statters.
 ///
 /// First element should always be reserved for blank node.
 pub struct ChunkVec<const CHUNK_SIZE: usize> {

@@ -1,5 +1,6 @@
 use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIDE_LOG2};
 use crate::NiceInt;
+use std::cell::UnsafeCell;
 
 const CHUNK_SIZE: usize = 1 << 13;
 
@@ -16,8 +17,11 @@ pub struct KIVMap {
 }
 
 pub struct MemoryManager {
-    layers: Vec<KIVMap>,
+    layers: UnsafeCell<Vec<KIVMap>>,
 }
+
+unsafe impl Send for MemoryManager {}
+unsafe impl Sync for MemoryManager {}
 
 impl KIVMap {
     pub fn new() -> Self {
@@ -142,7 +146,7 @@ impl MemoryManager {
     /// Create a new memory manager.
     pub fn new() -> Self {
         Self {
-            layers: vec![KIVMap::new()],
+            layers: UnsafeCell::new(vec![KIVMap::new()]),
         }
     }
 
@@ -150,23 +154,25 @@ impl MemoryManager {
     #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
         let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
-        debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
-        unsafe { &self.layers.get_unchecked(i).storage[idx] }
+        let layers = unsafe { &*self.layers.get() };
+        debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
+        unsafe { &layers.get_unchecked(i).storage[idx] }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
-    pub fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
+    pub fn get_mut(&self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
         let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
-        debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
-        unsafe { &mut self.layers.get_unchecked_mut(i).storage[idx] }
+        let layers = unsafe { &mut *self.layers.get() };
+        debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
+        unsafe { &mut layers.get_unchecked_mut(i).storage[idx] }
     }
 
     /// Find a leaf node with the given parts.
     /// If the node is not found, it is created.
     ///
     /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
-    pub fn find_leaf_from_parts(&mut self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
+    pub fn find_leaf_from_parts(&self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
         let [mut nw, mut ne, mut sw, mut se] = [nw as u64, ne as u64, sw as u64, se as u64];
         let mut cells = 0;
         let mut shift = 0;
@@ -193,7 +199,7 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_leaf_from_rows(&mut self, cells: [u8; 8]) -> NodeIdx {
+    pub fn find_leaf_from_rows(&self, cells: [u8; 8]) -> NodeIdx {
         self.find_leaf_from_u64(u64::from_le_bytes(cells))
     }
 
@@ -201,12 +207,16 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `cells` is u64 built by concatenating rows of cells.
-    pub fn find_leaf_from_u64(&mut self, cells: u64) -> NodeIdx {
+    pub fn find_leaf_from_u64(&self, cells: u64) -> NodeIdx {
         let nw = NodeIdx(cells as u32);
         let ne = NodeIdx((cells >> 32) as u32);
         let [sw, se] = [NodeIdx(0); 2];
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        unsafe { self.layers.get_unchecked_mut(0).find(nw, ne, sw, se, hash) }
+        unsafe {
+            (*self.layers.get())
+                .get_unchecked_mut(0)
+                .find(nw, ne, sw, se, hash)
+        }
     }
 
     /// Find a node with the given parts.
@@ -216,7 +226,7 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     #[inline]
     pub fn find_node(
-        &mut self,
+        &self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
@@ -225,20 +235,23 @@ impl MemoryManager {
     ) -> NodeIdx {
         let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        if self.layers.len() <= i {
-            self.layers.resize_with(i + 1, KIVMap::new);
+        let layers = unsafe { &mut *self.layers.get() };
+        if layers.len() <= i {
+            layers.resize_with(i + 1, KIVMap::new);
         }
-        unsafe { self.layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
+        unsafe { layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
     }
 
-    pub fn gc_finish(&mut self) {
-        for kiv in self.layers.iter_mut() {
+    pub fn gc_finish(&self) {
+        let layers = unsafe { &mut *self.layers.get() };
+        for kiv in layers {
             kiv.gc_finish();
         }
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.layers.iter().map(|m| m.bytes_total()).sum::<usize>()
+        let layers = unsafe { &mut *self.layers.get() };
+        layers.iter().map(|m| m.bytes_total()).sum::<usize>()
     }
 
     /// Get statistics about the memory manager.
@@ -250,18 +263,19 @@ impl MemoryManager {
             NiceInt::from_usize(self.bytes_total() >> 20),
         );
 
-        let total_misses = self.layers.iter().map(|m| m.misses).sum::<u64>();
-        let total_hits = self.layers.iter().map(|m| m.hits).sum::<u64>();
+        let layers = unsafe { &mut *self.layers.get() };
+        let total_misses = layers.iter().map(|m| m.misses).sum::<u64>();
+        let total_hits = layers.iter().map(|m| m.hits).sum::<u64>();
         s += &format!(
             "Hashtable misses / hits: {} / {}\n",
             NiceInt::from(total_misses),
             NiceInt::from(total_hits),
         );
 
-        let nodes_total = self.layers.iter().map(|m| m.len()).sum::<usize>();
+        let nodes_total = layers.iter().map(|m| m.len()).sum::<usize>();
         s += "Nodes' sizes (side lengths) distribution:\n";
         s += &format!("total - {}\n", NiceInt::from_usize(nodes_total));
-        for (i, m) in self.layers.iter().enumerate() {
+        for (i, m) in layers.iter().enumerate() {
             let percent = m.len() * 100 / nodes_total;
             if percent == 0 {
                 continue;

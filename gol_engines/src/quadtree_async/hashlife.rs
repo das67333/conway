@@ -1,6 +1,7 @@
 use super::{MemoryManager, NodeIdx, PopulationManager, LEAF_SIDE, LEAF_SIDE_LOG2};
 use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
+use std::sync::atomic::*;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngineAsync {
@@ -11,6 +12,8 @@ pub struct HashLifeEngineAsync {
     mem: MemoryManager,
     population: PopulationManager,
 }
+
+unsafe impl Send for HashLifeEngineAsync {}
 
 impl HashLifeEngineAsync {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
@@ -55,7 +58,7 @@ impl HashLifeEngineAsync {
 
     /// `nw`, `ne`, `sw`, `se` must be leaves
     fn update_leaves(
-        &mut self,
+        &self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
@@ -87,7 +90,7 @@ impl HashLifeEngineAsync {
     }
 
     fn nine_children_overlapping(
-        &mut self,
+        &self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
@@ -114,7 +117,7 @@ impl HashLifeEngineAsync {
     }
 
     fn nine_children_disjoint(
-        &mut self,
+        &self,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
@@ -264,7 +267,7 @@ impl HashLifeEngineAsync {
         }
     }
 
-    fn four_children_overlapping(&mut self, arr: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
+    fn four_children_overlapping(&self, arr: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
         [
             self.mem
                 .find_node(arr[0], arr[1], arr[3], arr[4], size_log2),
@@ -280,10 +283,11 @@ impl HashLifeEngineAsync {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    async fn update_node(&self, node: NodeIdx, size_log2: u32) -> AtomicU32 {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
-            return n.cache;
+            // return n.cache;
+            return AtomicU32::new(n.cache.0);
         }
         debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
 
@@ -297,30 +301,50 @@ impl HashLifeEngineAsync {
             self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
         } else if both_stages {
             let mut arr9 = self.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-            for x in &mut arr9 {
-                *x = self.update_node(*x, size_log2 - 1);
-            }
-
+            // for x in &mut arr9 {
+            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
+            //     // let t = tokio::spawn(async move { self.update_node(*x, size_log2 - 1).await });
+            // }
+            let (foo, outputs) = async_scoped::TokioScope::scope_and_block(|s| {
+                for _ in 0..10 {
+                    let proc = || async {
+                        Box::pin(self.update_node(arr9[0], size_log2 - 1)).await
+                    };
+                    s.spawn(proc());
+                }
+                42
+            });
+            // let t = tokio::join!(
+            //     async { Box::pin(self.update_node(arr9[0], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[1], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[2], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[3], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[4], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[5], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[6], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[7], size_log2 - 1)) },
+            //     async { Box::pin(self.update_node(arr9[8], size_log2 - 1)) },
+            // );
             let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
-            for x in &mut arr4 {
-                *x = self.update_node(*x, size_log2 - 1);
-            }
+            // for x in &mut arr4 {
+            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
+            // }
             let [nw, ne, sw, se] = arr4;
             self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         } else {
             let arr9 = self.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
 
             let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
-            for x in &mut arr4 {
-                *x = self.update_node(*x, size_log2 - 1);
-            }
+            // for x in &mut arr4 {
+            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
+            // }
             let [nw, ne, sw, se] = arr4;
             self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         };
         let n = self.mem.get_mut(node, size_log2);
         n.cache = cache;
         n.has_cache = true;
-        cache
+        AtomicU32::new(cache.0)
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
@@ -417,7 +441,7 @@ impl HashLifeEngineAsync {
 impl AsyncEngine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
         Self {
             size_log2,
@@ -454,7 +478,7 @@ impl AsyncEngine for HashLifeEngineAsync {
             panic!("Use `from_cells_array` instead");
         }
 
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
@@ -581,7 +605,7 @@ impl AsyncEngine for HashLifeEngineAsync {
     where
         Self: Sized,
     {
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
         codes.insert(0, NodeIdx(0));
         let mut last_node = None;
@@ -647,7 +671,7 @@ impl AsyncEngine for HashLifeEngineAsync {
     fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         assert_eq!(cells.len(), 1 << (size_log2 * 2 - 6));
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         let n = 1 << size_log2;
 
@@ -896,7 +920,13 @@ impl AsyncEngine for HashLifeEngineAsync {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        self.root = self.update_node(self.root, self.size_log2);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async {
+                self.root = self.update_node(self.root, self.size_log2).await;
+            });
         self.size_log2 -= 1;
         dx -= 1 << (self.size_log2 - 1);
         dy -= 1 << (self.size_log2 - 1);

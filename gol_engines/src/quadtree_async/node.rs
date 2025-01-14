@@ -2,6 +2,8 @@
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
 
+unsafe impl Send for NodeIdx {}
+
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
