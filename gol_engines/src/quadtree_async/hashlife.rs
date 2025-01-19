@@ -1,7 +1,6 @@
 use super::{MemoryManager, NodeIdx, PopulationManager, LEAF_SIDE, LEAF_SIDE_LOG2};
 use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
-use std::sync::atomic::*;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngineAsync {
@@ -283,68 +282,74 @@ impl HashLifeEngineAsync {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    async fn update_node(&self, node: NodeIdx, size_log2: u32) -> AtomicU32 {
-        let n = self.mem.get(node, size_log2);
+    unsafe fn update_node(this: usize, node: usize, size_log2: u32) {
+        let this_ref = &mut *(this as *mut Self);
+        let node_ref = &mut *(node as *mut NodeIdx);
+        let n = this_ref.mem.get(*node_ref, size_log2);
         if n.has_cache {
-            // return n.cache;
-            return AtomicU32::new(n.cache.0);
+            *node_ref = n.cache;
+            return;
         }
-        debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
+        debug_assert!(*node_ref != NodeIdx(0), "Empty nodes should've been cached");
 
-        let both_stages = self.steps_per_update_log2 + 2 >= size_log2;
+        let both_stages = this_ref.steps_per_update_log2 + 2 >= size_log2;
         let cache = if size_log2 == LEAF_SIDE_LOG2 + 1 {
             let steps = if both_stages {
                 LEAF_SIDE / 2
             } else {
-                1 << self.steps_per_update_log2
+                1 << this_ref.steps_per_update_log2
             };
-            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+            this_ref.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
         } else if both_stages {
-            let mut arr9 = self.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-            // for x in &mut arr9 {
-            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
-            //     // let t = tokio::spawn(async move { self.update_node(*x, size_log2 - 1).await });
+            let mut arr9 =
+                this_ref.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+            // let handlers: [JoinHandle<()>; 9] = std::array::from_fn(|i| {
+            //     let p = &mut arr9[i] as *mut NodeIdx as usize;
+            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
+            // });
+            // for x in handlers {
+            //     x.await.unwrap();
             // }
-            let (foo, outputs) = async_scoped::TokioScope::scope_and_block(|s| {
-                for _ in 0..10 {
-                    let proc = || async {
-                        Box::pin(self.update_node(arr9[0], size_log2 - 1)).await
-                    };
-                    s.spawn(proc());
-                }
-                42
-            });
-            // let t = tokio::join!(
-            //     async { Box::pin(self.update_node(arr9[0], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[1], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[2], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[3], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[4], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[5], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[6], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[7], size_log2 - 1)) },
-            //     async { Box::pin(self.update_node(arr9[8], size_log2 - 1)) },
-            // );
-            let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
-            // for x in &mut arr4 {
-            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
+            for i in 0..9 {
+                let p = &mut arr9[i] as *mut NodeIdx as usize;
+                Self::update_node(this, p, size_log2 - 1);
+            }
+            let mut arr4 = this_ref.four_children_overlapping(&arr9, size_log2 - 1);
+            // let handlers: [JoinHandle<()>; 4] = std::array::from_fn(|i| {
+            //     let p = &mut arr4[i] as *mut NodeIdx as usize;
+            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
+            // });
+            // for x in handlers {
+            //     x.await.unwrap();
             // }
+            for i in 0..4 {
+                let p = &mut arr4[i] as *mut NodeIdx as usize;
+                Self::update_node(this, p, size_log2 - 1);
+            }
             let [nw, ne, sw, se] = arr4;
-            self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
+            this_ref.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         } else {
-            let arr9 = self.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+            let arr9 = this_ref.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
 
-            let mut arr4 = self.four_children_overlapping(&arr9, size_log2 - 1);
-            // for x in &mut arr4 {
-            //     *x = Box::pin(self.update_node(*x, size_log2 - 1)).await;
+            let mut arr4 = this_ref.four_children_overlapping(&arr9, size_log2 - 1);
+            for i in 0..4 {
+                let p = &mut arr4[i] as *mut NodeIdx as usize;
+                Self::update_node(this, p, size_log2 - 1);
+            }
+            // let handlers: [JoinHandle<()>; 4] = std::array::from_fn(|i| {
+            //     let p = &mut arr4[i] as *mut NodeIdx as usize;
+            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
+            // });
+            // for x in handlers {
+            //     x.await.unwrap();
             // }
             let [nw, ne, sw, se] = arr4;
-            self.mem.find_node(nw, ne, sw, se, size_log2 - 1)
+            this_ref.mem.find_node(nw, ne, sw, se, size_log2 - 1)
         };
-        let n = self.mem.get_mut(node, size_log2);
+        let n = this_ref.mem.get_mut(*node_ref, size_log2);
         n.cache = cache;
         n.has_cache = true;
-        AtomicU32::new(cache.0)
+        *node_ref = cache;
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
@@ -920,13 +925,13 @@ impl AsyncEngine for HashLifeEngineAsync {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed building the Runtime")
-            .block_on(async {
-                self.root = self.update_node(self.root, self.size_log2).await;
-            });
+        let root_usize = &mut self.root as *mut NodeIdx as usize;
+        // let rt = tokio::runtime::Builder::new_current_thread()
+        //     .build()
+        //     .unwrap();
+        // tokio::task::LocalSet::new().block_on(&rt, async {
+        unsafe { Self::update_node(self as *mut Self as usize, root_usize, self.size_log2) };
+        // });
         self.size_log2 -= 1;
         dx -= 1 << (self.size_log2 - 1);
         dy -= 1 << (self.size_log2 - 1);

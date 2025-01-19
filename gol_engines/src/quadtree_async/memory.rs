@@ -1,15 +1,15 @@
 use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIDE_LOG2};
 use crate::NiceInt;
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, sync::Mutex};
 
 const CHUNK_SIZE: usize = 1 << 13;
 
 /// Hashtable that stores nodes of the quadtree.
 pub struct KIVMap {
     // all allocated nodes
-    storage: ChunkVec<CHUNK_SIZE>,
+    storage: Mutex<ChunkVec<CHUNK_SIZE>>,
     // buffer where heads of linked lists are stored
-    hashtable: Vec<NodeIdx>,
+    hashtable: Vec<Mutex<NodeIdx>>,
     // how many times elements were found
     pub hits: u64,
     // how many times elements were inserted
@@ -29,8 +29,8 @@ impl KIVMap {
         assert!(u32::try_from(CHUNK_SIZE).is_ok(), "u32 is insufficient");
         // reserving NodeIdx(0) for blank node
         Self {
-            storage: ChunkVec::new(),
-            hashtable: vec![NodeIdx(0); CHUNK_SIZE],
+            storage: Mutex::new(ChunkVec::new()),
+            hashtable: (0..CHUNK_SIZE).map(|_| Mutex::new(NodeIdx(0))).collect(),
             hits: 0,
             misses: 0,
         }
@@ -39,16 +39,21 @@ impl KIVMap {
     pub unsafe fn rehash(&mut self) {
         let new_size = self.hashtable.len() << 1;
         assert!(u32::try_from(new_size).is_ok(), "u32 is insufficient");
-        let mut new_buf = vec![NodeIdx(0); new_size];
-        for mut node in std::mem::take(&mut self.hashtable) {
-            while node != NodeIdx(0) {
-                let n = &self.storage[node];
+        let new_buf = (0..new_size)
+            .map(|_| Mutex::new(NodeIdx(0)))
+            .collect::<Vec<_>>();
+        let mut storage = self.storage.lock().unwrap();
+        for slot in std::mem::take(&mut self.hashtable) {
+            let mut node = slot.lock().unwrap();
+            while *node != NodeIdx(0) {
+                let n = &storage[*node];
                 let hash = QuadTreeNode::hash(n.nw, n.ne, n.sw, n.se);
                 let next = n.next;
                 let index = hash & (new_size - 1);
-                self.storage[node].next = *new_buf.get_unchecked(index);
-                *new_buf.get_unchecked_mut(index) = node;
-                node = next;
+                let mut new_node = new_buf.get_unchecked(index).lock().unwrap();
+                storage[*node].next = *new_node;
+                *new_node = *node;
+                *node = next;
             }
         }
         self.hashtable = new_buf;
@@ -69,19 +74,21 @@ impl KIVMap {
             return NodeIdx(0);
         }
 
+        let mut storage = self.storage.lock().unwrap();
         let i = hash & (self.hashtable.len() - 1);
-        let mut node = *self.hashtable.get_unchecked(i);
+        let mut slot = self.hashtable.get_unchecked(i).lock().unwrap();
+        let mut node = *slot;
         let mut prev = NodeIdx(0);
         // search for the node in the linked list
         while node != NodeIdx(0) {
-            let n = &self.storage[node];
+            let n = &storage[node];
             let next = n.next;
             if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if prev != NodeIdx(0) {
-                    self.storage[prev].next = next;
-                    self.storage[node].next = *self.hashtable.get_unchecked(i);
-                    *self.hashtable.get_unchecked_mut(i) = node;
+                    storage[prev].next = next;
+                    storage[node].next = *slot;
+                    *slot = node;
                 }
                 self.hits += 1;
                 return node;
@@ -91,54 +98,61 @@ impl KIVMap {
         }
 
         self.misses += 1;
-        let idx = self.storage.allocate();
-        self.storage[idx] = QuadTreeNode {
+        let idx = storage.allocate();
+        storage[idx] = QuadTreeNode {
             nw,
             ne,
             sw,
             se,
-            next: *self.hashtable.get_unchecked(i),
+            next: *slot,
             ..Default::default()
         };
-        *self.hashtable.get_unchecked_mut(i) = idx;
-        if self.storage.len() > self.hashtable.len() {
-            // TODO: как удалять мусор
+        *slot = idx;
+        if storage.len() > self.hashtable.len() {
+            drop(storage);
+            drop(slot);
+            // TODO: стоит ли запускать gc
             self.rehash();
         }
         idx
     }
 
     pub fn filter_unmarked_from_hashtable(&mut self) {
-        for idx in self.hashtable.iter_mut() {
-            let (mut curr, mut marked) = (*idx, NodeIdx(0));
-            while curr != NodeIdx(0) {
-                let next = self.storage[curr].next;
-                if self.storage[curr].gc_marked {
-                    self.storage[curr].next = marked;
-                    marked = curr;
+        let mut storage = self.storage.lock().unwrap();
+        for slot in self.hashtable.iter_mut() {
+            let (mut curr, mut marked) = (slot.lock().unwrap(), NodeIdx(0));
+            while *curr != NodeIdx(0) {
+                let next = storage[*curr].next;
+                if storage[*curr].gc_marked {
+                    storage[*curr].next = marked;
+                    marked = *curr;
                 }
-                curr = next;
+                *curr = next;
             }
-
-            *idx = marked;
+            drop(curr);
+            *slot = Mutex::new(marked);
         }
     }
 
     pub fn gc_finish(&mut self) {
         self.filter_unmarked_from_hashtable();
-        self.storage.deallocate_unmarked_and_unmark();
+        self.storage
+            .lock()
+            .unwrap()
+            .deallocate_unmarked_and_unmark();
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.storage.bytes_total() + self.hashtable.capacity() * std::mem::size_of::<NodeIdx>()
+        self.storage.lock().unwrap().bytes_total()
+            + self.hashtable.capacity() * std::mem::size_of::<NodeIdx>()
     }
 
     pub fn len(&self) -> usize {
-        self.storage.len()
+        self.storage.lock().unwrap().len()
     }
 
     pub fn capacity(&self) -> usize {
-        self.storage.capacity()
+        self.storage.lock().unwrap().capacity()
     }
 }
 
@@ -156,7 +170,11 @@ impl MemoryManager {
         let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         let layers = unsafe { &*self.layers.get() };
         debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
-        unsafe { &layers.get_unchecked(i).storage[idx] }
+        unsafe {
+            let storage = layers.get_unchecked(i).storage.lock().unwrap();
+            let p = &storage[idx] as *const QuadTreeNode;
+            &*p
+        }
     }
 
     /// Get a mutable reference to the node with the given index.
@@ -165,7 +183,11 @@ impl MemoryManager {
         let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
         let layers = unsafe { &mut *self.layers.get() };
         debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
-        unsafe { &mut layers.get_unchecked_mut(i).storage[idx] }
+        unsafe {
+            let storage = &mut layers.get_unchecked_mut(i).storage.lock().unwrap();
+            let p = &mut storage[idx] as *mut QuadTreeNode;
+            &mut *p
+        }
     }
 
     /// Find a leaf node with the given parts.

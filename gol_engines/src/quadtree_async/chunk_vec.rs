@@ -47,7 +47,7 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         allocated
     }
 
-    /// Assuming all necessary nodes are marked, deallocate every unmarked node and leave all nodes unmarked.
+    /// Deallocate every unmarked node and leave all nodes unmarked.
     pub fn deallocate_unmarked_and_unmark(&mut self) {
         let mut next_free_node = NodeIdx(0);
         let mut free_nodes_cnt = 0;
