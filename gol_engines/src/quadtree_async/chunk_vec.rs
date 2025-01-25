@@ -1,3 +1,8 @@
+use std::{
+    alloc::{alloc_zeroed, dealloc, Layout},
+    sync::OnceLock,
+};
+
 use super::{NodeIdx, QuadTreeNode};
 
 /// Deque-like structure storing QuadTreeNode elements.
@@ -15,7 +20,7 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         let chunk = Self::new_chunk();
         unsafe {
             // reserving NodeIdx(0) for blank node
-            (*chunk).has_cache = true;
+            (*chunk).cache.set(NodeIdx(0)).unwrap();
             for i in 1..CHUNK_SIZE - 1 {
                 (*chunk.add(i)).next = NodeIdx(i as u32 + 1);
             }
@@ -28,13 +33,12 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
     }
 
     /// Allocate memory for a new node and return its NodeIdx.
-    #[inline]
     pub fn allocate(&mut self) -> NodeIdx {
         if self.next_free_node == NodeIdx(0) {
             let chunk = Self::new_chunk();
             for i in 0..CHUNK_SIZE - 1 {
-                let next = self.capacity() + i + 1;
-                unsafe { (*chunk.add(i)).next = NodeIdx(next as u32) };
+                let next = NodeIdx((self.capacity() + i + 1) as u32);
+                unsafe { (*chunk.add(i)).next = next };
             }
             self.next_free_node = NodeIdx(self.capacity() as u32);
             self.chunks.push(chunk);
@@ -59,28 +63,25 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
                 next_free_node = idx;
                 free_nodes_cnt += 1;
             }
-            self[idx].has_cache = false;
+            self[idx].cache = OnceLock::new();
         }
         self.next_free_node = next_free_node;
         self.len = self.capacity() - 1 - free_nodes_cnt;
     }
 
     fn new_chunk() -> *mut QuadTreeNode {
-        use std::alloc::*;
         let layout = Layout::array::<QuadTreeNode>(CHUNK_SIZE).unwrap();
         unsafe { alloc_zeroed(layout) as *mut QuadTreeNode }
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.chunks.len() * (size_of::<usize>() + CHUNK_SIZE * size_of::<QuadTreeNode>())
+        self.chunks.len() * CHUNK_SIZE * size_of::<QuadTreeNode>()
     }
 
-    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    #[inline]
     pub fn capacity(&self) -> usize {
         self.chunks.len() * CHUNK_SIZE
     }
@@ -113,12 +114,9 @@ impl<const CHUNK_SIZE: usize> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZ
 
 impl<const CHUNK_SIZE: usize> Drop for ChunkVec<CHUNK_SIZE> {
     fn drop(&mut self) {
-        use std::alloc::*;
         let layout = Layout::array::<QuadTreeNode>(CHUNK_SIZE).unwrap();
         for ptr in self.chunks.iter().copied() {
-            unsafe {
-                dealloc(ptr as *mut u8, layout);
-            }
+            unsafe { dealloc(ptr as *mut u8, layout) }
         }
     }
 }

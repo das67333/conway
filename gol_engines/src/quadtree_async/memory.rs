@@ -7,7 +7,7 @@ const CHUNK_SIZE: usize = 1 << 13;
 /// Hashtable that stores nodes of the quadtree.
 pub struct KIVMap {
     // all allocated nodes
-    storage: Mutex<ChunkVec<CHUNK_SIZE>>,
+    storage: ChunkVec<CHUNK_SIZE>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<Mutex<NodeIdx>>,
     // how many times elements were found
@@ -20,16 +20,13 @@ pub struct MemoryManager {
     layers: UnsafeCell<Vec<KIVMap>>,
 }
 
-unsafe impl Send for MemoryManager {}
-unsafe impl Sync for MemoryManager {}
-
 impl KIVMap {
     pub fn new() -> Self {
         assert!(CHUNK_SIZE.is_power_of_two(), "important for performance");
         assert!(u32::try_from(CHUNK_SIZE).is_ok(), "u32 is insufficient");
         // reserving NodeIdx(0) for blank node
         Self {
-            storage: Mutex::new(ChunkVec::new()),
+            storage: ChunkVec::new(),
             hashtable: (0..CHUNK_SIZE).map(|_| Mutex::new(NodeIdx(0))).collect(),
             hits: 0,
             misses: 0,
@@ -42,16 +39,15 @@ impl KIVMap {
         let new_buf = (0..new_size)
             .map(|_| Mutex::new(NodeIdx(0)))
             .collect::<Vec<_>>();
-        let mut storage = self.storage.lock().unwrap();
         for slot in std::mem::take(&mut self.hashtable) {
             let mut node = slot.lock().unwrap();
             while *node != NodeIdx(0) {
-                let n = &storage[*node];
+                let n = &self.storage[*node];
                 let hash = QuadTreeNode::hash(n.nw, n.ne, n.sw, n.se);
                 let next = n.next;
                 let index = hash & (new_size - 1);
                 let mut new_node = new_buf.get_unchecked(index).lock().unwrap();
-                storage[*node].next = *new_node;
+                self.storage[*node].next = *new_node;
                 *new_node = *node;
                 *node = next;
             }
@@ -74,32 +70,30 @@ impl KIVMap {
             return NodeIdx(0);
         }
 
-        let mut storage = self.storage.lock().unwrap();
         let i = hash & (self.hashtable.len() - 1);
         let mut slot = self.hashtable.get_unchecked(i).lock().unwrap();
         let mut node = *slot;
         let mut prev = NodeIdx(0);
         // search for the node in the linked list
         while node != NodeIdx(0) {
-            let n = &storage[node];
-            let next = n.next;
+            let n = &self.storage[node];
             if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if prev != NodeIdx(0) {
-                    storage[prev].next = next;
-                    storage[node].next = *slot;
+                    self.storage[prev].next = n.next;
+                    self.storage[node].next = *slot;
                     *slot = node;
                 }
                 self.hits += 1;
                 return node;
             }
             prev = node;
-            node = next;
+            node = n.next;
         }
 
         self.misses += 1;
-        let idx = storage.allocate();
-        storage[idx] = QuadTreeNode {
+        let idx = self.storage.allocate();
+        self.storage[idx] = QuadTreeNode {
             nw,
             ne,
             sw,
@@ -108,8 +102,7 @@ impl KIVMap {
             ..Default::default()
         };
         *slot = idx;
-        if storage.len() > self.hashtable.len() {
-            drop(storage);
+        if self.storage.len() > self.hashtable.len() {
             drop(slot);
             // TODO: стоит ли запускать gc
             self.rehash();
@@ -118,13 +111,12 @@ impl KIVMap {
     }
 
     pub fn filter_unmarked_from_hashtable(&mut self) {
-        let mut storage = self.storage.lock().unwrap();
         for slot in self.hashtable.iter_mut() {
             let (mut curr, mut marked) = (slot.lock().unwrap(), NodeIdx(0));
             while *curr != NodeIdx(0) {
-                let next = storage[*curr].next;
-                if storage[*curr].gc_marked {
-                    storage[*curr].next = marked;
+                let next = self.storage[*curr].next;
+                if self.storage[*curr].gc_marked {
+                    self.storage[*curr].next = marked;
                     marked = *curr;
                 }
                 *curr = next;
@@ -136,23 +128,19 @@ impl KIVMap {
 
     pub fn gc_finish(&mut self) {
         self.filter_unmarked_from_hashtable();
-        self.storage
-            .lock()
-            .unwrap()
-            .deallocate_unmarked_and_unmark();
+        self.storage.deallocate_unmarked_and_unmark();
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.storage.lock().unwrap().bytes_total()
-            + self.hashtable.capacity() * std::mem::size_of::<NodeIdx>()
+        self.storage.bytes_total() + self.hashtable.capacity() * std::mem::size_of::<NodeIdx>()
     }
 
     pub fn len(&self) -> usize {
-        self.storage.lock().unwrap().len()
+        self.storage.len()
     }
 
     pub fn capacity(&self) -> usize {
-        self.storage.lock().unwrap().capacity()
+        self.storage.capacity()
     }
 }
 
@@ -171,22 +159,9 @@ impl MemoryManager {
         let layers = unsafe { &*self.layers.get() };
         debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
         unsafe {
-            let storage = layers.get_unchecked(i).storage.lock().unwrap();
+            let storage = &layers.get_unchecked(i).storage;
             let p = &storage[idx] as *const QuadTreeNode;
             &*p
-        }
-    }
-
-    /// Get a mutable reference to the node with the given index.
-    #[inline]
-    pub fn get_mut(&self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
-        let i = (size_log2 - LEAF_SIDE_LOG2) as usize;
-        let layers = unsafe { &mut *self.layers.get() };
-        debug_assert!(layers.len() > i && layers[i].capacity() > idx.0 as usize);
-        unsafe {
-            let storage = &mut layers.get_unchecked_mut(i).storage.lock().unwrap();
-            let p = &mut storage[idx] as *mut QuadTreeNode;
-            &mut *p
         }
     }
 
@@ -241,6 +216,10 @@ impl MemoryManager {
         }
     }
 
+    // pub fn find_node(&self, parts: &[NodeIdx; 4], size_log2: u32) {
+    //     self.find_node(parts[0], parts[1], parts[2], parts[3], size_log2);
+    // }
+
     /// Find a node with the given parts.
     ///
     /// `size_log2` is related to the result! `nw`, `ne`, `sw`, `se` are `size_log2 - 1`
@@ -262,6 +241,23 @@ impl MemoryManager {
             layers.resize_with(i + 1, KIVMap::new);
         }
         unsafe { layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
+    }
+
+    /// Recursively mark nodes to rescue them from garbage collection.
+    pub fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+        // self.get_mut(idx, size_log2).gc_marked = true;
+        if idx == NodeIdx(0) {
+            return;
+        }
+
+        if size_log2 == LEAF_SIDE_LOG2 {
+            return;
+        }
+
+        for x in self.get(idx, size_log2).parts() {
+            self.gc_mark(x, size_log2 - 1);
+        }
+        unimplemented!()
     }
 
     pub fn gc_finish(&self) {

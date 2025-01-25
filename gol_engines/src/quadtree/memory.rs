@@ -117,11 +117,10 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
         // search for the node in the linked list
         while node != NodeIdx(0) {
             let n = &self.storage[node];
-            let next = n.next;
             if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 // move the node to the front of the list
                 if prev != NodeIdx(0) {
-                    self.storage[prev].next = next;
+                    self.storage[prev].next = n.next;
                     self.storage[node].next = *self.hashtable.get_unchecked(i);
                     *self.hashtable.get_unchecked_mut(i) = node;
                 }
@@ -129,7 +128,7 @@ impl<Meta: Clone + Default> KIVMap<Meta> {
                 return node;
             }
             prev = node;
-            node = next;
+            node = n.next;
         }
 
         self.misses += 1;

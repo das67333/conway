@@ -12,8 +12,6 @@ pub struct HashLifeEngineAsync {
     population: PopulationManager,
 }
 
-unsafe impl Send for HashLifeEngineAsync {}
-
 impl HashLifeEngineAsync {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
@@ -96,7 +94,7 @@ impl HashLifeEngineAsync {
         se: NodeIdx,
         size_log2: u32,
     ) -> [NodeIdx; 9] {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2).clone());
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
         [
             nw,
             self.mem
@@ -123,144 +121,103 @@ impl HashLifeEngineAsync {
         se: NodeIdx,
         size_log2: u32,
     ) -> [NodeIdx; 9] {
-        let [nwnw, nwne, nwsw, nwse] = {
-            let n = self.mem.get(nw, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [nenw, nene, nesw, nese] = {
-            let n = self.mem.get(ne, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [swnw, swne, swsw, swse] = {
-            let n = self.mem.get(sw, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [senw, sene, sesw, sese] = {
-            let n = self.mem.get(se, size_log2);
-            [n.nw, n.ne, n.sw, n.se]
-        };
+        let [nwnw, nwne, nwsw, nwse] = self
+            .mem
+            .get(nw, size_log2)
+            .parts()
+            .map(|x| self.mem.get(x, size_log2 - 1));
+        let [nenw, nene, nesw, nese] = self
+            .mem
+            .get(ne, size_log2)
+            .parts()
+            .map(|x| self.mem.get(x, size_log2 - 1));
+        let [swnw, swne, swsw, swse] = self
+            .mem
+            .get(sw, size_log2)
+            .parts()
+            .map(|x| self.mem.get(x, size_log2 - 1));
+        let [senw, sene, sesw, sese] = self
+            .mem
+            .get(se, size_log2)
+            .parts()
+            .map(|x| self.mem.get(x, size_log2 - 1));
 
         if size_log2 >= LEAF_SIDE_LOG2 + 2 {
             [
-                self.mem.find_node(
-                    self.mem.get(nwnw, size_log2 - 1).se,
-                    self.mem.get(nwne, size_log2 - 1).sw,
-                    self.mem.get(nwsw, size_log2 - 1).ne,
-                    self.mem.get(nwse, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwne, size_log2 - 1).se,
-                    self.mem.get(nenw, size_log2 - 1).sw,
-                    self.mem.get(nwse, size_log2 - 1).ne,
-                    self.mem.get(nesw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nenw, size_log2 - 1).se,
-                    self.mem.get(nene, size_log2 - 1).sw,
-                    self.mem.get(nesw, size_log2 - 1).ne,
-                    self.mem.get(nese, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwsw, size_log2 - 1).se,
-                    self.mem.get(nwse, size_log2 - 1).sw,
-                    self.mem.get(swnw, size_log2 - 1).ne,
-                    self.mem.get(swne, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nwse, size_log2 - 1).se,
-                    self.mem.get(nesw, size_log2 - 1).sw,
-                    self.mem.get(swne, size_log2 - 1).ne,
-                    self.mem.get(senw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(nesw, size_log2 - 1).se,
-                    self.mem.get(nese, size_log2 - 1).sw,
-                    self.mem.get(senw, size_log2 - 1).ne,
-                    self.mem.get(sene, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(swnw, size_log2 - 1).se,
-                    self.mem.get(swne, size_log2 - 1).sw,
-                    self.mem.get(swsw, size_log2 - 1).ne,
-                    self.mem.get(swse, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(swne, size_log2 - 1).se,
-                    self.mem.get(senw, size_log2 - 1).sw,
-                    self.mem.get(swse, size_log2 - 1).ne,
-                    self.mem.get(sesw, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
-                self.mem.find_node(
-                    self.mem.get(senw, size_log2 - 1).se,
-                    self.mem.get(sene, size_log2 - 1).sw,
-                    self.mem.get(sesw, size_log2 - 1).ne,
-                    self.mem.get(sese, size_log2 - 1).nw,
-                    size_log2 - 1,
-                ),
+                self.mem
+                    .find_node(nwnw.se, nwne.sw, nwsw.ne, nwse.nw, size_log2 - 1),
+                self.mem
+                    .find_node(nwne.se, nenw.sw, nwse.ne, nesw.nw, size_log2 - 1),
+                self.mem
+                    .find_node(nenw.se, nene.sw, nesw.ne, nese.nw, size_log2 - 1),
+                self.mem
+                    .find_node(nwsw.se, nwse.sw, swnw.ne, swne.nw, size_log2 - 1),
+                self.mem
+                    .find_node(nwse.se, nesw.sw, swne.ne, senw.nw, size_log2 - 1),
+                self.mem
+                    .find_node(nesw.se, nese.sw, senw.ne, sene.nw, size_log2 - 1),
+                self.mem
+                    .find_node(swnw.se, swne.sw, swsw.ne, swse.nw, size_log2 - 1),
+                self.mem
+                    .find_node(swne.se, senw.sw, swse.ne, sesw.nw, size_log2 - 1),
+                self.mem
+                    .find_node(senw.se, sene.sw, sesw.ne, sese.nw, size_log2 - 1),
             ]
         } else {
             [
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwnw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nwne, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(nwsw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_nw(),
+                    nwnw.leaf_se(),
+                    nwne.leaf_sw(),
+                    nwsw.leaf_ne(),
+                    nwse.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwne, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nenw, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_nw(),
+                    nwne.leaf_se(),
+                    nenw.leaf_sw(),
+                    nwse.leaf_ne(),
+                    nesw.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nenw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nene, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(nese, LEAF_SIDE_LOG2).leaf_nw(),
+                    nenw.leaf_se(),
+                    nene.leaf_sw(),
+                    nesw.leaf_ne(),
+                    nese.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwsw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(swnw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_nw(),
+                    nwsw.leaf_se(),
+                    nwse.leaf_sw(),
+                    swnw.leaf_ne(),
+                    swne.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nwse, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_nw(),
+                    nwse.leaf_se(),
+                    nesw.leaf_sw(),
+                    swne.leaf_ne(),
+                    senw.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(nesw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(nese, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(sene, LEAF_SIDE_LOG2).leaf_nw(),
+                    nesw.leaf_se(),
+                    nese.leaf_sw(),
+                    senw.leaf_ne(),
+                    sene.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(swnw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(swsw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(swse, LEAF_SIDE_LOG2).leaf_nw(),
+                    swnw.leaf_se(),
+                    swne.leaf_sw(),
+                    swsw.leaf_ne(),
+                    swse.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(swne, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(swse, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(sesw, LEAF_SIDE_LOG2).leaf_nw(),
+                    swne.leaf_se(),
+                    senw.leaf_sw(),
+                    swse.leaf_ne(),
+                    sesw.leaf_nw(),
                 ),
                 self.mem.find_leaf_from_parts(
-                    self.mem.get(senw, LEAF_SIDE_LOG2).leaf_se(),
-                    self.mem.get(sene, LEAF_SIDE_LOG2).leaf_sw(),
-                    self.mem.get(sesw, LEAF_SIDE_LOG2).leaf_ne(),
-                    self.mem.get(sese, LEAF_SIDE_LOG2).leaf_nw(),
+                    senw.leaf_se(),
+                    sene.leaf_sw(),
+                    sesw.leaf_ne(),
+                    sese.leaf_nw(),
                 ),
             ]
         }
@@ -282,81 +239,55 @@ impl HashLifeEngineAsync {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    unsafe fn update_node(this: usize, node: usize, size_log2: u32) {
-        let this_ref = &mut *(this as *mut Self);
-        let node_ref = &mut *(node as *mut NodeIdx);
-        let n = this_ref.mem.get(*node_ref, size_log2);
-        if n.has_cache {
-            *node_ref = n.cache;
-            return;
-        }
-        debug_assert!(*node_ref != NodeIdx(0), "Empty nodes should've been cached");
+    fn update_node(&self, node: &mut NodeIdx, size_log2: u32) {
+        *node = *self
+            .mem
+            .get(*node, size_log2)
+            .cache
+            .get_or_init(|| inner(&self, *node, size_log2));
 
-        let both_stages = this_ref.steps_per_update_log2 + 2 >= size_log2;
-        let cache = if size_log2 == LEAF_SIDE_LOG2 + 1 {
-            let steps = if both_stages {
-                LEAF_SIDE / 2
+        fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
+            debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
+            let n = this.mem.get(node, size_log2);
+
+            let both_stages = this.steps_per_update_log2 + 2 >= size_log2;
+            if size_log2 == LEAF_SIDE_LOG2 + 1 {
+                let steps = if both_stages {
+                    LEAF_SIDE / 2
+                } else {
+                    1 << this.steps_per_update_log2
+                };
+                this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+            } else if both_stages {
+                let mut arr9 =
+                    this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+                for i in 0..9 {
+                    this.update_node(&mut arr9[i], size_log2 - 1);
+                }
+                let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
+                for i in 0..4 {
+                    this.update_node(&mut arr4[i], size_log2 - 1);
+                }
+                let [nw, ne, sw, se] = arr4;
+                this.mem.find_node(nw, ne, sw, se, size_log2 - 1)
             } else {
-                1 << this_ref.steps_per_update_log2
-            };
-            this_ref.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
-        } else if both_stages {
-            let mut arr9 =
-                this_ref.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-            // let handlers: [JoinHandle<()>; 9] = std::array::from_fn(|i| {
-            //     let p = &mut arr9[i] as *mut NodeIdx as usize;
-            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
-            // });
-            // for x in handlers {
-            //     x.await.unwrap();
-            // }
-            for i in 0..9 {
-                let p = &mut arr9[i] as *mut NodeIdx as usize;
-                Self::update_node(this, p, size_log2 - 1);
-            }
-            let mut arr4 = this_ref.four_children_overlapping(&arr9, size_log2 - 1);
-            // let handlers: [JoinHandle<()>; 4] = std::array::from_fn(|i| {
-            //     let p = &mut arr4[i] as *mut NodeIdx as usize;
-            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
-            // });
-            // for x in handlers {
-            //     x.await.unwrap();
-            // }
-            for i in 0..4 {
-                let p = &mut arr4[i] as *mut NodeIdx as usize;
-                Self::update_node(this, p, size_log2 - 1);
-            }
-            let [nw, ne, sw, se] = arr4;
-            this_ref.mem.find_node(nw, ne, sw, se, size_log2 - 1)
-        } else {
-            let arr9 = this_ref.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+                let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
 
-            let mut arr4 = this_ref.four_children_overlapping(&arr9, size_log2 - 1);
-            for i in 0..4 {
-                let p = &mut arr4[i] as *mut NodeIdx as usize;
-                Self::update_node(this, p, size_log2 - 1);
+                let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
+                for i in 0..4 {
+                    this.update_node(&mut arr4[i], size_log2 - 1);
+                }
+                let [nw, ne, sw, se] = arr4;
+                this.mem.find_node(nw, ne, sw, se, size_log2 - 1)
             }
-            // let handlers: [JoinHandle<()>; 4] = std::array::from_fn(|i| {
-            //     let p = &mut arr4[i] as *mut NodeIdx as usize;
-            //     tokio::task::spawn_local(Self::update_node(this, p, size_log2 - 1))
-            // });
-            // for x in handlers {
-            //     x.await.unwrap();
-            // }
-            let [nw, ne, sw, se] = arr4;
-            this_ref.mem.find_node(nw, ne, sw, se, size_log2 - 1)
-        };
-        let n = this_ref.mem.get_mut(*node_ref, size_log2);
-        n.cache = cache;
-        n.has_cache = true;
-        *node_ref = cache;
+        }
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
     /// and if `topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
     fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
-        let n = self.mem.get(idx, size_log2).clone();
+        let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = match topology {
             Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
             Topology::Unbounded => {
@@ -376,10 +307,10 @@ impl HashLifeEngineAsync {
     fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = [
-            self.mem.get(n.nw, size_log2 - 1).clone(),
-            self.mem.get(n.ne, size_log2 - 1).clone(),
-            self.mem.get(n.sw, size_log2 - 1).clone(),
-            self.mem.get(n.se, size_log2 - 1).clone(),
+            self.mem.get(n.nw, size_log2 - 1),
+            self.mem.get(n.ne, size_log2 - 1),
+            self.mem.get(n.sw, size_log2 - 1),
+            self.mem.get(n.se, size_log2 - 1),
         ];
         self.mem
             .find_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
@@ -388,10 +319,10 @@ impl HashLifeEngineAsync {
     fn frame_is_blank(&self) -> bool {
         let root = self.mem.get(self.root, self.size_log2);
         let [nw, ne, sw, se] = [
-            self.mem.get(root.nw, self.size_log2 - 1).clone(),
-            self.mem.get(root.ne, self.size_log2 - 1).clone(),
-            self.mem.get(root.sw, self.size_log2 - 1).clone(),
-            self.mem.get(root.se, self.size_log2 - 1).clone(),
+            self.mem.get(root.nw, self.size_log2 - 1),
+            self.mem.get(root.ne, self.size_log2 - 1),
+            self.mem.get(root.sw, self.size_log2 - 1),
+            self.mem.get(root.se, self.size_log2 - 1),
         ];
         self.size_log2 > MIN_SIDE_LOG2
             && nw.sw == NodeIdx(0)
@@ -422,24 +353,6 @@ impl HashLifeEngineAsync {
         *dy -= 1 << (self.size_log2 - 2);
         self.size_log2 -= 1;
         assert!(self.size_log2 >= MIN_SIDE_LOG2);
-    }
-
-    /// Recursively mark nodes to rescue them from garbage collection.
-    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
-        if idx == NodeIdx(0) {
-            return;
-        }
-
-        self.mem.get_mut(idx, size_log2).gc_marked = true;
-        if size_log2 == LEAF_SIDE_LOG2 {
-            return;
-        }
-
-        let n = self.mem.get(idx, size_log2).clone();
-        self.gc_mark(n.nw, size_log2 - 1);
-        self.gc_mark(n.ne, size_log2 - 1);
-        self.gc_mark(n.sw, size_log2 - 1);
-        self.gc_mark(n.se, size_log2 - 1);
     }
 }
 
@@ -925,13 +838,11 @@ impl AsyncEngine for HashLifeEngineAsync {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        let root_usize = &mut self.root as *mut NodeIdx as usize;
-        // let rt = tokio::runtime::Builder::new_current_thread()
-        //     .build()
-        //     .unwrap();
-        // tokio::task::LocalSet::new().block_on(&rt, async {
-        unsafe { Self::update_node(self as *mut Self as usize, root_usize, self.size_log2) };
-        // });
+        {
+            let mut result = self.root;
+            self.update_node(&mut result, self.size_log2);
+            self.root = result;
+        }
         self.size_log2 -= 1;
         dx -= 1 << (self.size_log2 - 1);
         dy -= 1 << (self.size_log2 - 1);
@@ -1091,7 +1002,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                     .wrapping_add(x >> 2)
             };
 
-            let n = mem.get(idx, size_log2).clone();
+            let n = mem.get(idx, size_log2);
             if size_log2 == LEAF_SIDE_LOG2 {
                 u64::from_le_bytes(n.leaf_cells())
             } else {
@@ -1127,7 +1038,7 @@ impl AsyncEngine for HashLifeEngineAsync {
     }
 
     fn run_gc(&mut self) {
-        self.gc_mark(self.root, self.size_log2);
+        self.mem.gc_mark(self.root, self.size_log2);
         self.mem.gc_finish();
         self.population.clear_cache();
     }

@@ -1,5 +1,7 @@
+use std::sync::OnceLock;
+
 /// Location of a node is determined by its `idx` and `size_log2`.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
 
 unsafe impl Send for NodeIdx {}
@@ -7,16 +9,15 @@ unsafe impl Send for NodeIdx {}
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
-#[repr(align(4))]
-#[derive(Clone, Default)]
+// #[repr(align(4))]
+#[derive(Default)]
 pub struct QuadTreeNode {
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub next: NodeIdx,  // next item in hashtable bucket
-    pub cache: NodeIdx, // cached result of update
-    pub has_cache: bool,
+    pub next: NodeIdx,            // next item in hashtable bucket
+    pub cache: OnceLock<NodeIdx>, // cached result of update
     pub gc_marked: bool,
     // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO
 }
@@ -24,7 +25,6 @@ pub struct QuadTreeNode {
 impl QuadTreeNode {
     /// For blank nodes (without population) must return zero.
     /// They are guaranteed to have all parts equal to NodeIdx(0).
-    #[inline]
     pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
             .wrapping_add(nw.0.wrapping_mul(5))
@@ -32,6 +32,10 @@ impl QuadTreeNode {
             .wrapping_add(sw.0.wrapping_mul(257))
             .wrapping_add(se.0.wrapping_mul(65537));
         h.wrapping_add(h >> 11) as usize
+    }
+
+    pub fn parts(&self) -> [NodeIdx; 4] {
+        [self.nw, self.ne, self.sw, self.se]
     }
 
     /// Returns the cells of a leaf node row by row.
