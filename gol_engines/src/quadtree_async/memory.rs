@@ -58,7 +58,7 @@ impl KIVMap {
     /// Find an item in hashtable; if it is not present, it is created.
     /// Returns its index in hashtable.
     #[inline]
-    pub unsafe fn find(
+    pub unsafe fn find_or_create(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -112,16 +112,15 @@ impl KIVMap {
 
     pub fn filter_unmarked_from_hashtable(&mut self) {
         for slot in self.hashtable.iter_mut() {
-            let (mut curr, mut marked) = (slot.lock().unwrap(), NodeIdx(0));
-            while *curr != NodeIdx(0) {
-                let next = self.storage[*curr].next;
-                if self.storage[*curr].gc_marked {
-                    self.storage[*curr].next = marked;
-                    marked = *curr;
+            let (mut curr, mut marked) = (*slot.get_mut().unwrap(), NodeIdx(0));
+            while curr != NodeIdx(0) {
+                let next = self.storage[curr].next;
+                if self.storage[curr].gc_marked {
+                    self.storage[curr].next = marked;
+                    marked = curr;
                 }
-                *curr = next;
+                curr = next;
             }
-            drop(curr);
             *slot = Mutex::new(marked);
         }
     }
@@ -169,8 +168,8 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
-    pub fn find_leaf_from_parts(&self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
-        let [mut nw, mut ne, mut sw, mut se] = [nw as u64, ne as u64, sw as u64, se as u64];
+    pub fn find_or_create_leaf_from_array(&self, parts: [u16; 4]) -> NodeIdx {
+        let [mut nw, mut ne, mut sw, mut se] = parts.map(|x| x as u64);
         let mut cells = 0;
         let mut shift = 0;
         for _ in 0..4 {
@@ -189,22 +188,14 @@ impl MemoryManager {
             se >>= 4;
             shift += 4;
         }
-        self.find_leaf_from_u64(cells)
-    }
-
-    /// Find a leaf node with the given cells.
-    /// If the node is not found, it is created.
-    ///
-    /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_leaf_from_rows(&self, cells: [u8; 8]) -> NodeIdx {
-        self.find_leaf_from_u64(u64::from_le_bytes(cells))
+        self.find_or_create_leaf_from_u64(cells)
     }
 
     /// Find a leaf node with the given cells.
     /// If the node is not found, it is created.
     ///
     /// `cells` is u64 built by concatenating rows of cells.
-    pub fn find_leaf_from_u64(&self, cells: u64) -> NodeIdx {
+    pub fn find_or_create_leaf_from_u64(&self, cells: u64) -> NodeIdx {
         let nw = NodeIdx(cells as u32);
         let ne = NodeIdx((cells >> 32) as u32);
         let [sw, se] = [NodeIdx(0); 2];
@@ -212,13 +203,14 @@ impl MemoryManager {
         unsafe {
             (*self.layers.get())
                 .get_unchecked_mut(0)
-                .find(nw, ne, sw, se, hash)
+                .find_or_create(nw, ne, sw, se, hash)
         }
     }
 
-    // pub fn find_node(&self, parts: &[NodeIdx; 4], size_log2: u32) {
-    //     self.find_node(parts[0], parts[1], parts[2], parts[3], size_log2);
-    // }
+    pub fn find_or_create_node_from_array(&self, parts: [NodeIdx; 4], size_log2: u32) -> NodeIdx {
+        let [nw, ne, sw, se] = parts;
+        self.find_or_create_node(nw, ne, sw, se, size_log2)
+    }
 
     /// Find a node with the given parts.
     ///
@@ -226,7 +218,7 @@ impl MemoryManager {
     ///
     /// If the node is not found, it is created.
     #[inline]
-    pub fn find_node(
+    pub fn find_or_create_node(
         &self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -240,7 +232,7 @@ impl MemoryManager {
         if layers.len() <= i {
             layers.resize_with(i + 1, KIVMap::new);
         }
-        unsafe { layers.get_unchecked_mut(i).find(nw, ne, sw, se, hash) }
+        unsafe { layers.get_unchecked_mut(i).find_or_create(nw, ne, sw, se, hash) }
     }
 
     /// Recursively mark nodes to rescue them from garbage collection.

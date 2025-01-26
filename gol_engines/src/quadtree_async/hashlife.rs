@@ -12,6 +12,9 @@ pub struct HashLifeEngineAsync {
     population: PopulationManager,
 }
 
+unsafe impl Send for MemoryManager {}
+unsafe impl Sync for MemoryManager {}
+
 impl HashLifeEngineAsync {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
@@ -83,7 +86,8 @@ impl HashLifeEngineAsync {
         }
 
         let arr: [u16; 8] = src[4..12].try_into().unwrap();
-        self.mem.find_leaf_from_rows(arr.map(|x| (x >> 4) as u8))
+        self.mem
+            .find_or_create_leaf_from_u64(u64::from_le_bytes(arr.map(|x| (x >> 4) as u8)))
     }
 
     fn nine_children_overlapping(
@@ -98,17 +102,17 @@ impl HashLifeEngineAsync {
         [
             nw,
             self.mem
-                .find_node(nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2),
+                .find_or_create_node(nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2),
             ne,
             self.mem
-                .find_node(nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2),
+                .find_or_create_node(nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2),
             self.mem
-                .find_node(nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2),
+                .find_or_create_node(nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2),
             self.mem
-                .find_node(ne_.sw, ne_.se, se_.nw, se_.ne, size_log2),
+                .find_or_create_node(ne_.sw, ne_.se, se_.nw, se_.ne, size_log2),
             sw,
             self.mem
-                .find_node(sw_.ne, se_.nw, sw_.se, se_.sw, size_log2),
+                .find_or_create_node(sw_.ne, se_.nw, sw_.se, se_.sw, size_log2),
             se,
         ]
     }
@@ -145,80 +149,80 @@ impl HashLifeEngineAsync {
         if size_log2 >= LEAF_SIDE_LOG2 + 2 {
             [
                 self.mem
-                    .find_node(nwnw.se, nwne.sw, nwsw.ne, nwse.nw, size_log2 - 1),
+                    .find_or_create_node(nwnw.se, nwne.sw, nwsw.ne, nwse.nw, size_log2 - 1),
                 self.mem
-                    .find_node(nwne.se, nenw.sw, nwse.ne, nesw.nw, size_log2 - 1),
+                    .find_or_create_node(nwne.se, nenw.sw, nwse.ne, nesw.nw, size_log2 - 1),
                 self.mem
-                    .find_node(nenw.se, nene.sw, nesw.ne, nese.nw, size_log2 - 1),
+                    .find_or_create_node(nenw.se, nene.sw, nesw.ne, nese.nw, size_log2 - 1),
                 self.mem
-                    .find_node(nwsw.se, nwse.sw, swnw.ne, swne.nw, size_log2 - 1),
+                    .find_or_create_node(nwsw.se, nwse.sw, swnw.ne, swne.nw, size_log2 - 1),
                 self.mem
-                    .find_node(nwse.se, nesw.sw, swne.ne, senw.nw, size_log2 - 1),
+                    .find_or_create_node(nwse.se, nesw.sw, swne.ne, senw.nw, size_log2 - 1),
                 self.mem
-                    .find_node(nesw.se, nese.sw, senw.ne, sene.nw, size_log2 - 1),
+                    .find_or_create_node(nesw.se, nese.sw, senw.ne, sene.nw, size_log2 - 1),
                 self.mem
-                    .find_node(swnw.se, swne.sw, swsw.ne, swse.nw, size_log2 - 1),
+                    .find_or_create_node(swnw.se, swne.sw, swsw.ne, swse.nw, size_log2 - 1),
                 self.mem
-                    .find_node(swne.se, senw.sw, swse.ne, sesw.nw, size_log2 - 1),
+                    .find_or_create_node(swne.se, senw.sw, swse.ne, sesw.nw, size_log2 - 1),
                 self.mem
-                    .find_node(senw.se, sene.sw, sesw.ne, sese.nw, size_log2 - 1),
+                    .find_or_create_node(senw.se, sene.sw, sesw.ne, sese.nw, size_log2 - 1),
             ]
         } else {
             [
-                self.mem.find_leaf_from_parts(
+                self.mem.find_or_create_leaf_from_array([
                     nwnw.leaf_se(),
                     nwne.leaf_sw(),
                     nwsw.leaf_ne(),
                     nwse.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     nwne.leaf_se(),
                     nenw.leaf_sw(),
                     nwse.leaf_ne(),
                     nesw.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     nenw.leaf_se(),
                     nene.leaf_sw(),
                     nesw.leaf_ne(),
                     nese.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     nwsw.leaf_se(),
                     nwse.leaf_sw(),
                     swnw.leaf_ne(),
                     swne.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     nwse.leaf_se(),
                     nesw.leaf_sw(),
                     swne.leaf_ne(),
                     senw.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     nesw.leaf_se(),
                     nese.leaf_sw(),
                     senw.leaf_ne(),
                     sene.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     swnw.leaf_se(),
                     swne.leaf_sw(),
                     swsw.leaf_ne(),
                     swse.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     swne.leaf_se(),
                     senw.leaf_sw(),
                     swse.leaf_ne(),
                     sesw.leaf_nw(),
-                ),
-                self.mem.find_leaf_from_parts(
+                ]),
+                self.mem.find_or_create_leaf_from_array([
                     senw.leaf_se(),
                     sene.leaf_sw(),
                     sesw.leaf_ne(),
                     sese.leaf_nw(),
-                ),
+                ]),
             ]
         }
     }
@@ -226,26 +230,20 @@ impl HashLifeEngineAsync {
     fn four_children_overlapping(&self, arr: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
         [
             self.mem
-                .find_node(arr[0], arr[1], arr[3], arr[4], size_log2),
+                .find_or_create_node(arr[0], arr[1], arr[3], arr[4], size_log2),
             self.mem
-                .find_node(arr[1], arr[2], arr[4], arr[5], size_log2),
+                .find_or_create_node(arr[1], arr[2], arr[4], arr[5], size_log2),
             self.mem
-                .find_node(arr[3], arr[4], arr[6], arr[7], size_log2),
+                .find_or_create_node(arr[3], arr[4], arr[6], arr[7], size_log2),
             self.mem
-                .find_node(arr[4], arr[5], arr[7], arr[8], size_log2),
+                .find_or_create_node(arr[4], arr[5], arr[7], arr[8], size_log2),
         ]
     }
 
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    fn update_node(&self, node: &mut NodeIdx, size_log2: u32) {
-        *node = *self
-            .mem
-            .get(*node, size_log2)
-            .cache
-            .get_or_init(|| inner(&self, *node, size_log2));
-
+    fn update_node(&self, node: usize, size_log2: u32) {
         fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
             debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
             let n = this.mem.get(node, size_log2);
@@ -261,26 +259,51 @@ impl HashLifeEngineAsync {
             } else if both_stages {
                 let mut arr9 =
                     this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-                for i in 0..9 {
-                    this.update_node(&mut arr9[i], size_log2 - 1);
+                if size_log2 == 23 {
+                    eprintln!("Created new thread");
+                    std::thread::scope(|s| {
+                        let p = &mut arr9[0] as *mut NodeIdx as usize;
+                        s.spawn(move || this.update_node(p, size_log2 - 1));
+                        for i in 1..9 {
+                            ////////
+                            let p = &mut arr9[i] as *mut NodeIdx as usize;
+                            this.update_node(p, size_log2 - 1);
+                        }
+                    });
+                } else {
+                    for i in 0..9 {
+                        let p = &mut arr9[i] as *mut NodeIdx as usize;
+                        this.update_node(p, size_log2 - 1);
+                    }
                 }
                 let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
                 for i in 0..4 {
-                    this.update_node(&mut arr4[i], size_log2 - 1);
+                    ////////
+                    let p = &mut arr4[i] as *mut NodeIdx as usize;
+                    this.update_node(p, size_log2 - 1);
                 }
                 let [nw, ne, sw, se] = arr4;
-                this.mem.find_node(nw, ne, sw, se, size_log2 - 1)
+                this.mem.find_or_create_node(nw, ne, sw, se, size_log2 - 1)
             } else {
                 let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
 
                 let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
                 for i in 0..4 {
-                    this.update_node(&mut arr4[i], size_log2 - 1);
+                    let p = &mut arr4[i] as *mut NodeIdx as usize;
+                    ////////
+                    this.update_node(p, size_log2 - 1);
                 }
                 let [nw, ne, sw, se] = arr4;
-                this.mem.find_node(nw, ne, sw, se, size_log2 - 1)
+                this.mem.find_or_create_node(nw, ne, sw, se, size_log2 - 1)
             }
         }
+
+        let n = unsafe { &mut *(node as *mut NodeIdx) };
+        *n = *self
+            .mem
+            .get(*n, size_log2)
+            .cache
+            .get_or_init(|| inner(self, *n, size_log2));
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
@@ -289,18 +312,21 @@ impl HashLifeEngineAsync {
     fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
         let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = match topology {
-            Topology::Torus => [self.mem.find_node(n.se, n.sw, n.ne, n.nw, size_log2); 4],
+            Topology::Torus => {
+                [self.mem
+                    .find_or_create_node(n.se, n.sw, n.ne, n.nw, size_log2); 4]
+            }
             Topology::Unbounded => {
                 let b = NodeIdx(0);
                 [
-                    self.mem.find_node(b, b, b, n.nw, size_log2),
-                    self.mem.find_node(b, b, n.ne, b, size_log2),
-                    self.mem.find_node(b, n.sw, b, b, size_log2),
-                    self.mem.find_node(n.se, b, b, b, size_log2),
+                    self.mem.find_or_create_node(b, b, b, n.nw, size_log2),
+                    self.mem.find_or_create_node(b, b, n.ne, b, size_log2),
+                    self.mem.find_or_create_node(b, n.sw, b, b, size_log2),
+                    self.mem.find_or_create_node(n.se, b, b, b, size_log2),
                 ]
             }
         };
-        self.mem.find_node(nw, ne, sw, se, size_log2 + 1)
+        self.mem.find_or_create_node(nw, ne, sw, se, size_log2 + 1)
     }
 
     /// Remove a frame around the field, making it two times smaller.
@@ -313,7 +339,7 @@ impl HashLifeEngineAsync {
             self.mem.get(n.se, size_log2 - 1),
         ];
         self.mem
-            .find_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
+            .find_or_create_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
     }
 
     fn frame_is_blank(&self) -> bool {
@@ -360,7 +386,8 @@ impl AsyncEngine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mem = MemoryManager::new();
-        let root = mem.find_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
+        let root =
+            mem.find_or_create_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
         Self {
             size_log2,
             root,
@@ -414,7 +441,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                             }
                         }
                     }
-                    nodes_curr.push(mem.find_leaf_from_rows(data));
+                    nodes_curr.push(mem.find_or_create_leaf_from_u64(u64::from_le_bytes(data)));
                 }
             }
             let mut t = OTCA_SIZE / LEAF_SIDE;
@@ -425,7 +452,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                         let ne = nodes_curr[((x + 1) + y * t) as usize];
                         let sw = nodes_curr[(x + (y + 1) * t) as usize];
                         let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                        nodes_next.push(mem.find_node(
+                        nodes_next.push(mem.find_or_create_node(
                             nw,
                             ne,
                             sw,
@@ -459,7 +486,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                             let ne = nodes_curr[((x + 1) + y * t) as usize];
                             let sw = nodes_curr[(x + (y + 1) * t) as usize];
                             let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                            nodes_next.push(mem.find_node(
+                            nodes_next.push(mem.find_or_create_node(
                                 nw,
                                 ne,
                                 sw,
@@ -493,7 +520,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                     let ne = nodes_curr[(x + 1) + y * t];
                     let sw = nodes_curr[x + (y + 1) * t];
                     let se = nodes_curr[(x + 1) + (y + 1) * t];
-                    nodes_next.push(mem.find_node(
+                    nodes_next.push(mem.find_or_create_node(
                         nw,
                         ne,
                         sw,
@@ -551,7 +578,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                         .copied()
                         .unwrap_or_else(|| panic!("Node with code {} not found", x))
                 });
-                mem.find_node(nw, ne, sw, se, size_log2)
+                mem.find_or_create_node(nw, ne, sw, se, size_log2)
             } else {
                 // is leaf
                 let mut cells = 0u64;
@@ -572,7 +599,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                     }
                 }
                 assert!(i <= 8);
-                mem.find_leaf_from_u64(cells)
+                mem.find_or_create_leaf_from_u64(cells)
             };
             codes.insert(codes.len(), node);
             last_node = Some(node);
@@ -606,7 +633,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                         }
                     }
                 }
-                nodes_curr.push(mem.find_leaf_from_rows(data));
+                nodes_curr.push(mem.find_or_create_leaf_from_u64(u64::from_le_bytes(data)));
             }
         }
         let mut t = n / LEAF_SIDE;
@@ -617,7 +644,13 @@ impl AsyncEngine for HashLifeEngineAsync {
                     let ne = nodes_curr[((x + 1) + y * t) as usize];
                     let sw = nodes_curr[(x + (y + 1) * t) as usize];
                     let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
-                    nodes_next.push(mem.find_node(nw, ne, sw, se, size_log2 - t.ilog2() + 1));
+                    nodes_next.push(mem.find_or_create_node(
+                        nw,
+                        ne,
+                        sw,
+                        se,
+                        size_log2 - t.ilog2() + 1,
+                    ));
                 }
             }
             std::mem::swap(&mut nodes_curr, &mut nodes_next);
@@ -808,7 +841,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                 } else {
                     data[y as usize] &= !mask;
                 }
-                mem.find_leaf_from_rows(data)
+                mem.find_or_create_leaf_from_u64(u64::from_le_bytes(data))
             } else {
                 let mut arr = [n.nw, n.ne, n.sw, n.se];
                 size_log2 -= 1;
@@ -817,7 +850,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                 x -= (x >= size) as u64 * size;
                 y -= (y >= size) as u64 * size;
                 arr[idx] = inner(x, y, size_log2, arr[idx], state, mem);
-                mem.find_node(arr[0], arr[1], arr[2], arr[3], size_log2 + 1)
+                mem.find_or_create_node(arr[0], arr[1], arr[2], arr[3], size_log2 + 1)
             }
         }
 
@@ -840,7 +873,8 @@ impl AsyncEngine for HashLifeEngineAsync {
 
         {
             let mut result = self.root;
-            self.update_node(&mut result, self.size_log2);
+            let p = &mut result as *mut NodeIdx as usize;
+            self.update_node(p, self.size_log2);
             self.root = result;
         }
         self.size_log2 -= 1;
