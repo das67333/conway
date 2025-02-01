@@ -1,16 +1,9 @@
 use std::cell::UnsafeCell;
 
-use gol_engines::{ChunkVec, QuadTreeNode};
+use gol_engines::{thread_id, ChunkVec, QuadTreeNode};
 
 fn main() {
     let n = 100_000_000;
-
-    // let mut cv = ChunkVec::<8192>::new();
-    // let timer = std::time::Instant::now();
-    // for _ in 0..n {
-    //     cv.push(QuadTreeNode::default());
-    // }
-    // println!("Time: {:?}", timer.elapsed());
 
     struct Helper(UnsafeCell<ChunkVec<CHUNK_SIZE>>);
     unsafe impl Send for Helper {}
@@ -25,7 +18,20 @@ fn main() {
         }
     }
 
-    const CHUNK_SIZE: usize = 1 << 13;
+    // struct Helper(Mutex<ChunkVec<CHUNK_SIZE>>);
+    // unsafe impl Send for Helper {}
+    // unsafe impl Sync for Helper {}
+    // impl Helper {
+    //     fn new() -> Self {
+    //         Self(Mutex::new(ChunkVec::new()))
+    //     }
+    //     fn push(&self, node: QuadTreeNode) {
+    //         let cv = &mut *self.0.lock().unwrap();
+    //         cv.push(node);
+    //     }
+    // }
+
+    const CHUNK_SIZE: usize = 1 << 12;
 
     let mut baseline = None;
     for k in 1..=16 {
@@ -45,6 +51,12 @@ fn main() {
         if baseline.is_none() {
             baseline.replace(mpps);
         }
-        println!("k={}: {:.2} Mpps, {:.0}%", k, mpps, 100.0 * mpps / baseline.unwrap());
+        thread_id::reset_next_id();
+        println!(
+            "k={}: {:.2} Mpps, {:.0}%",
+            k,
+            mpps,
+            100.0 * mpps / baseline.unwrap()
+        );
     }
 }

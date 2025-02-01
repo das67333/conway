@@ -2,53 +2,12 @@ use std::sync::Mutex;
 
 use super::{fixed_vec::FixedVecWeakRef, FixedVec, NodeIdx, QuadTreeNode};
 
-pub mod thread_id {
-    use std::{
-        cell::Cell,
-        sync::atomic::{AtomicU32, Ordering},
-    };
-
-    static NEXT_ID: AtomicU32 = AtomicU32::new(0);
-
-    thread_local! {
-        static THREAD_ID: Cell<Option<u32>> = const { Cell::new(None) };
-    }
-
-    pub fn get() -> usize {
-        THREAD_ID.with(|id| {
-            if let Some(x) = id.get() {
-                x as usize
-            } else {
-                let x = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-                id.set(Some(x));
-                x as usize
-            }
-        })
-    }
-
-    pub fn reset_next_id() {
-        NEXT_ID.store(0, Ordering::Relaxed);
-    }
-}
-
-const MAX_THREADS: usize = 96;
-
 /// Deque-like structure storing QuadTreeNode elements.
 /// It is chosen instead of a vector to avoid reallocation and better utilize memory.
 ///
 /// First element should always be reserved for blank node.
-/// 
-/// It is thread-safe, but should be used with fixed number of threads,
-/// for example, in a thread pool.
-/// If thread id goes over MAX_THREADS, it will panic.
-/// 
-/// You can reuse thread ids by calling `thread_id::reset_next_id()`
-/// if you are sure that it will not cause collisions.
 pub struct ChunkVec<const CHUNK_SIZE: usize> {
     chunks: Vec<FixedVec<QuadTreeNode, CHUNK_SIZE>>,
-    lock: Mutex<()>,
-    /// Chunk's weak ref and indices shift for each thread.
-    chunk_and_shift_by_thread: [(FixedVecWeakRef<QuadTreeNode, CHUNK_SIZE>, usize); MAX_THREADS],
 }
 
 impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
@@ -58,34 +17,22 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         node.cache.set(NodeIdx(0)).unwrap();
 
         // every thread has its own chunk
-        let mut chunks = (0..MAX_THREADS)
-            .map(|_| FixedVec::new())
-            .collect::<Vec<_>>();
+        let mut chunks = vec![FixedVec::new()];
         unsafe { chunks[0].push(node) };
-
-        Self {
-            chunk_and_shift_by_thread: std::array::from_fn(|i| {
-                (chunks[i].weak_ref(), i * CHUNK_SIZE)
-            }),
-            chunks,
-            lock: Mutex::new(()),
-        }
+        Self { chunks }
     }
 
     /// Allocate memory for a new node and return its NodeIdx.
     pub fn push(&mut self, node: QuadTreeNode) -> NodeIdx {
-        let thread_id = thread_id::get();
-        // if next line panics with "out of bounds", increase MAX_THREADS
-        let (mut chunk, mut shift) = self.chunk_and_shift_by_thread[thread_id].clone();
+        let idx = self.chunks.len() - 1;
+        let (mut chunk, mut shift) = unsafe { (self.chunks.get_unchecked(idx).weak_ref(), idx * CHUNK_SIZE) };
 
         // if full, allocate new chunk
         if chunk.len() == CHUNK_SIZE {
             let new_chunk = FixedVec::new();
             chunk = new_chunk.weak_ref();
-            // release lock as soon as possible
+            self.chunks.push(new_chunk);
             let chunk_idx = {
-                let _lock = self.lock.lock().unwrap();
-                self.chunks.push(new_chunk);
                 self.chunks.len() - 1
             };
             assert!(
@@ -93,7 +40,6 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
                 "Close to overflowing u32"
             );
             shift = chunk_idx * CHUNK_SIZE;
-            self.chunk_and_shift_by_thread[thread_id] = (chunk.clone(), shift);
         }
 
         let idx = (shift + chunk.len()) as u32;
