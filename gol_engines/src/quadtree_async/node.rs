@@ -16,7 +16,7 @@ pub struct QuadTreeNode {
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub next: NodeIdx,            // next item in hashtable bucket
+    pub next: NodeIdx,            // next item in hashtable bucket, 0 is the end
     pub cache: OnceLock<NodeIdx>, // cached result of update
     pub gc_marked: bool,
     // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO

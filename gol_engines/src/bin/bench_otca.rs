@@ -22,6 +22,7 @@ fn main() {
     let steps_log2 = 23;
     engine.update(steps_log2, Topology::Unbounded);
     println!("Time on big update: {:?}", timer.elapsed());
+    eprintln!("{}", engine.statistics());
     assert_eq!(engine.hash(), 0xf35ef0ba0c9db279);
     assert_eq!(engine.population(), 6_094_494_746_384.0);
 }
