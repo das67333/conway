@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use super::{NodeIdx, QuadTreeNode};
+use super::{fixed_vec::FixedVecWeakRef, FixedVec, NodeIdx, QuadTreeNode};
 
 mod thread_id {
     use std::{
@@ -31,17 +31,17 @@ mod thread_id {
     }
 }
 
-const MAX_THREADS: usize = 8;
+const MAX_THREADS: usize = 96;
 
 /// Deque-like structure storing QuadTreeNode elements.
 /// It is chosen instead of a vector to avoid reallocation and better utilize memory.
 ///
 /// First element should always be reserved for blank node.
 pub struct ChunkVec<const CHUNK_SIZE: usize> {
-    chunks: Vec<Vec<QuadTreeNode>>,
+    chunks: Vec<FixedVec<QuadTreeNode, CHUNK_SIZE>>,
     lock: Mutex<()>,
-    /// Index of the chunk
-    index_by_thread: [u32; MAX_THREADS],
+    /// Chunk's weak ref and indices shift for each thread.
+    chunk_and_shift_by_thread: [(FixedVecWeakRef<QuadTreeNode, CHUNK_SIZE>, usize); MAX_THREADS],
 }
 
 impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
@@ -49,38 +49,49 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         // reserving NodeIdx(0) for blank node
         let node = QuadTreeNode::default();
         node.cache.set(NodeIdx(0)).unwrap();
+
+        // every thread has its own chunk
         let mut chunks = (0..MAX_THREADS)
-            .map(|_| Vec::with_capacity(CHUNK_SIZE))
+            .map(|_| FixedVec::new())
             .collect::<Vec<_>>();
-        chunks[0].push(node);
+        unsafe { chunks[0].push(node) };
         thread_id::reset_next_id();
+
         Self {
+            chunk_and_shift_by_thread: std::array::from_fn(|i| {
+                (chunks[i].weak_ref(), i * CHUNK_SIZE)
+            }),
             chunks,
             lock: Mutex::new(()),
-            index_by_thread: std::array::from_fn(|i| i as u32),
         }
     }
 
     /// Allocate memory for a new node and return its NodeIdx.
     pub fn push(&mut self, node: QuadTreeNode) -> NodeIdx {
         let thread_id = thread_id::get();
-        let mut idx = self.index_by_thread[thread_id];
-        if self.chunks[idx as usize].len() == CHUNK_SIZE {
-            let new_chunk = Vec::with_capacity(CHUNK_SIZE);
-            let _lock = self.lock.lock().unwrap();
-            idx = self.chunks.len() as u32;
-            self.chunks.push(new_chunk);
-            drop(_lock);
+        let (mut chunk, mut shift) = self.chunk_and_shift_by_thread[thread_id].clone();
+
+        // if full, allocate new chunk
+        if chunk.len() == CHUNK_SIZE {
+            let new_chunk = FixedVec::new();
+            chunk = new_chunk.weak_ref();
+            // release lock as soon as possible
+            let chunk_idx = {
+                let _lock = self.lock.lock().unwrap();
+                self.chunks.push(new_chunk);
+                self.chunks.len() - 1
+            };
             assert!(
-                (idx as usize * CHUNK_SIZE) >> 30 != 3,
+                (chunk_idx * CHUNK_SIZE) >> 30 < 3,
                 "Close to overflowing u32"
             );
-            self.index_by_thread[thread_id] = idx;
+            shift = chunk_idx * CHUNK_SIZE;
+            self.chunk_and_shift_by_thread[thread_id] = (chunk.clone(), shift);
         }
 
-        let chunk = &mut self.chunks[idx as usize];
-        chunk.push(node);
-        NodeIdx((idx as usize * CHUNK_SIZE + chunk.len() - 1) as u32)
+        let idx = (shift + chunk.len()) as u32;
+        unsafe { chunk.push(node) };
+        NodeIdx(idx)
     }
 
     /// Deallocate every unmarked node and leave all nodes unmarked.
@@ -121,7 +132,7 @@ impl<const CHUNK_SIZE: usize> std::ops::Index<NodeIdx> for ChunkVec<CHUNK_SIZE> 
         unsafe {
             self.chunks
                 .get_unchecked(i / CHUNK_SIZE)
-                .get_unchecked(i % CHUNK_SIZE)
+                .get(i % CHUNK_SIZE)
         }
     }
 }
@@ -132,7 +143,7 @@ impl<const CHUNK_SIZE: usize> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZ
         unsafe {
             self.chunks
                 .get_unchecked_mut(i / CHUNK_SIZE)
-                .get_unchecked_mut(i % CHUNK_SIZE)
+                .get_mut(i % CHUNK_SIZE)
         }
     }
 }

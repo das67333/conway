@@ -26,7 +26,9 @@ fn main() {
     }
 
     const CHUNK_SIZE: usize = 1 << 13;
-    for k in 8..=8 {
+
+    let mut baseline = None;
+    for k in 1..=16 {
         let cv = Helper::new();
         let timer = std::time::Instant::now();
         std::thread::scope(|s| {
@@ -38,6 +40,11 @@ fn main() {
                 });
             }
         });
-        println!("Time on k={}: {:?}", k, timer.elapsed());
+        let elapsed = timer.elapsed();
+        let mpps = n as f64 / elapsed.as_secs_f64() * 1e-6;
+        if baseline.is_none() {
+            baseline.replace(mpps);
+        }
+        println!("k={}: {:.2} Mpps, {:.0}%", k, mpps, 100.0 * mpps / baseline.unwrap());
     }
 }
