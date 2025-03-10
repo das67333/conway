@@ -378,7 +378,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
             && sw.nw == NodeIdx(0)
     }
 
-    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+    pub(super) fn add_frame(&mut self, topology: Topology, dx: &mut i64, dy: &mut i64) {
         self.root = self.with_frame(self.root, self.size_log2, topology);
         *dx += 1 << (self.size_log2 - 1);
         *dy += 1 << (self.size_log2 - 1);
@@ -386,7 +386,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
         assert!(self.size_log2 <= MAX_SIDE_LOG2);
     }
 
-    pub(super) fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+    pub(super) fn pop_frame(&mut self, dx: &mut i64, dy: &mut i64) {
         self.root = self.without_frame(self.root, self.size_log2);
         *dx -= 1 << (self.size_log2 - 2);
         *dy -= 1 << (self.size_log2 - 2);
@@ -881,7 +881,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         self.root = inner(x, y, self.size_log2, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         if self.has_cache && self.steps_per_update_log2 != steps_log2 {
             self.run_gc();
         }

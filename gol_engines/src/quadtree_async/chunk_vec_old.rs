@@ -1,6 +1,4 @@
-use std::sync::Mutex;
-
-use super::{fixed_vec::FixedVecWeakRef, FixedVec, NodeIdx, QuadTreeNode};
+use super::{FixedVec, NodeIdx, QuadTreeNode};
 
 /// Deque-like structure storing QuadTreeNode elements.
 /// It is chosen instead of a vector to avoid reallocation and better utilize memory.

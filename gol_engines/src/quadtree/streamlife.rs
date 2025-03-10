@@ -424,7 +424,7 @@ impl StreamLifeEngine {
         }
     }
 
-    fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+    fn add_frame(&mut self, topology: Topology, dx: &mut i64, dy: &mut i64) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
                 self.base
@@ -438,7 +438,7 @@ impl StreamLifeEngine {
         self.base.add_frame(topology, dx, dy);
     }
 
-    fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+    fn pop_frame(&mut self, dx: &mut i64, dy: &mut i64) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
                 self.base.without_frame(biroot.0, self.base.size_log2),
@@ -507,7 +507,7 @@ impl Engine for StreamLifeEngine {
         self.base.set_cell(x, y, state);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         if self.base.has_cache && self.base.steps_per_update_log2 != steps_log2 {
             self.run_gc();
         }

@@ -81,7 +81,7 @@ pub trait Engine {
     /// This function may change the size of the field.
     ///
     /// Returns coordinate shift caused by the update.
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2];
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`).
@@ -200,7 +200,7 @@ pub trait AsyncEngine {
     /// This function may change the size of the field.
     ///
     /// Returns coordinate shift caused by the update.
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2];
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2];
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`).

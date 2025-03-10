@@ -163,7 +163,7 @@ impl Engine for SimdEngine {
         }
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         assert!(
             matches!(topology, Topology::Torus),
             "not supported ty this engine"

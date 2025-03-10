@@ -202,9 +202,9 @@ impl HashLifeEngineAsync {
                     //     }
                     // });
                 } else {
-                    for i in 0..9 {
-                        arr9[i] = this.update_node(arr9[i], size_log2 - 1);
-                    }
+                for i in 0..9 {
+                    arr9[i] = this.update_node(arr9[i], size_log2 - 1);
+                }
                 }
                 let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
                 for i in 0..4 {
@@ -290,7 +290,7 @@ impl HashLifeEngineAsync {
             && sw.nw == NodeIdx(0)
     }
 
-    fn add_frame(&mut self, topology: Topology, dx: &mut u64, dy: &mut u64) {
+    fn add_frame(&mut self, topology: Topology, dx: &mut i64, dy: &mut i64) {
         self.root = self.with_frame(self.root, self.size_log2, topology);
         *dx += 1 << (self.size_log2 - 1);
         *dy += 1 << (self.size_log2 - 1);
@@ -298,7 +298,7 @@ impl HashLifeEngineAsync {
         assert!(self.size_log2 <= MAX_SIDE_LOG2);
     }
 
-    fn pop_frame(&mut self, dx: &mut u64, dy: &mut u64) {
+    fn pop_frame(&mut self, dx: &mut i64, dy: &mut i64) {
         self.root = self.without_frame(self.root, self.size_log2);
         *dx -= 1 << (self.size_log2 - 2);
         *dy -= 1 << (self.size_log2 - 2);
@@ -783,7 +783,7 @@ impl AsyncEngine for HashLifeEngineAsync {
         self.root = inner(x, y, self.size_log2, self.root, state, &mut self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [u64; 2] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         if self.has_cache && self.steps_per_update_log2 != steps_log2 {
             self.run_gc();
         }
