@@ -19,9 +19,6 @@ impl PopulationManager {
     }
 
     pub fn get(&mut self, idx: NodeIdx, size_log2: u32, mem: &MemoryManager) -> f64 {
-        if idx == NodeIdx(0) {
-            return 0.0;
-        }
         if let Some(val) = self.cache.get(&Key { idx, size_log2 }) {
             *val
         } else {

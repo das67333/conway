@@ -691,7 +691,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
         }
     }
 
-    fn save_as_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&self) -> Vec<u8> {
         #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
         struct Key {
             size_log2: u32,

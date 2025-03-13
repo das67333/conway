@@ -487,7 +487,7 @@ impl Engine for StreamLifeEngine {
         }
     }
 
-    fn save_as_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&self) -> Vec<u8> {
         self.base.save_as_macrocell()
     }
 

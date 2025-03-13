@@ -1,5 +1,5 @@
-use super::{MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use super::{BlankNodes, MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
+use crate::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 // use std::sync::atomic::AtomicU64;
 
@@ -7,10 +7,10 @@ use ahash::AHashMap as HashMap;
 pub struct HashLifeEngineAsync {
     size_log2: u32,
     root: NodeIdx,
-    steps_per_update_log2: u32,
-    has_cache: bool,
     mem: MemoryManager,
+    blank_nodes: BlankNodes,
     population: PopulationManager,
+    steps_per_update_log2: Option<u32>,
     // metrics: Metrics,
 }
 
@@ -99,7 +99,7 @@ impl HashLifeEngineAsync {
         se: NodeIdx,
         size_log2: u32,
     ) -> [NodeIdx; 9] {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2).clone());
         [
             nw,
             self.mem
@@ -131,28 +131,31 @@ impl HashLifeEngineAsync {
                 self.mem
                     .get(x, size_log2)
                     .parts()
-                    .map(|y| self.mem.get(y, size_log2 - 1))
+                    .map(|y| self.mem.get(y, size_log2 - 1).clone())
             });
 
         [
-            [nwnw, nwne, nwsw, nwse],
-            [nwne, nenw, nwse, nesw],
-            [nenw, nene, nesw, nese],
-            [nwsw, nwse, swnw, swne],
-            [nwse, nesw, swne, senw],
-            [nesw, nese, senw, sene],
-            [swnw, swne, swsw, swse],
-            [swne, senw, swse, sesw],
-            [senw, sene, sesw, sese],
+            [nwnw.clone(), nwne.clone(), nwsw.clone(), nwse.clone()],
+            [nwne.clone(), nenw.clone(), nwse.clone(), nesw.clone()],
+            [nenw.clone(), nene.clone(), nesw.clone(), nese.clone()],
+            [nwsw.clone(), nwse.clone(), swnw.clone(), swne.clone()],
+            [nwse.clone(), nesw.clone(), swne.clone(), senw.clone()],
+            [nesw.clone(), nese.clone(), senw.clone(), sene.clone()],
+            [swnw.clone(), swne.clone(), swsw.clone(), swse.clone()],
+            [swne.clone(), senw.clone(), swse.clone(), sesw.clone()],
+            [senw.clone(), sene.clone(), sesw.clone(), sese.clone()],
         ]
         .map(|[nw, ne, sw, se]| {
             if size_log2 >= LEAF_SIZE_LOG2 + 2 {
-                let parts = [nw.se, ne.sw, sw.ne, se.nw];
                 self.mem
-                    .find_or_create_node_from_array(parts, size_log2 - 1)
+                    .find_or_create_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
             } else {
-                let parts = [nw.leaf_se(), ne.leaf_sw(), sw.leaf_ne(), se.leaf_nw()];
-                self.mem.find_or_create_leaf_from_array(parts)
+                self.mem.find_or_create_leaf_from_parts(
+                    nw.leaf_se(),
+                    ne.leaf_sw(),
+                    sw.leaf_ne(),
+                    se.leaf_nw(),
+                )
             }
         })
     }
@@ -175,15 +178,17 @@ impl HashLifeEngineAsync {
     /// `size_log2` is related to `node`
     fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
-            debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
             let n = this.mem.get(node, size_log2);
 
-            let both_stages = this.steps_per_update_log2 + 2 >= size_log2;
+            let steps_log2 = this
+                .steps_per_update_log2
+                .expect("steps_per_update_log2 should have been set");
+            let both_stages = steps_log2 + 2 >= size_log2;
             if size_log2 == LEAF_SIZE_LOG2 + 1 {
                 let steps = if both_stages {
                     LEAF_SIZE / 2
                 } else {
-                    1 << this.steps_per_update_log2
+                    1 << steps_log2
                 };
                 this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
             } else if both_stages {
@@ -202,9 +207,9 @@ impl HashLifeEngineAsync {
                     //     }
                     // });
                 } else {
-                for i in 0..9 {
-                    arr9[i] = this.update_node(arr9[i], size_log2 - 1);
-                }
+                    for i in 0..9 {
+                        arr9[i] = this.update_node(arr9[i], size_log2 - 1);
+                    }
                 }
                 let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
                 for i in 0..4 {
@@ -224,25 +229,29 @@ impl HashLifeEngineAsync {
             }
         }
 
-        *self
-            .mem
-            .get(node, size_log2)
-            .cache
-            .get_or_init(|| inner(self, node, size_log2))
+        let n = self.mem.get(node, size_log2);
+        if n.has_cache {
+            return n.cache;
+        }
+        let result = inner(self, node, size_log2);
+        let n = self.mem.get_mut(node, size_log2);
+        n.has_cache = true;
+        n.cache = result;
+        result
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
     /// and if `topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
     fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
-        let n = self.mem.get(idx, size_log2);
+        let n = self.mem.get(idx, size_log2).clone();
         let [nw, ne, sw, se] = match topology {
             Topology::Torus => {
                 [self.mem
                     .find_or_create_node(n.se, n.sw, n.ne, n.nw, size_log2); 4]
             }
             Topology::Unbounded => {
-                let b = NodeIdx(0);
+                let b = self.blank_nodes.get(size_log2 - 1, &self.mem);
                 [
                     self.mem.find_or_create_node(b, b, b, n.nw, size_log2),
                     self.mem.find_or_create_node(b, b, n.ne, b, size_log2),
@@ -255,7 +264,7 @@ impl HashLifeEngineAsync {
     }
 
     /// Remove a frame around the field, making it two times smaller.
-    fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn without_frame(&self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = [
             self.mem.get(n.nw, size_log2 - 1),
@@ -267,7 +276,9 @@ impl HashLifeEngineAsync {
             .find_or_create_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
     }
 
-    fn frame_is_blank(&self) -> bool {
+    fn has_blank_frame(&mut self) -> bool {
+        let b = self.blank_nodes.get(self.size_log2 - 2, &self.mem);
+
         let root = self.mem.get(self.root, self.size_log2);
         let [nw, ne, sw, se] = [
             self.mem.get(root.nw, self.size_log2 - 1),
@@ -275,19 +286,10 @@ impl HashLifeEngineAsync {
             self.mem.get(root.sw, self.size_log2 - 1),
             self.mem.get(root.se, self.size_log2 - 1),
         ];
-        self.size_log2 > MIN_SIDE_LOG2
-            && nw.sw == NodeIdx(0)
-            && nw.nw == NodeIdx(0)
-            && nw.ne == NodeIdx(0)
-            && ne.nw == NodeIdx(0)
-            && ne.ne == NodeIdx(0)
-            && ne.se == NodeIdx(0)
-            && se.ne == NodeIdx(0)
-            && se.se == NodeIdx(0)
-            && se.sw == NodeIdx(0)
-            && sw.se == NodeIdx(0)
-            && sw.sw == NodeIdx(0)
-            && sw.nw == NodeIdx(0)
+        let frame_parts = [
+            nw.sw, nw.nw, nw.ne, ne.nw, ne.ne, ne.se, se.ne, se.se, se.sw, sw.se, sw.sw, sw.nw,
+        ];
+        self.size_log2 > MIN_SIDE_LOG2 && frame_parts.iter().all(|&x| x == b)
     }
 
     fn add_frame(&mut self, topology: Topology, dx: &mut i64, dy: &mut i64) {
@@ -307,24 +309,25 @@ impl HashLifeEngineAsync {
     }
 }
 
-impl AsyncEngine for HashLifeEngineAsync {
+impl Engine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let mem = MemoryManager::new();
-        let root =
-            mem.find_or_create_node(NodeIdx(0), NodeIdx(0), NodeIdx(0), NodeIdx(0), size_log2);
+        let mut mem = MemoryManager::new();
+        let mut blank_nodes = BlankNodes::new();
+        let root = blank_nodes.get(size_log2, &mut mem);
         Self {
             size_log2,
             root,
             mem,
-            steps_per_update_log2: 0,
-            has_cache: false,
+            blank_nodes,
             population: PopulationManager::new(),
+            steps_per_update_log2: None,
             // metrics: Metrics::default(),
         }
     }
 
     fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
+        unimplemented!("should be fixed and tested");
         let k = top_pattern.len();
         assert!(
             top_pattern.iter().all(|row| row.len() == k),
@@ -349,7 +352,7 @@ impl AsyncEngine for HashLifeEngineAsync {
             panic!("Use `from_cells_array` instead");
         }
 
-        let mem = MemoryManager::new();
+        let mut mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
@@ -476,9 +479,9 @@ impl AsyncEngine for HashLifeEngineAsync {
     where
         Self: Sized,
     {
-        let mem = MemoryManager::new();
+        let mut mem = MemoryManager::new();
+        let mut blank_nodes = BlankNodes::new();
         let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
-        codes.insert(0, NodeIdx(0));
         let mut last_node = None;
         let mut size_log2 = 0;
 
@@ -499,10 +502,14 @@ impl AsyncEngine for HashLifeEngineAsync {
                 size_log2 = k as u32;
                 assert!((LEAF_SIZE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
                 let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
-                    codes
-                        .get(&x)
-                        .copied()
-                        .unwrap_or_else(|| panic!("Node with code {} not found", x))
+                    if x == 0 {
+                        blank_nodes.get(size_log2 - 1, &mut mem)
+                    } else {
+                        codes
+                            .get(&x)
+                            .copied()
+                            .unwrap_or_else(|| panic!("Node with code {} not found", x))
+                    }
                 });
                 mem.find_or_create_node(nw, ne, sw, se, size_log2)
             } else {
@@ -527,7 +534,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                 assert!(i <= 8);
                 mem.find_or_create_leaf_from_u64(cells)
             };
-            codes.insert(codes.len(), node);
+            codes.insert(codes.len() + 1, node);
             last_node = Some(node);
         }
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
@@ -535,7 +542,9 @@ impl AsyncEngine for HashLifeEngineAsync {
             size_log2,
             root: last_node.unwrap(),
             mem,
-            ..Default::default()
+            blank_nodes,
+            population: PopulationManager::new(),
+            steps_per_update_log2: None,
         }
     }
 
@@ -593,7 +602,7 @@ impl AsyncEngine for HashLifeEngineAsync {
         }
     }
 
-    fn save_as_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&self) -> Vec<u8> {
         #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
         struct Key {
             size_log2: u32,
@@ -662,6 +671,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                 );
             }
             let v = if idx != NodeIdx(0) {
+                // TODO
                 s.push('\n');
                 result.push(s);
                 result.len() - 1
@@ -756,7 +766,7 @@ impl AsyncEngine for HashLifeEngineAsync {
             mut size_log2: u32,
             node: NodeIdx,
             state: bool,
-            mem: &mut MemoryManager,
+            mem: &MemoryManager,
         ) -> NodeIdx {
             let n = mem.get(node, size_log2);
             if size_log2 == LEAF_SIZE_LOG2 {
@@ -780,16 +790,16 @@ impl AsyncEngine for HashLifeEngineAsync {
             }
         }
 
-        self.root = inner(x, y, self.size_log2, self.root, state, &mut self.mem);
+        self.root = inner(x, y, self.size_log2, self.root, state, &self.mem);
     }
 
     fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
-        if self.has_cache && self.steps_per_update_log2 != steps_log2 {
-            self.run_gc();
+        if let Some(cached_steps_log2) = self.steps_per_update_log2 {
+            if cached_steps_log2 != steps_log2 {
+                self.run_gc();
+            }
         }
-
-        self.has_cache = true;
-        self.steps_per_update_log2 = steps_log2;
+        self.steps_per_update_log2 = Some(steps_log2);
 
         let frames_cnt = (steps_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
         let (mut dx, mut dy) = (0, 0);
@@ -809,7 +819,7 @@ impl AsyncEngine for HashLifeEngineAsync {
                 }
             }
             Topology::Unbounded => {
-                while self.frame_is_blank() {
+                while self.has_blank_frame() {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -993,14 +1003,15 @@ impl AsyncEngine for HashLifeEngineAsync {
     }
 
     fn run_gc(&mut self) {
-        self.mem.gc_mark(self.root, self.size_log2);
-        self.mem.gc_finish();
-        self.population.clear_cache();
+        unimplemented!()
+        // self.mem.gc_mark(self.root, self.size_log2);
+        // self.mem.gc_finish();
+        // self.population.clear_cache();
     }
 }
 
 impl Default for HashLifeEngineAsync {
     fn default() -> Self {
-        Self::blank(MIN_SIDE_LOG2)
+        unimplemented!("Do not use ::default(), as it doubles initialization time")
     }
 }

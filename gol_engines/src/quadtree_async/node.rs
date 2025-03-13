@@ -10,21 +10,25 @@ unsafe impl Send for NodeIdx {}
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
 // #[repr(align(4))]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct QuadTreeNode {
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub next: NodeIdx,            // next item in hashtable bucket, 0 is the end
-    pub cache: OnceLock<NodeIdx>, // cached result of update
+    pub cache: NodeIdx, // cached result of update
+    pub has_cache: bool,
     pub gc_marked: bool,
+    pub ctrl: u8,
     // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO
 }
 
 impl QuadTreeNode {
-    /// For blank nodes (without population) must return zero.
-    /// They are guaranteed to have all parts equal to NodeIdx(0).
+    #[inline]
+    pub fn is_leaf(&self) -> bool {
+        self.ctrl >> 6 == 1
+    }
+
     pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
             .wrapping_add(nw.0.wrapping_mul(5))

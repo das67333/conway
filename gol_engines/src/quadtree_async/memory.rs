@@ -1,225 +1,125 @@
-use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
+use std::cell::UnsafeCell;
+
+use super::{NodeIdx, QuadTreeNode};
 use crate::NiceInt;
-use std::{cell::UnsafeCell, sync::Mutex};
 
-const CHUNK_SIZE: usize = 1 << 13;
-const HASHTABLE_BUCKETS_START: usize = 1 << 20;
-const HASHTABLE_LOCKS: usize = 1 << 10;
-
-/// Hashtable that stores nodes of the quadtree.
-pub struct KIVMap {
-    // all allocated nodes
-    storage: ChunkVec<CHUNK_SIZE>,
-    // buffer where heads of linked lists are stored
-    ht_buckets: Vec<NodeIdx>,
-    ht_locks: [Mutex<()>; HASHTABLE_LOCKS],
-    // // how many times elements were found
-    // pub hits: u64,
-    // // how many times elements were inserted
-    // pub misses: u64,
+/// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
+pub struct PrefetchedNode {
+    mem: *mut MemoryManager,
+    pub nw: NodeIdx,
+    pub ne: NodeIdx,
+    pub sw: NodeIdx,
+    pub se: NodeIdx,
+    pub hash: usize,
 }
 
-#[derive(Default)]
-pub struct MemoryManager {
-    layers: UnsafeCell<Vec<KIVMap>>,
-}
-
-unsafe impl Send for MemoryManager {}
-unsafe impl Sync for MemoryManager {}
-
-impl KIVMap {
-    pub fn new() -> Self {
-        // reserving NodeIdx(0) for blank node
-        let first = QuadTreeNode::default();
-        first.cache.set(NodeIdx(0)).unwrap();
+impl PrefetchedNode {
+    pub fn new(mem: &MemoryManager, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> Self {
+        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
+        unsafe {
+            use std::arch::x86_64::*;
+            _mm_prefetch::<_MM_HINT_T0>(
+                (*mem.base.get()).hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
+            );
+        }
         Self {
-            storage: ChunkVec::new(),
-            ht_buckets: vec![NodeIdx(0); HASHTABLE_BUCKETS_START],
-            ht_locks: std::array::from_fn(|_| Mutex::new(())),
-        }
-    }
-
-    pub fn rehash(&mut self, curr_len: usize) {
-        let _first_lock = self.ht_locks[0].lock().unwrap();
-        if self.ht_buckets.len() != curr_len {
-            // another thread already finished rehashing
-            return;
-        }
-
-        let _other_locks = {
-            let mut locks = Vec::with_capacity(HASHTABLE_LOCKS - 1);
-            for lock in self.ht_locks.iter().skip(1) {
-                locks.push(lock.lock().unwrap());
-            }
-            locks
-        };
-
-        let new_size = self.ht_buckets.len() * 2;
-        let mut new_buf = vec![NodeIdx(0); new_size];
-        for mut node in std::mem::take(&mut self.ht_buckets) {
-            while node != NodeIdx(0) {
-                let n = &self.storage[node];
-                let hash = QuadTreeNode::hash(n.nw, n.ne, n.sw, n.se);
-                let next = n.next;
-                let index = hash & (new_size - 1);
-                let new_node = &mut new_buf[index]; //unsafe { new_buf.get_unchecked_mut(index) };
-                self.storage[node].next = *new_node;
-                *new_node = node;
-                node = next;
-            }
-        }
-        self.ht_buckets = new_buf;
-    }
-
-    /// Find an item in hashtable; if it is not present, it is created.
-    /// Returns its index in hashtable.
-    #[inline]
-    pub fn find_or_create(
-        &mut self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        hash: usize,
-    ) -> NodeIdx {
-        if nw == NodeIdx(0) && ne == NodeIdx(0) && sw == NodeIdx(0) && se == NodeIdx(0) {
-            return NodeIdx(0);
-        }
-
-        let bucket_lock = self.ht_locks[hash & (HASHTABLE_LOCKS - 1)].lock().unwrap();
-
-        let i = hash & (self.ht_buckets.len() - 1);
-        let slot = &mut self.ht_buckets[i];
-        let mut node = *slot;
-        let mut prev = NodeIdx(0);
-        // search for the node in the linked list
-        while node != NodeIdx(0) {
-            let n = &self.storage[node];
-            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                // move the node to the front of the list
-                if prev != NodeIdx(0) {
-                    self.storage[prev].next = n.next;
-                    self.storage[node].next = *slot;
-                    *slot = node;
-                }
-                // self.hits += 1;
-                return node;
-            }
-            prev = node;
-            node = n.next;
-        }
-
-        // self.misses += 1;
-        let idx = self.storage.push(QuadTreeNode {
+            mem: mem as *const MemoryManager as *mut MemoryManager,
             nw,
             ne,
             sw,
             se,
-            next: *slot,
-            ..Default::default()
-        });
-        *slot = idx;
-        let ht_len = self.ht_buckets.len();
-        // self.storage doesn't provide .len() method to avoid contention
-        if self.storage.capacity() > ht_len {
-            drop(bucket_lock);
-            self.rehash(ht_len);
-        }
-        idx
-    }
-
-    pub fn filter_unmarked_from_hashtable(&mut self) {
-        for slot in self.ht_buckets.iter_mut() {
-            let (mut curr, mut marked) = (*slot, NodeIdx(0));
-            while curr != NodeIdx(0) {
-                let next = self.storage[curr].next;
-                if self.storage[curr].gc_marked {
-                    self.storage[curr].next = marked;
-                    marked = curr;
-                }
-                curr = next;
-            }
-            *slot = marked;
+            hash,
         }
     }
 
-    pub fn gc_finish(&mut self) {
-        self.filter_unmarked_from_hashtable();
-        // self.storage.deallocate_unmarked_and_unmark();
-        unimplemented!()
-    }
-
-    pub fn bytes_total(&self) -> usize {
-        self.storage.bytes_total() + self.ht_buckets.capacity() * std::mem::size_of::<NodeIdx>()
+    pub fn find(&self) -> NodeIdx {
+        unsafe {
+            (*(*self.mem).base.get())
+                .find_or_create_inner(self.nw, self.ne, self.sw, self.se, self.hash, false)
+        }
     }
 }
 
+pub struct MemoryManager {
+    base: UnsafeCell<MemoryManagerRaw>,
+}
+
 impl MemoryManager {
-    /// Create a new memory manager.
+    /// Create a new memory manager with a default capacity.
     pub fn new() -> Self {
+        Self::with_capacity(1 << 28)
+    }
+
+    /// Create a new memory manager with a given capacity.
+    ///
+    /// `cap` must be a power of two!
+    pub fn with_capacity(cap: usize) -> Self {
         Self {
-            layers: UnsafeCell::new(vec![KIVMap::new()]),
+            base: UnsafeCell::new(MemoryManagerRaw::with_capacity(cap)),
         }
     }
 
     /// Get a const reference to the node with the given index.
-    #[inline]
     pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
-        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
-        let layers = unsafe { &*self.layers.get() };
-        // debug_assert!(layers.len() > i && layers[i].len() > idx.0 as usize);
-        &layers[i].storage[idx]
+        unsafe { (*self.base.get()).get(idx, size_log2) }
+    }
+
+    /// Get a mutable reference to the node with the given index.
+    pub fn get_mut(&self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
+        unsafe { (*self.base.get()).get_mut(idx, size_log2) }
     }
 
     /// Find a leaf node with the given parts.
     /// If the node is not found, it is created.
     ///
     /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
-    pub fn find_or_create_leaf_from_array(&self, parts: [u16; 4]) -> NodeIdx {
-        let [mut nw, mut ne, mut sw, mut se] = parts.map(|x| x as u64);
-        let mut cells = 0;
-        let mut shift = 0;
-        for _ in 0..4 {
-            cells |= (nw & 0xF) << shift;
-            nw >>= 4;
-            shift += 4;
-            cells |= (ne & 0xF) << shift;
-            ne >>= 4;
-            shift += 4;
+    pub fn find_or_create_leaf_from_parts(&self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
+        /// See Morton order: https://en.wikipedia.org/wiki/Z-order_curve
+        fn demorton_u64(nw: u16, ne: u16, sw: u16, se: u16) -> u64 {
+            let (mut nw, mut ne, mut sw, mut se) = (nw as u64, ne as u64, sw as u64, se as u64);
+            let mut cells = 0;
+            let mut shift = 0;
+            for _ in 0..4 {
+                cells |= (nw & 0xF) << shift;
+                nw >>= 4;
+                shift += 4;
+                cells |= (ne & 0xF) << shift;
+                ne >>= 4;
+                shift += 4;
+            }
+            for _ in 0..4 {
+                cells |= (sw & 0xF) << shift;
+                sw >>= 4;
+                shift += 4;
+                cells |= (se & 0xF) << shift;
+                se >>= 4;
+                shift += 4;
+            }
+            cells
         }
-        for _ in 0..4 {
-            cells |= (sw & 0xF) << shift;
-            sw >>= 4;
-            shift += 4;
-            cells |= (se & 0xF) << shift;
-            se >>= 4;
-            shift += 4;
-        }
-        self.find_or_create_leaf_from_u64(cells)
+
+        let cells = demorton_u64(nw, ne, sw, se).to_le_bytes();
+        self.find_or_create_leaf_from_array(cells)
+    }
+
+    pub fn find_or_create_leaf_from_u64(&self, value: u64) -> NodeIdx {
+        self.find_or_create_leaf_from_array(value.to_le_bytes())
     }
 
     /// Find a leaf node with the given cells.
     /// If the node is not found, it is created.
     ///
-    /// `cells` is u64 built by concatenating rows of cells.
-    pub fn find_or_create_leaf_from_u64(&self, cells: u64) -> NodeIdx {
-        let nw = NodeIdx(cells as u32);
-        let ne = NodeIdx((cells >> 32) as u32);
+    /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
+    pub fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
+        let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
+        let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx(0); 2];
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        let layers = unsafe { &mut *self.layers.get() };
-        layers[0].find_or_create(nw, ne, sw, se, hash)
-    }
-
-    pub fn find_or_create_node_from_array(&self, parts: [NodeIdx; 4], size_log2: u32) -> NodeIdx {
-        let [nw, ne, sw, se] = parts;
-        self.find_or_create_node(nw, ne, sw, se, size_log2)
+        unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, true) }
     }
 
     /// Find a node with the given parts.
-    ///
-    /// `size_log2` is related to the result! `nw`, `ne`, `sw`, `se` are `size_log2 - 1`
-    ///
     /// If the node is not found, it is created.
     #[inline]
     pub fn find_or_create_node(
@@ -230,68 +130,207 @@ impl MemoryManager {
         se: NodeIdx,
         size_log2: u32,
     ) -> NodeIdx {
-        let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        let layers = unsafe { &mut *self.layers.get() };
-        if layers.len() <= i {
-            layers.resize_with(i + 1, KIVMap::new);
-        }
-        layers[i].find_or_create(nw, ne, sw, se, hash)
+        unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
-    /// Recursively mark nodes to rescue them from garbage collection.
-    pub fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
-        // self.get_mut(idx, size_log2).gc_marked = true;
-        if idx == NodeIdx(0) || size_log2 == LEAF_SIZE_LOG2 {
-            return;
-        }
-
-        for x in self.get(idx, size_log2).parts() {
-            self.gc_mark(x, size_log2 - 1);
-        }
-        unimplemented!()
+    pub fn clear_cache(&mut self) {
+        self.base.get_mut().clear_cache();
     }
 
-    pub fn gc_finish(&self) {
-        let layers = unsafe { &mut *self.layers.get() };
-        for kiv in layers {
-            kiv.gc_finish();
+    pub fn bytes_total(&self) -> usize {
+        unsafe { (*self.base.get()).bytes_total() }
+    }
+
+    /// Statistics about the memory manager that are fast to compute.
+    pub fn stats_fast(&self) -> String {
+        unsafe { (*self.base.get()).stats_fast() }
+    }
+}
+
+/// Hashtable that stores nodes of the quadtree
+struct MemoryManagerRaw {
+    // buffer where heads of linked lists are stored
+    hashtable: Vec<QuadTreeNode>,
+    // total number of elements in the hashtable
+    pub ht_size: usize,
+    // how many times elements were found in the hashtable
+    hits: u64,
+    // how many times elements were not found and therefore inserted
+    misses: u64,
+}
+
+impl MemoryManagerRaw {
+    // control byte:
+    // 00000000     -> empty
+    // 00111111     -> deleted
+    // 01<hash>     -> full (leaf)
+    // 1<hash>      -> full (node)
+    const CTRL_EMPTY: u8 = 0;
+    const CTRL_DELETED: u8 = (1 << 6) - 1;
+    const CTRL_LEAF_BASE: u8 = 1 << 6;
+    const CTRL_LEAF_MASK: u8 = (1 << 6) - 1;
+    const CTRL_NODE_BASE: u8 = 1 << 7;
+
+    /// Create a new memory manager with a given capacity.
+    ///
+    /// `cap` must be a power of two!
+    fn with_capacity(cap: usize) -> Self {
+        // TODO: speed up
+        assert!(cap.is_power_of_two(), "Capacity must be a power of two");
+        assert!(u32::try_from(cap).is_ok(), "Capacity must fit into 32 bits");
+        Self {
+            // first node must be reserved for null
+            hashtable: (0..cap).map(|_| QuadTreeNode::default()).collect(),
+            ht_size: 0,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// Get a const reference to the node with the given index.
+    #[inline]
+    fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
+        unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
+    }
+
+    /// Get a mutable reference to the node with the given index.
+    #[inline]
+    fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
+        unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
+    }
+
+    /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
+    #[inline]
+    unsafe fn find_or_create_inner(
+        &mut self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        hash: usize,
+        is_leaf: bool,
+    ) -> NodeIdx {
+        let mask = self.hashtable.len() - 1;
+        let mut index = hash & mask;
+        let mut step = 1u8;
+
+        let ctrl_full = {
+            let hash_compressed = {
+                let mut h = hash;
+                h ^= h >> 16;
+                h ^= h >> 8;
+                h as u8
+            };
+            if is_leaf {
+                Self::CTRL_LEAF_BASE | (Self::CTRL_LEAF_MASK & hash_compressed)
+            } else {
+                Self::CTRL_NODE_BASE | hash_compressed
+            }
+        };
+
+        loop {
+            let n = self.hashtable.get_unchecked(index);
+            if n.ctrl == ctrl_full && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+                self.hits += 1;
+                break;
+            }
+
+            if n.ctrl == Self::CTRL_EMPTY {
+                self.hashtable[index] = QuadTreeNode {
+                    nw,
+                    ne,
+                    sw,
+                    se,
+                    cache: NodeIdx(0),
+                    has_cache: false,
+                    gc_marked: false,
+                    ctrl: ctrl_full,
+                };
+                self.ht_size += 1;
+                self.misses += 1;
+                break;
+            }
+
+            index = (index + step as usize) & mask;
+            step = step.wrapping_add(1);
+        }
+
+        NodeIdx(index as u32)
+    }
+
+    pub fn clear_cache(&mut self) {
+        for n in self.hashtable.iter_mut() {
+            n.has_cache = false;
         }
     }
 
     pub fn bytes_total(&self) -> usize {
-        let layers = unsafe { &*self.layers.get() };
-        layers.iter().map(|m| m.bytes_total()).sum::<usize>()
+        self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
     }
 
-    /// Get statistics about the memory manager.
+    /// Statistics about the memory manager that are fast to compute.
     pub fn stats_fast(&self) -> String {
         let mut s = String::new();
 
-        s += &format!(
-            "Memory spent on kivtables: {} MB\n",
-            NiceInt::from_usize(self.bytes_total() >> 20),
-        );
+        s.push_str(&format!(
+            "hashtable size/capacity: {}/{} MB\n",
+            NiceInt::from_usize((self.ht_size * std::mem::size_of::<QuadTreeNode>()) >> 20),
+            NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
+        ));
 
-        // let layers = unsafe { &*self.layers.get() };
-        // let total_misses = layers.iter().map(|m| m.misses).sum::<u64>();
-        // let total_hits = layers.iter().map(|m| m.hits).sum::<u64>();
-        // s += &format!(
-        //     "Hashtable misses / hits: {} / {}\n",
-        //     NiceInt::from(total_misses),
-        //     NiceInt::from(total_hits),
-        // );
+        s.push_str(&format!(
+            "hashtable load factor: {:.3}\n",
+            self.ht_size as f64 / self.hashtable.len() as f64,
+        ));
 
-        // let nodes_total = layers.iter().map(|m| m.len()).sum::<usize>();
-        // s += "Nodes' sizes (side lengths) distribution:\n";
-        // s += &format!("total - {}\n", NiceInt::from_usize(nodes_total));
-        // for (i, m) in layers.iter().enumerate() {
-        //     let percent = m.len() * 100 / nodes_total;
+        s.push_str(&format!(
+            "hashtable misses / hits: {} / {}\n",
+            NiceInt::from(self.misses),
+            NiceInt::from(self.hits),
+        ));
+
+        s
+    }
+
+    /// Statistics about the memory manager that are slow to compute.
+    pub fn stats_slow(&self) -> String {
+        unimplemented!()
+        // let mut size_log2_cnt: Vec<u64> = vec![];
+
+        // for mut n in self.hashtable.iter() {
+        //     if n.ctrl == Self::CTRL_EMPTY || n.ctrl == Self::CTRL_DELETED {
+        //         continue;
+        //     }
+        //     let mut height = 0;
+        //     while !n.is_leaf() {
+        //         n = self.get(n.nw);
+        //         height += 1;
+        //     }
+        //     if size_log2_cnt.len() <= height {
+        //         size_log2_cnt.resize(height + 1, 0);
+        //     }
+        //     size_log2_cnt[height] += 1;
+        // }
+
+        // let sum = size_log2_cnt.iter().sum::<u64>();
+
+        // let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
+        // s.push_str(&format!("total - {}\n", NiceInt::from(sum)));
+        // for (height, count) in size_log2_cnt.iter().enumerate() {
+        //     let percent = count * 100 / sum;
         //     if percent == 0 {
         //         continue;
         //     }
-        //     s += &format!("2^{:<2} -{:>3}%\n", LEAF_SIZE_LOG2 + i as u32, percent,);
+        //     s.push_str(&format!(
+        //         "2^{:<2} -{:>3}%\n",
+        //         LEAF_SIZE.ilog2() + height as u32,
+        //         percent,
+        //     ));
         // }
-        s
+
+        // s.push('\n');
+
+        // s
     }
 }

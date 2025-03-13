@@ -7,7 +7,7 @@ mod utils;
 
 pub use quadtree::{HashLifeEngine, StreamLifeEngine};
 pub use quadtree_async::HashLifeEngineAsync;
-pub use quadtree_async::{ChunkVec, NodeIdx, QuadTreeNode, thread_id};
+pub use quadtree_async::{NodeIdx, QuadTreeNode};
 pub use simd::SimdEngine;
 pub use utils::{parse_rle, AsyncEngine, Engine, NiceInt, Topology};
 

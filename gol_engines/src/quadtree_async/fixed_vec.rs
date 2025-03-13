@@ -5,7 +5,7 @@ use std::{
 };
 
 /// A fixed-size vector that does not reallocate memory.
-/// 
+///
 /// Most of its methods are unsafe and should be used with caution.
 /// It is not thread-safe and should be synchronized externally.
 pub struct FixedVec<T, const CHUNK_SIZE: usize> {
@@ -13,7 +13,7 @@ pub struct FixedVec<T, const CHUNK_SIZE: usize> {
 }
 
 /// Same as `FixedVec`, but does not own the buffer.
-/// 
+///
 /// IT SHOULD NEVER OUTLIVE THE `FixedVec` THAT CREATED IT.
 pub struct FixedVecWeakRef<T, const CHUNK_SIZE: usize> {
     ptr: NonNull<FixedVecBuffer<T, CHUNK_SIZE>>,
@@ -65,7 +65,7 @@ impl<T, const CHUNK_SIZE: usize> FixedVec<T, CHUNK_SIZE> {
     }
 }
 
-impl <T, const CHUNK_SIZE: usize> FixedVecWeakRef<T, CHUNK_SIZE> {
+impl<T, const CHUNK_SIZE: usize> FixedVecWeakRef<T, CHUNK_SIZE> {
     /// # Safety
     /// The caller must ensure that the length of the vector is less than the capacity.
     pub unsafe fn push(&mut self, value: T) {
