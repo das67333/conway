@@ -13,7 +13,7 @@ const LEAF_SIZE_LOG2: u32 = LEAF_SIZE.ilog2();
 // pub use chunk_vec_old::ChunkVec;
 // use fixed_vec::FixedVec;
 use blank::BlankNodes;
-use memory::MemoryManager;
+use memory::{MemoryManager, PrefetchedNode};
 pub use node::{NodeIdx, QuadTreeNode};
 use population::PopulationManager;
 

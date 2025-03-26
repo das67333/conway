@@ -1,4 +1,7 @@
-use super::{BlankNodes, MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
+use super::{
+    BlankNodes, MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE,
+    LEAF_SIZE_LOG2,
+};
 use crate::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 // use std::sync::atomic::AtomicU64;
@@ -99,7 +102,7 @@ impl HashLifeEngineAsync {
         se: NodeIdx,
         size_log2: u32,
     ) -> [NodeIdx; 9] {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2).clone());
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
         [
             nw,
             self.mem
@@ -131,19 +134,19 @@ impl HashLifeEngineAsync {
                 self.mem
                     .get(x, size_log2)
                     .parts()
-                    .map(|y| self.mem.get(y, size_log2 - 1).clone())
+                    .map(|y| self.mem.get(y, size_log2 - 1))
             });
 
         [
-            [nwnw.clone(), nwne.clone(), nwsw.clone(), nwse.clone()],
-            [nwne.clone(), nenw.clone(), nwse.clone(), nesw.clone()],
-            [nenw.clone(), nene.clone(), nesw.clone(), nese.clone()],
-            [nwsw.clone(), nwse.clone(), swnw.clone(), swne.clone()],
-            [nwse.clone(), nesw.clone(), swne.clone(), senw.clone()],
-            [nesw.clone(), nese.clone(), senw.clone(), sene.clone()],
-            [swnw.clone(), swne.clone(), swsw.clone(), swse.clone()],
-            [swne.clone(), senw.clone(), swse.clone(), sesw.clone()],
-            [senw.clone(), sene.clone(), sesw.clone(), sese.clone()],
+            [nwnw, nwne, nwsw, nwse],
+            [nwne, nenw, nwse, nesw],
+            [nenw, nene, nesw, nese],
+            [nwsw, nwse, swnw, swne],
+            [nwse, nesw, swne, senw],
+            [nesw, nese, senw, sene],
+            [swnw, swne, swsw, swse],
+            [swne, senw, swse, sesw],
+            [senw, sene, sesw, sese],
         ]
         .map(|[nw, ne, sw, se]| {
             if size_log2 >= LEAF_SIZE_LOG2 + 2 {
@@ -173,71 +176,93 @@ impl HashLifeEngineAsync {
         ]
     }
 
+    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
+    fn update_nodes_single(
+        &self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> NodeIdx {
+        let arr9 = self.nine_children_disjoint(nw, ne, sw, se, size_log2);
+
+        let mut arr4 = self.four_children_overlapping(&arr9, size_log2);
+        for i in 0..4 {
+            arr4[i] = self.update_node(arr4[i], size_log2);
+        }
+        let [nw, ne, sw, se] = arr4;
+        self.mem.find_or_create_node(nw, ne, sw, se, size_log2)
+    }
+
+    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
+    fn update_nodes_double(
+        &self,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> NodeIdx {
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x, size_log2));
+
+        // First stage
+        let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
+        let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
+        let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
+        let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
+        let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
+
+        let t00 = self.update_node(nw, size_log2);
+        let t01 = self.update_node(p01.find(), size_log2);
+        let t02 = self.update_node(ne, size_log2);
+        let t12 = self.update_node(p12.find(), size_log2);
+        let t11 = self.update_node(p11.find(), size_log2);
+        let t10 = self.update_node(p10.find(), size_log2);
+        let t20 = self.update_node(sw, size_log2);
+        let t21 = self.update_node(p21.find(), size_log2);
+        let t22 = self.update_node(se, size_log2);
+
+        // Second stage
+        let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
+        let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
+        let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
+        let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
+        let t_se = self.update_node(pse.find(), size_log2);
+        let t_sw = self.update_node(psw.find(), size_log2);
+        let t_nw = self.update_node(pnw.find(), size_log2);
+        let t_ne = self.update_node(pne.find(), size_log2);
+        self.mem
+            .find_or_create_node(t_nw, t_ne, t_sw, t_se, size_log2)
+    }
+
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
-            let n = this.mem.get(node, size_log2);
-
-            let steps_log2 = this
-                .steps_per_update_log2
-                .expect("steps_per_update_log2 should have been set");
-            let both_stages = steps_log2 + 2 >= size_log2;
-            if size_log2 == LEAF_SIZE_LOG2 + 1 {
-                let steps = if both_stages {
-                    LEAF_SIZE / 2
-                } else {
-                    1 << steps_log2
-                };
-                this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
-            } else if both_stages {
-                let mut arr9 =
-                    this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-                if false {
-                    // let ret = this.metrics.threads_spawned.fetch_add(1, Ordering::Relaxed);
-                    // eprintln!("Created new thread with idx={}", ret);
-                    // std::thread::scope(|s| {
-                    //     let p = &mut arr9[0] as *mut NodeIdx as usize;
-                    //     s.spawn(move || this.update_node(p, size_log2 - 1));
-                    //     for i in 1..9 {
-                    //         ////////
-                    //         let p = &mut arr9[i] as *mut NodeIdx as usize;
-                    //         this.update_node(p, size_log2 - 1);
-                    //     }
-                    // });
-                } else {
-                    for i in 0..9 {
-                        arr9[i] = this.update_node(arr9[i], size_log2 - 1);
-                    }
-                }
-                let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
-                for i in 0..4 {
-                    arr4[i] = this.update_node(arr4[i], size_log2 - 1);
-                }
-                let [nw, ne, sw, se] = arr4;
-                this.mem.find_or_create_node(nw, ne, sw, se, size_log2 - 1)
-            } else {
-                let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-
-                let mut arr4 = this.four_children_overlapping(&arr9, size_log2 - 1);
-                for i in 0..4 {
-                    arr4[i] = this.update_node(arr4[i], size_log2 - 1);
-                }
-                let [nw, ne, sw, se] = arr4;
-                this.mem.find_or_create_node(nw, ne, sw, se, size_log2 - 1)
-            }
-        }
-
+    pub(super) fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
             return n.cache;
         }
-        let result = inner(self, node, size_log2);
+
+        let steps_log2 = self.steps_per_update_log2.unwrap();
+        let both_stages = steps_log2 + 2 >= size_log2;
+        let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
+            let steps = if both_stages {
+                LEAF_SIZE / 2
+            } else {
+                1 << steps_log2
+            };
+            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+        } else if both_stages {
+            self.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+        } else {
+            self.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+        };
         let n = self.mem.get_mut(node, size_log2);
+        n.cache = cache;
         n.has_cache = true;
-        n.cache = result;
-        result
+        cache
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
@@ -327,7 +352,6 @@ impl Engine for HashLifeEngineAsync {
     }
 
     fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self {
-        unimplemented!("should be fixed and tested");
         let k = top_pattern.len();
         assert!(
             top_pattern.iter().all(|row| row.len() == k),
@@ -352,7 +376,7 @@ impl Engine for HashLifeEngineAsync {
             panic!("Use `from_cells_array` instead");
         }
 
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let (mut nodes_curr, mut nodes_next) = (vec![], vec![]);
         // creating first-level OTCA nodes
         let mut otca_nodes = [0, 1].map(|i| {
@@ -471,7 +495,9 @@ impl Engine for HashLifeEngineAsync {
             size_log2,
             root,
             mem,
-            ..Default::default()
+            blank_nodes: BlankNodes::new(),
+            population: PopulationManager::new(),
+            steps_per_update_log2: None,
         }
     }
 

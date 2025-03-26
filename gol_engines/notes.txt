@@ -1,0 +1,5 @@
+otca: 52.6s + 1.9GB, 0e0p: 50.0s + 1.9GB
+
+https://dotat.at/prog/life/hashlife.c
+
+0e0p: 27.7

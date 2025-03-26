@@ -31,11 +31,11 @@ impl QuadTreeNode {
 
     pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
-            .wrapping_add(nw.0.wrapping_mul(5))
-            .wrapping_add(ne.0.wrapping_mul(17))
-            .wrapping_add(sw.0.wrapping_mul(257))
-            .wrapping_add(se.0.wrapping_mul(65537));
-        h.wrapping_add(h >> 11) as usize
+            .wrapping_add((nw.0).wrapping_mul(5))
+            .wrapping_add((ne.0).wrapping_mul(17))
+            .wrapping_add((sw.0).wrapping_mul(257))
+            .wrapping_add((se.0).wrapping_mul(65537));
+        h.wrapping_add(h.rotate_right(11)) as usize
     }
 
     pub fn parts(&self) -> [NodeIdx; 4] {

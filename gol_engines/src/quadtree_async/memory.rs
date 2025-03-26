@@ -1,6 +1,6 @@
 use std::cell::UnsafeCell;
 
-use super::{NodeIdx, QuadTreeNode};
+use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
 use crate::NiceInt;
 
 /// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
@@ -10,11 +10,19 @@ pub struct PrefetchedNode {
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
+    pub is_leaf: bool,
     pub hash: usize,
 }
 
 impl PrefetchedNode {
-    pub fn new(mem: &MemoryManager, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> Self {
+    pub fn new(
+        mem: &MemoryManager,
+        nw: NodeIdx,
+        ne: NodeIdx,
+        sw: NodeIdx,
+        se: NodeIdx,
+        size_log2: u32,
+    ) -> Self {
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
         let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
         unsafe {
@@ -29,14 +37,21 @@ impl PrefetchedNode {
             ne,
             sw,
             se,
+            is_leaf: size_log2 == LEAF_SIZE_LOG2,
             hash,
         }
     }
 
     pub fn find(&self) -> NodeIdx {
         unsafe {
-            (*(*self.mem).base.get())
-                .find_or_create_inner(self.nw, self.ne, self.sw, self.se, self.hash, false)
+            (*(*self.mem).base.get()).find_or_create_inner(
+                self.nw,
+                self.ne,
+                self.sw,
+                self.se,
+                self.hash,
+                self.is_leaf,
+            )
         }
     }
 }
@@ -48,7 +63,7 @@ pub struct MemoryManager {
 impl MemoryManager {
     /// Create a new memory manager with a default capacity.
     pub fn new() -> Self {
-        Self::with_capacity(1 << 28)
+        Self::with_capacity(1 << 26)
     }
 
     /// Create a new memory manager with a given capacity.
@@ -169,7 +184,6 @@ impl MemoryManagerRaw {
     const CTRL_EMPTY: u8 = 0;
     const CTRL_DELETED: u8 = (1 << 6) - 1;
     const CTRL_LEAF_BASE: u8 = 1 << 6;
-    const CTRL_LEAF_MASK: u8 = (1 << 6) - 1;
     const CTRL_NODE_BASE: u8 = 1 << 7;
 
     /// Create a new memory manager with a given capacity.
@@ -213,9 +227,8 @@ impl MemoryManagerRaw {
     ) -> NodeIdx {
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
-        let mut step = 1u8;
 
-        let ctrl_full = {
+        let ctrl = {
             let hash_compressed = {
                 let mut h = hash;
                 h ^= h >> 16;
@@ -223,15 +236,16 @@ impl MemoryManagerRaw {
                 h as u8
             };
             if is_leaf {
-                Self::CTRL_LEAF_BASE | (Self::CTRL_LEAF_MASK & hash_compressed)
+                Self::CTRL_LEAF_BASE | ((Self::CTRL_LEAF_BASE - 1) & hash_compressed)
             } else {
                 Self::CTRL_NODE_BASE | hash_compressed
             }
         };
 
+        let mut first_deleted = None;
         loop {
             let n = self.hashtable.get_unchecked(index);
-            if n.ctrl == ctrl_full && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+            if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
                 self.hits += 1;
                 break;
             }
@@ -245,15 +259,17 @@ impl MemoryManagerRaw {
                     cache: NodeIdx(0),
                     has_cache: false,
                     gc_marked: false,
-                    ctrl: ctrl_full,
+                    ctrl,
                 };
                 self.ht_size += 1;
                 self.misses += 1;
                 break;
             }
+            if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
+                first_deleted = Some(index);
+            }
 
-            index = (index + step as usize) & mask;
-            step = step.wrapping_add(1);
+            index = index.wrapping_add(1) & mask;
         }
 
         NodeIdx(index as u32)
