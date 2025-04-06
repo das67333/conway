@@ -25,6 +25,8 @@ impl PrefetchedNode {
     ) -> Self {
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
         let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
+
+        #[cfg(target_arch = "x86_64")]
         unsafe {
             use std::arch::x86_64::*;
             _mm_prefetch::<_MM_HINT_T0>(
@@ -76,13 +78,13 @@ impl MemoryManager {
     }
 
     /// Get a const reference to the node with the given index.
-    pub fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
-        unsafe { (*self.base.get()).get(idx, size_log2) }
+    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+        unsafe { (*self.base.get()).get(idx) }
     }
 
     /// Get a mutable reference to the node with the given index.
-    pub fn get_mut(&self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
-        unsafe { (*self.base.get()).get_mut(idx, size_log2) }
+    pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+        unsafe { (*self.base.get()).get_mut(idx) }
     }
 
     /// Find a leaf node with the given parts.
@@ -143,7 +145,6 @@ impl MemoryManager {
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
-        size_log2: u32,
     ) -> NodeIdx {
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
@@ -204,13 +205,13 @@ impl MemoryManagerRaw {
 
     /// Get a const reference to the node with the given index.
     #[inline]
-    fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
+    fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
     /// Get a mutable reference to the node with the given index.
     #[inline]
-    fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
+    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
         unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 

@@ -22,12 +22,9 @@ void test(apg::lifetree_abstract<unsigned> *lt, int steps_log2) {
 }
 
 int main() {
-    using I = unsigned;
-
-    for (int steps_log2 = 29; steps_log2 <= 36; steps_log2++) {
-        //     apg::lifetree<I> lt(16000);
-        //     test(&lt, steps_log2);
-        apg::streamtree<I, 1> lt(1'000'000);
+    for (int steps_log2 = 10; steps_log2 <= 10; steps_log2++) {
+        // apg::lifetree<uint32_t> lt(16'000);
+        apg::streamtree<uint32_t, 1> lt(16'000);
         test(&lt, steps_log2);
     }
 }

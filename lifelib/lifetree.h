@@ -11,19 +11,19 @@ struct Key {
     I index;
     uint32_t depth;
 
-    bool operator==(const Key<I>&) const = default;
+    bool operator==(const Key<I> &) const = default;
 };
 
 namespace std {
 
 template <typename I>
 struct hash<Key<I>> {
-    size_t operator()(const Key<I>& x) const {
+    size_t operator()(const Key<I> &x) const {
         return size_t{x.index} | (size_t{x.depth} >> 32);
     }
 };
 
-}
+}  // namespace std
 
 namespace apg {
 
@@ -37,22 +37,22 @@ public:
 
     using lifetree_abstract<I>::breach;
 
-    uint64_t newihandle(hypernode<I> hnode) {
+    uint64_t newihandle(hypernode<I> hnode) override {
         uint64_t x = ++htree.hcounter;
         htree.ihandles.emplace(x, hnode);
         return x;
     }
-    void delhandle(uint64_t ihandle) {
+    void delhandle(uint64_t ihandle) override {
         htree.ihandles.erase(ihandle);
     }
 
     uint64_t total_bytes() {
         return htree.total_bytes();
     }
-    void force_gc() {
+    void force_gc() override {
         htree.gc_full();
     }
-    virtual bool threshold_gc(uint64_t threshold) = 0;
+    virtual bool threshold_gc(uint64_t threshold) override = 0;
 
     kiventry<nicearray<I, 4>, I, J> *ind2ptr_nonleaf(uint32_t depth, I index) {
         return htree.ind2ptr_nonleaf(depth, index);
@@ -60,20 +60,20 @@ public:
     kiventry<nicearray<uint64_t, 4>, I, J> *ind2ptr_leaf(I index) {
         return htree.ind2ptr_leaf(index);
     }
-    I make_nonleaf(uint32_t depth, nicearray<I, 4> contents) {
+    I make_nonleaf(uint32_t depth, nicearray<I, 4> contents) override {
         return htree.make_nonleaf(depth, contents);
     }
-    hypernode<I> make_nonleaf_hn(uint32_t depth, nicearray<I, 4> contents) {
+    hypernode<I> make_nonleaf_hn(uint32_t depth, nicearray<I, 4> contents) override {
         return htree.make_nonleaf_hn(depth, contents);
     }
     I make_leaf(nicearray<uint64_t, 4> contents) {
         return htree.make_leaf(contents);
     }
-    hypernode<I> getchild(hypernode<I> parent, uint32_t n) {
+    hypernode<I> getchild(hypernode<I> parent, uint32_t n) override {
         return htree.getchild(parent, n);
     }
 
-    uint64_t leafpart(I index, uint32_t part) {
+    uint64_t leafpart(I index, uint32_t part) override {
         kiventry<nicearray<uint64_t, 4>, I, J> *pptr = ind2ptr_leaf(index);
         if (part < 4) {
             return pptr->key[part];
@@ -82,7 +82,7 @@ public:
         }
     }
 
-    virtual hypernode<I> iterate_recurse(hypernode<I> hnode, uint64_t mantissa, uint64_t exponent) = 0;
+    virtual hypernode<I> iterate_recurse(hypernode<I> hnode, uint64_t mantissa, uint64_t exponent) override = 0;
 
     uint64_t write_macrocell_leaf(std::ostream &outstream, uint64_t leaf, std::map<uint64_t, uint64_t> *subleaf2int,
                                   uint64_t &linenum) {
@@ -141,7 +141,7 @@ public:
         }
     }
 
-    void write_macrocell(std::ostream &outstream, hypernode<I> hnode) {
+    void write_macrocell(std::ostream &outstream, hypernode<I> hnode) override {
         outstream << "[M2] (lifelib ll1.65)" << std::endl;
         std::map<uint64_t, uint64_t> subleaf2int;
         std::map<std::pair<I, uint32_t>, uint64_t> hnode2int;
@@ -149,7 +149,7 @@ public:
         write_macrocell_recurse(outstream, breach(hnode), &subleaf2int, &hnode2int, linenum);
     }
 
-    hypernode<I> read_macrocell(std::istream &instream, std::map<uint64_t, uint64_t> *lmap) {
+    hypernode<I> read_macrocell(std::istream &instream, std::map<uint64_t, uint64_t> *lmap) override {
         /*
          * Returns a hypernode representing the contents of a macrocell
          * file. This handles both 2- and n-state macrocell files using the
@@ -276,7 +276,7 @@ public:
     }
 
     // Extract the (x, y)th cell from a node:
-    uint64_t getcell_recurse(hypernode<I> hnode, uint64_t x, uint64_t y) {
+    uint64_t getcell_recurse(hypernode<I> hnode, uint64_t x, uint64_t y) override {
         if (hnode.index == 0) {
             return 0;
         } else if (hnode.depth == 0) {
@@ -296,7 +296,7 @@ public:
         }
     }
 
-    I getpop_recurse(hypernode<I> hnode, I modprime, uint64_t layermask) {
+    I getpop_recurse(hypernode<I> hnode, I modprime, uint64_t layermask) override {
         /*
          * Compute the population mod p of a given hypernode. A cell of
          * state S is considered alive if and only if (layermask & S) != 0
@@ -386,18 +386,16 @@ public:
             return it->second;
         }
 
-        auto combine = [](uint64_t x, uint64_t y) -> uint64_t {
-            return x ^(y + 0x9e3779b9 + (x<<6) + (x>>2));
-        };
+        auto combine = [](uint64_t x, uint64_t y) -> uint64_t { return x ^ (y + 0x9e3779b9 + (x << 6) + (x >> 2)); };
 
         uint64_t result = 0;
         if (hnode.depth == 0) {
-            kiventry<nicearray<uint64_t, 4>, I, J>* pptr = ind2ptr_leaf(hnode.index);
+            kiventry<nicearray<uint64_t, 4>, I, J> *pptr = ind2ptr_leaf(hnode.index);
             for (int i = 0; i != 4; ++i) {
                 result = combine(result, pptr->key[i]);
             }
         } else {
-            kiventry<nicearray<I, 4>, I, J>* pptr = ind2ptr_nonleaf(hnode.depth, hnode.index);
+            kiventry<nicearray<I, 4>, I, J> *pptr = ind2ptr_nonleaf(hnode.depth, hnode.index);
             for (int i = 0; i != 4; ++i) {
                 result = combine(result, hash(hypernode(pptr->key[i], hnode.depth - 1), false));
             }
@@ -422,7 +420,7 @@ public:
     }
 
     hypernode<I> shift_recurse(hypernode<I> hnode, uint64_t x, uint64_t y, uint64_t exponent,
-                               std::map<std::pair<I, uint32_t>, I> *memmap) {
+                               std::map<std::pair<I, uint32_t>, I> *memmap) override {
 
         if (hnode.index2 != 0) {
             return shift_recurse(breach(hnode), x, y, exponent, memmap);
@@ -542,7 +540,7 @@ public:
     }
 
     hypernode<I> boolean_recurse(hypernode<I> lnode, hypernode<I> rnode, int operation,
-                                 std::map<std::pair<std::pair<I, I>, uint32_t>, I> *memmap) {
+                                 std::map<std::pair<std::pair<I, I>, uint32_t>, I> *memmap) override {
         /*
          *   0 = and
          *   1 = or
@@ -616,7 +614,7 @@ public:
         }
     }
 
-    hypernode<I> pyramid_up(hypernode<I> hnode) {
+    hypernode<I> pyramid_up(hypernode<I> hnode) override {
 
         if (hnode.index2 != 0) {
             hypernode<I> i1 = pyramid_up(hypernode<I>(hnode.index, hnode.depth));
@@ -642,7 +640,7 @@ public:
         }
     }
 
-    hypernode<I> pyramid_down(hypernode<I> hnode) {
+    hypernode<I> pyramid_down(hypernode<I> hnode) override {
 
         if (hnode.depth <= 1) {
             return hnode;

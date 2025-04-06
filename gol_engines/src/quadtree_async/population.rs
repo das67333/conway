@@ -22,7 +22,7 @@ impl PopulationManager {
         if let Some(val) = self.cache.get(&Key { idx, size_log2 }) {
             *val
         } else {
-            let n = mem.get(idx, size_log2);
+            let n = mem.get(idx);
             let population = if size_log2 == LEAF_SIZE_LOG2 {
                 u64::from_le_bytes(n.leaf_cells()).count_ones() as f64
             } else {
