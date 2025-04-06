@@ -84,6 +84,7 @@ impl MemoryManager {
 
     /// Get a mutable reference to the node with the given index.
     pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+        // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
     }
 

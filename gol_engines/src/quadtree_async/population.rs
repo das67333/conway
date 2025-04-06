@@ -1,16 +1,10 @@
 use super::{MemoryManager, NodeIdx, LEAF_SIZE_LOG2};
 use ahash::AHashMap as HashMap;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-struct Key {
-    size_log2: u32,
-    idx: NodeIdx,
-}
-
 /// Calculates population of a node and caches the result.
 #[derive(Default)]
 pub struct PopulationManager {
-    cache: HashMap<Key, f64>,
+    cache: HashMap<NodeIdx, f64>,
 }
 
 impl PopulationManager {
@@ -19,7 +13,7 @@ impl PopulationManager {
     }
 
     pub fn get(&mut self, idx: NodeIdx, size_log2: u32, mem: &MemoryManager) -> f64 {
-        if let Some(val) = self.cache.get(&Key { idx, size_log2 }) {
+        if let Some(val) = self.cache.get(&idx) {
             *val
         } else {
             let n = mem.get(idx);
@@ -31,13 +25,13 @@ impl PopulationManager {
                     + self.get(n.sw, size_log2 - 1, mem)
                     + self.get(n.se, size_log2 - 1, mem)
             };
-            self.cache.insert(Key { idx, size_log2 }, population);
+            self.cache.insert(idx, population);
             population
         }
     }
 
     pub fn bytes_total(&self) -> usize {
-        self.cache.capacity() * size_of::<(Key, f64)>()
+        self.cache.capacity() * size_of::<(NodeIdx, f64)>()
     }
 
     pub fn clear_cache(&mut self) {

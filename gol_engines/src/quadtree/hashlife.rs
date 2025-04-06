@@ -844,7 +844,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                 _ => unreachable!(),
             };
         }
-        self.mem.get(node, LEAF_SIDE_LOG2).leaf_cells()[y as usize] >> x & 1 != 0
+        (self.mem.get(node, LEAF_SIDE_LOG2).leaf_cells()[y as usize] >> x) & 1 != 0
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
@@ -962,7 +962,7 @@ impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
                                 let y = (sy * step + dy) % LEAF_ISIZE;
                                 let pos = (x + y * LEAF_ISIZE) / LEAF_ISIZE;
                                 let offset = (x + y * LEAF_ISIZE) % LEAF_ISIZE;
-                                sum += data[pos as usize] >> offset & 1;
+                                sum += (data[pos as usize] >> offset) & 1;
                             }
                         }
                         let j = sx + ((args.x - args.viewport_x) >> args.step_log2);

@@ -318,9 +318,9 @@ impl HashLifeEngineAsync {
 impl Engine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let mut blank_nodes = BlankNodes::new();
-        let root = blank_nodes.get(size_log2, &mut mem);
+        let root = blank_nodes.get(size_log2, &mem);
         Self {
             size_log2,
             root,
@@ -468,7 +468,7 @@ impl Engine for HashLifeEngineAsync {
     where
         Self: Sized,
     {
-        let mut mem = MemoryManager::new();
+        let mem = MemoryManager::new();
         let mut blank_nodes = BlankNodes::new();
         let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
         let mut last_node = None;
@@ -492,7 +492,7 @@ impl Engine for HashLifeEngineAsync {
                 assert!((LEAF_SIZE_LOG2 + 1..=MAX_SIDE_LOG2).contains(&size_log2));
                 let [nw, ne, sw, se] = [nw, ne, sw, se].map(|x| {
                     if x == 0 {
-                        blank_nodes.get(size_log2 - 1, &mut mem)
+                        blank_nodes.get(size_log2 - 1, &mem)
                     } else {
                         codes
                             .get(&x)
@@ -581,25 +581,21 @@ impl Engine for HashLifeEngineAsync {
             size_log2,
             root,
             mem,
-            ..Default::default()
+            blank_nodes: BlankNodes::new(),
+            population: PopulationManager::new(),
+            steps_per_update_log2: None,
         }
     }
 
     fn save_as_macrocell(&self) -> Vec<u8> {
-        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-        struct Key {
-            size_log2: u32,
-            idx: NodeIdx,
-        }
-
         fn inner(
             idx: NodeIdx,
             size_log2: u32,
             mem: &MemoryManager,
-            codes: &mut HashMap<Key, usize>,
+            codes: &mut HashMap<NodeIdx, usize>,
             result: &mut Vec<String>,
         ) {
-            if codes.contains_key(&Key { idx, size_log2 }) {
+            if codes.contains_key(&idx) {
                 return;
             }
             let n = mem.get(idx);
@@ -608,7 +604,7 @@ impl Engine for HashLifeEngineAsync {
                 let data = n.leaf_cells();
                 for t in data.iter() {
                     for i in 0..8 {
-                        if t >> i & 1 != 0 {
+                        if (t >> i) & 1 != 0 {
                             s.push('*');
                         } else {
                             s.push('.');
@@ -627,30 +623,10 @@ impl Engine for HashLifeEngineAsync {
                 s = format!(
                     "{} {} {} {} {}",
                     size_log2,
-                    codes
-                        .get(&Key {
-                            idx: n.nw,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.ne,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.sw,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
-                    codes
-                        .get(&Key {
-                            idx: n.se,
-                            size_log2: size_log2 - 1
-                        })
-                        .unwrap(),
+                    codes.get(&n.nw).unwrap(),
+                    codes.get(&n.ne).unwrap(),
+                    codes.get(&n.sw).unwrap(),
+                    codes.get(&n.se).unwrap(),
                 );
             }
             let v = if idx != NodeIdx(0) {
@@ -661,7 +637,7 @@ impl Engine for HashLifeEngineAsync {
             } else {
                 0
             };
-            codes.entry(Key { idx, size_log2 }).or_insert(v);
+            codes.entry(idx).or_insert(v);
         }
 
         let mut codes = HashMap::new();
@@ -739,7 +715,7 @@ impl Engine for HashLifeEngineAsync {
                 _ => unreachable!(),
             };
         }
-        self.mem.get(node).leaf_cells()[y as usize] >> x & 1 != 0
+        (self.mem.get(node).leaf_cells()[y as usize] >> x) & 1 != 0
     }
 
     fn set_cell(&mut self, x: u64, y: u64, state: bool) {
@@ -857,7 +833,7 @@ impl Engine for HashLifeEngineAsync {
                                 let y = (sy * step + dy) % LEAF_ISIZE;
                                 let pos = (x + y * LEAF_ISIZE) / LEAF_ISIZE;
                                 let offset = (x + y * LEAF_ISIZE) % LEAF_ISIZE;
-                                sum += data[pos as usize] >> offset & 1;
+                                sum += (data[pos as usize] >> offset) & 1;
                             }
                         }
                         let j = sx + ((args.x - args.viewport_x) >> args.step_log2);
@@ -930,16 +906,13 @@ impl Engine for HashLifeEngineAsync {
     }
 
     fn hash(&self) -> u64 {
-        #[derive(Clone, PartialEq, Eq, Hash)]
-        struct Key(NodeIdx, u32);
-
         fn inner(
             idx: NodeIdx,
             size_log2: u32,
-            cache: &mut HashMap<Key, u64>,
+            cache: &mut HashMap<NodeIdx, u64>,
             mem: &MemoryManager,
         ) -> u64 {
-            if let Some(&val) = cache.get(&Key(idx, size_log2)) {
+            if let Some(&val) = cache.get(&idx) {
                 return val;
             }
 
@@ -958,7 +931,7 @@ impl Engine for HashLifeEngineAsync {
                 for x in [n.nw, n.ne, n.sw, n.se] {
                     result = combine(result, inner(x, size_log2 - 1, cache, mem));
                 }
-                cache.insert(Key(idx, size_log2), result);
+                cache.insert(idx, result);
                 result
             }
         }
@@ -981,6 +954,7 @@ impl Engine for HashLifeEngineAsync {
         };
         s += &format!("Population: {}\n", NiceInt::from_f64(population));
         s += &format!("Population compute time: {}\n", duration.as_secs_f64());
+        s += &format!("Hash: {}\n", self.hash());
         s += &self.mem.stats_fast();
         s
     }
@@ -996,5 +970,21 @@ impl Engine for HashLifeEngineAsync {
 impl Default for HashLifeEngineAsync {
     fn default() -> Self {
         unimplemented!("Do not use ::default(), as it doubles initialization time")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_macrocell_serialization() {
+        for size_log2 in [7, 9] {
+            let source = HashLifeEngineAsync::random(size_log2, Some(42));
+
+            let serialized = source.save_as_macrocell();
+            let result = HashLifeEngineAsync::from_macrocell(&serialized);
+            assert_eq!(source.hash(), result.hash());
+        }
     }
 }

@@ -34,13 +34,13 @@ impl<Meta> QuadTreeNode<Meta> {
 
     /// Returns the cells of a leaf node row by row.
     pub fn leaf_cells(&self) -> [u8; 8] {
-        (self.nw.0 as u64 | (self.ne.0 as u64) << 32).to_le_bytes()
+        (self.nw.0 as u64 | ((self.ne.0 as u64) << 32)).to_le_bytes()
     }
 
     pub fn leaf_nw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.nw.0 >> (i * 8) & 0xF) << (i * 4);
+            result |= ((self.nw.0 >> (i * 8)) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -48,7 +48,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_ne(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.nw.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+            result |= ((self.nw.0 >> (i * 8 + 4)) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -56,7 +56,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_sw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.ne.0 >> (i * 8) & 0xF) << (i * 4);
+            result |= ((self.ne.0 >> (i * 8)) & 0xF) << (i * 4);
         }
         result as u16
     }
@@ -64,7 +64,7 @@ impl<Meta> QuadTreeNode<Meta> {
     pub fn leaf_se(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
-            result |= (self.ne.0 >> (i * 8 + 4) & 0xF) << (i * 4);
+            result |= ((self.ne.0 >> (i * 8 + 4)) & 0xF) << (i * 4);
         }
         result as u16
     }
