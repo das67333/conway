@@ -11,7 +11,6 @@ pub struct HashLifeEngineAsync {
     size_log2: u32,
     root: NodeIdx,
     mem: MemoryManager,
-    blank_nodes: BlankNodes,
     population: PopulationManager,
     steps_per_update_log2: Option<u32>,
     // metrics: Metrics,
@@ -255,17 +254,15 @@ impl HashLifeEngineAsync {
     /// The field becomes two times bigger.
     fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
         let n = self.mem.get(idx).clone();
+        let b = BlankNodes::new().get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match topology {
             Topology::Torus => [self.mem.find_or_create_node(n.se, n.sw, n.ne, n.nw); 4],
-            Topology::Unbounded => {
-                let b = self.blank_nodes.get(size_log2 - 1, &self.mem);
-                [
-                    self.mem.find_or_create_node(b, b, b, n.nw),
-                    self.mem.find_or_create_node(b, b, n.ne, b),
-                    self.mem.find_or_create_node(b, n.sw, b, b),
-                    self.mem.find_or_create_node(n.se, b, b, b),
-                ]
-            }
+            Topology::Unbounded => [
+                self.mem.find_or_create_node(b, b, b, n.nw),
+                self.mem.find_or_create_node(b, b, n.ne, b),
+                self.mem.find_or_create_node(b, n.sw, b, b),
+                self.mem.find_or_create_node(n.se, b, b, b),
+            ],
         };
         self.mem.find_or_create_node(nw, ne, sw, se)
     }
@@ -283,7 +280,7 @@ impl HashLifeEngineAsync {
     }
 
     fn has_blank_frame(&mut self) -> bool {
-        let b = self.blank_nodes.get(self.size_log2 - 2, &self.mem);
+        let b = BlankNodes::new().get(self.size_log2 - 2, &self.mem);
 
         let root = self.mem.get(self.root);
         let [nw, ne, sw, se] = [
@@ -319,13 +316,10 @@ impl Engine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mem = MemoryManager::new();
-        let mut blank_nodes = BlankNodes::new();
-        let root = blank_nodes.get(size_log2, &mem);
         Self {
             size_log2,
-            root,
+            root: BlankNodes::new().get(size_log2, &mem),
             mem,
-            blank_nodes,
             population: PopulationManager::new(),
             steps_per_update_log2: None,
             // metrics: Metrics::default(),
@@ -458,7 +452,6 @@ impl Engine for HashLifeEngineAsync {
             size_log2,
             root,
             mem,
-            blank_nodes: BlankNodes::new(),
             population: PopulationManager::new(),
             steps_per_update_log2: None,
         }
@@ -511,14 +504,13 @@ impl Engine for HashLifeEngineAsync {
                         b'*' => {
                             cells |= 1 << (i * 8 + j);
                             j += 1;
-                            assert!(j <= 8);
                         }
                         b'.' => {
                             j += 1;
-                            assert!(j <= 8);
                         }
                         _ => panic!("Unexpected symbol"),
                     }
+                    assert!(j <= 8);
                 }
                 assert!(i <= 8);
                 mem.find_or_create_leaf_from_u64(cells)
@@ -531,7 +523,6 @@ impl Engine for HashLifeEngineAsync {
             size_log2,
             root: last_node.unwrap(),
             mem,
-            blank_nodes,
             population: PopulationManager::new(),
             steps_per_update_log2: None,
         }
@@ -576,12 +567,11 @@ impl Engine for HashLifeEngineAsync {
             t >>= 1;
         }
         assert_eq!(nodes_curr.len(), 1);
-        let root = nodes_curr.pop().unwrap();
+        let root = nodes_curr[0];
         Self {
             size_log2,
             root,
             mem,
-            blank_nodes: BlankNodes::new(),
             population: PopulationManager::new(),
             steps_per_update_log2: None,
         }
@@ -592,17 +582,21 @@ impl Engine for HashLifeEngineAsync {
             idx: NodeIdx,
             size_log2: u32,
             mem: &MemoryManager,
+            blank_nodes: &mut BlankNodes,
             codes: &mut HashMap<NodeIdx, usize>,
             result: &mut Vec<String>,
-        ) {
-            if codes.contains_key(&idx) {
-                return;
+        ) -> usize {
+            if let Some(&x) = codes.get(&idx) {
+                return x;
             }
+            if idx == blank_nodes.get(size_log2, mem) {
+                return 0;
+            }
+
             let n = mem.get(idx);
             let mut s = String::new();
             if size_log2 == LEAF_SIZE_LOG2 {
-                let data = n.leaf_cells();
-                for t in data.iter() {
+                for t in n.leaf_cells() {
                     for i in 0..8 {
                         if (t >> i) & 1 != 0 {
                             s.push('*');
@@ -615,37 +609,34 @@ impl Engine for HashLifeEngineAsync {
                     }
                     s.push('$');
                 }
+                while s.ends_with("$$") {
+                    s.pop();
+                }
             } else {
-                inner(n.nw, size_log2 - 1, mem, codes, result);
-                inner(n.ne, size_log2 - 1, mem, codes, result);
-                inner(n.sw, size_log2 - 1, mem, codes, result);
-                inner(n.se, size_log2 - 1, mem, codes, result);
                 s = format!(
                     "{} {} {} {} {}",
                     size_log2,
-                    codes.get(&n.nw).unwrap(),
-                    codes.get(&n.ne).unwrap(),
-                    codes.get(&n.sw).unwrap(),
-                    codes.get(&n.se).unwrap(),
+                    inner(n.nw, size_log2 - 1, mem, blank_nodes, codes, result),
+                    inner(n.ne, size_log2 - 1, mem, blank_nodes, codes, result),
+                    inner(n.sw, size_log2 - 1, mem, blank_nodes, codes, result),
+                    inner(n.se, size_log2 - 1, mem, blank_nodes, codes, result),
                 );
             }
-            let v = if idx != NodeIdx(0) {
-                // TODO
-                s.push('\n');
-                result.push(s);
-                result.len() - 1
-            } else {
-                0
-            };
-            codes.entry(idx).or_insert(v);
+
+            s.push('\n');
+            result.push(s);
+            assert!(codes.insert(idx, result.len() - 1) == None);
+            result.len() - 1
         }
 
+        let mut blank_nodes = BlankNodes::new();
         let mut codes = HashMap::new();
-        let mut result = vec!["[M2] (conway)\n#R B3/S23\n".to_string()];
+        let mut result = vec!["[M2] (gol_engines)\n#R B3/S23\n".to_string()];
         inner(
             self.root,
             self.size_log2,
             &self.mem,
+            &mut blank_nodes,
             &mut codes,
             &mut result,
         );
@@ -986,5 +977,14 @@ mod tests {
             let result = HashLifeEngineAsync::from_macrocell(&serialized);
             assert_eq!(source.hash(), result.hash());
         }
+    }
+
+    #[test]
+    fn temp() {
+        use std::io::Write;
+        let data = std::fs::read("../res/0e0p-metaglider.mc").unwrap();
+        let source = HashLifeEngineAsync::from_macrocell(&data);
+        let mut file = std::fs::File::create("temp.mc").unwrap();
+        file.write_all(&source.save_as_macrocell()).unwrap();
     }
 }

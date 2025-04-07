@@ -6,3 +6,4 @@ golly*
 lifelib_original/
 lifealg/
 gol_engines/concurrency/
+perf.*
