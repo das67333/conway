@@ -1,8 +1,5 @@
-use super::{
-    BlankNodes, MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIZE,
-    LEAF_SIZE_LOG2,
-};
-use crate::{parse_rle, Engine, NiceInt, QuadTreeNode, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use super::{BlankNodes, MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
+use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 // use std::sync::atomic::AtomicU64;
 
@@ -16,6 +13,7 @@ pub struct HashLifeEngineAsync {
     // metrics: Metrics,
 }
 
+const ACTIVE_COROUTINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 // #[derive(Default)]
 // pub struct Metrics {
 //     pub threads_spawned: AtomicU64,
@@ -158,74 +156,92 @@ impl HashLifeEngineAsync {
         ]
     }
 
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    fn update_nodes_single(
-        &self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> NodeIdx {
-        let arr9 = self.nine_children_disjoint(nw, ne, sw, se, size_log2);
+    // /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
+    // async fn update_nodes_single(
+    //     &self,
+    //     nw: NodeIdx,
+    //     ne: NodeIdx,
+    //     sw: NodeIdx,
+    //     se: NodeIdx,
+    //     size_log2: u32,
+    // ) -> NodeIdx {
+    //     let arr9 = self.nine_children_disjoint(nw, ne, sw, se, size_log2);
 
-        let mut arr4 = self.four_children_overlapping(&arr9);
-        for i in 0..4 {
-            arr4[i] = self.update_node(arr4[i], size_log2);
-        }
-        let [nw, ne, sw, se] = arr4;
-        self.mem.find_or_create_node(nw, ne, sw, se)
-    }
+    //     let mut arr4 = self.four_children_overlapping(&arr9);
+    //     let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
+    //     if cnt < 20 {
+    //         ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
+    //         let mut handles = Vec::with_capacity(4);
+    //         for i in 0..4 {
+    //             let node = arr4[i];
+    //             let this = self as *const HashLifeEngineAsync as usize;
+    //             handles.push(tokio::spawn(async move {
+    //                 unsafe { (*(this as *const HashLifeEngineAsync)).update_node(node, size_log2).await }
+    //             }));
+    //         }
+    //         for (i, handle) in handles.into_iter().enumerate() {
+    //             arr4[i] = handle.await.unwrap();
+    //         }
+    //         ACTIVE_COROUTINES.fetch_sub(4, std::sync::atomic::Ordering::Relaxed);
+    //     } else {
+    //         for i in 0..4 {
+    //             arr4[i] = self.update_node(arr4[i], size_log2).await;
+    //         }
+    //     }
+    //     let [nw, ne, sw, se] = arr4;
+    //     self.mem.find_or_create_node(nw, ne, sw, se)
+    // }
 
-    /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    fn update_nodes_double(
-        &self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> NodeIdx {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
+    // /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
+    // fn update_nodes_double(
+    //     &self,
+    //     nw: NodeIdx,
+    //     ne: NodeIdx,
+    //     sw: NodeIdx,
+    //     se: NodeIdx,
+    //     size_log2: u32,
+    // ) -> NodeIdx {
+    //     let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
 
-        // First stage
-        let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
-        let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
-        let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
-        let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
-        let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
+    //     // First stage
+    //     let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
+    //     let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
+    //     let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
+    //     let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
+    //     let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
 
-        let t00 = self.update_node(nw, size_log2);
-        let t01 = self.update_node(p01.find(), size_log2);
-        let t02 = self.update_node(ne, size_log2);
-        let t12 = self.update_node(p12.find(), size_log2);
-        let t11 = self.update_node(p11.find(), size_log2);
-        let t10 = self.update_node(p10.find(), size_log2);
-        let t20 = self.update_node(sw, size_log2);
-        let t21 = self.update_node(p21.find(), size_log2);
-        let t22 = self.update_node(se, size_log2);
+    //     let t00 = self.update_node(nw, size_log2);
+    //     let t01 = self.update_node(p01.find(), size_log2);
+    //     let t02 = self.update_node(ne, size_log2);
+    //     let t12 = self.update_node(p12.find(), size_log2);
+    //     let t11 = self.update_node(p11.find(), size_log2);
+    //     let t10 = self.update_node(p10.find(), size_log2);
+    //     let t20 = self.update_node(sw, size_log2);
+    //     let t21 = self.update_node(p21.find(), size_log2);
+    //     let t22 = self.update_node(se, size_log2);
 
-        // Second stage
-        let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
-        let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
-        let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
-        let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
-        let t_se = self.update_node(pse.find(), size_log2);
-        let t_sw = self.update_node(psw.find(), size_log2);
-        let t_nw = self.update_node(pnw.find(), size_log2);
-        let t_ne = self.update_node(pne.find(), size_log2);
-        self.mem.find_or_create_node(t_nw, t_ne, t_sw, t_se)
-    }
+    //     // Second stage
+    //     let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
+    //     let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
+    //     let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
+    //     let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
+    //     let t_se = self.update_node(pse.find(), size_log2);
+    //     let t_sw = self.update_node(psw.find(), size_log2);
+    //     let t_nw = self.update_node(pnw.find(), size_log2);
+    //     let t_ne = self.update_node(pne.find(), size_log2);
+    //     self.mem.find_or_create_node(t_nw, t_ne, t_sw, t_se)
+    // }
 
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    #[inline]
-    pub(super) fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        fn inner(this: &HashLifeEngineAsync, n: &mut QuadTreeNode, size_log2: u32) -> NodeIdx {
+    pub(super) async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        #[async_recursion::async_recursion]
+        async fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
+            let n = this.mem.get(node);
             let steps_log2 = this.steps_per_update_log2.unwrap();
             let both_stages = steps_log2 + 2 >= size_log2;
-            let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
+            if size_log2 == LEAF_SIZE_LOG2 + 1 {
                 let steps = if both_stages {
                     LEAF_SIZE / 2
                 } else {
@@ -233,27 +249,64 @@ impl HashLifeEngineAsync {
                 };
                 this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
             } else if both_stages {
-                this.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+                // this.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+                let mut arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
+                for i in 0..9 {
+                    arr9[i] = this.update_node(arr9[i], size_log2 - 1).await;
+                }
+
+                let mut arr4 = this.four_children_overlapping(&arr9);
+                for i in 0..4 {
+                    arr4[i] = this.update_node(arr4[i], size_log2 - 1).await;
+                }
+                this.mem
+                    .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
             } else {
-                this.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
-            };
-            n.cache = cache;
-            n.has_cache = true;
-            cache
+                // this.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
+                //     .await
+                let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+
+                let mut arr4 = this.four_children_overlapping(&arr9);
+                let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
+                if cnt < 8 {
+                    ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
+                    let mut handles = Vec::with_capacity(4);
+                    for i in 0..4 {
+                        let node = arr4[i];
+                        let this_ptr = this as *const _ as usize;
+                        handles.push(tokio::spawn(async move {
+                            unsafe { &*(this_ptr as *const HashLifeEngineAsync) }
+                                .update_node(node, size_log2 - 1)
+                                .await
+                        }));
+                    }
+                    for (i, handle) in handles.into_iter().enumerate() {
+                        arr4[i] = handle.await.unwrap();
+                    }
+                    ACTIVE_COROUTINES.fetch_sub(4, std::sync::atomic::Ordering::Relaxed);
+                } else {
+                    for i in 0..4 {
+                        arr4[i] = this.update_node(arr4[i], size_log2 - 1).await;
+                    }
+                }
+                this.mem
+                    .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
+            }
         }
 
-        let n = self.mem.get_mut(node);
-        if n.has_cache {
-            return n.cache;
-        }
-        inner(self, n, size_log2)
+        *self
+            .mem
+            .get(node)
+            .cache
+            .get_or_init(|| inner(self, node, size_log2))
+            .await
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
     /// and if `topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
     fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, topology: Topology) -> NodeIdx {
-        let n = self.mem.get(idx).clone();
+        let n = self.mem.get(idx);
         let b = BlankNodes::new().get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match topology {
             Topology::Torus => [self.mem.find_or_create_node(n.se, n.sw, n.ne, n.nw); 4],
@@ -312,7 +365,7 @@ impl HashLifeEngineAsync {
     }
 }
 
-impl Engine for HashLifeEngineAsync {
+impl AsyncEngine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mem = MemoryManager::new();
@@ -743,7 +796,7 @@ impl Engine for HashLifeEngineAsync {
         self.root = inner(x, y, self.size_log2, self.root, state, &self.mem);
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
+    async fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         if let Some(cached_steps_log2) = self.steps_per_update_log2 {
             if cached_steps_log2 != steps_log2 {
                 self.run_gc();
@@ -757,7 +810,7 @@ impl Engine for HashLifeEngineAsync {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        self.root = self.update_node(self.root, self.size_log2);
+        self.root = self.update_node(self.root, self.size_log2).await;
         self.size_log2 -= 1;
         dx -= 1 << (self.size_log2 - 1);
         dy -= 1 << (self.size_log2 - 1);
@@ -936,7 +989,7 @@ impl Engine for HashLifeEngineAsync {
     }
 
     fn statistics(&mut self) -> String {
-        let mut s = "Engine: Hashlife\n".to_string();
+        let mut s = "Engine: HashlifeAsync\n".to_string();
         s += &format!("Side length: 2^{}\n", self.size_log2);
         let (population, duration) = {
             let timer = std::time::Instant::now();
@@ -981,10 +1034,7 @@ mod tests {
 
     #[test]
     fn temp() {
-        use std::io::Write;
-        let data = std::fs::read("../res/0e0p-metaglider.mc").unwrap();
-        let source = HashLifeEngineAsync::from_macrocell(&data);
-        let mut file = std::fs::File::create("temp.mc").unwrap();
-        file.write_all(&source.save_as_macrocell()).unwrap();
+        let t = tokio::sync::OnceCell::<u32>::new();
+        eprintln!("{}", std::mem::size_of_val(&t));
     }
 }

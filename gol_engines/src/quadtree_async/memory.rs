@@ -24,15 +24,15 @@ impl PrefetchedNode {
         size_log2: u32,
     ) -> Self {
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
+        // let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
 
-        #[cfg(target_arch = "x86_64")]
-        unsafe {
-            use std::arch::x86_64::*;
-            _mm_prefetch::<_MM_HINT_T0>(
-                (*mem.base.get()).hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
-            );
-        }
+        // #[cfg(target_arch = "x86_64")]
+        // unsafe {
+        //     use std::arch::x86_64::*;
+        //     _mm_prefetch::<_MM_HINT_T0>(
+        //         (*mem.base.get()).hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
+        //     );
+        // }
         Self {
             mem: mem as *const MemoryManager as *mut MemoryManager,
             nw,
@@ -62,18 +62,20 @@ pub struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
 }
 
+unsafe impl Send for MemoryManager {}
+
+unsafe impl Sync for MemoryManager {}
+
 impl MemoryManager {
     /// Create a new memory manager with a default capacity.
     pub fn new() -> Self {
-        Self::with_capacity(1 << 26)
+        Self::with_capacity(26)
     }
 
-    /// Create a new memory manager with a given capacity.
-    ///
-    /// `cap` must be a power of two!
-    pub fn with_capacity(cap: usize) -> Self {
+    /// Create a new memory manager with a capacity of `1 << cap_log2`.
+    pub fn with_capacity(cap_log2: u32) -> Self {
         Self {
-            base: UnsafeCell::new(MemoryManagerRaw::with_capacity(cap)),
+            base: UnsafeCell::new(MemoryManagerRaw::with_capacity(cap_log2)),
         }
     }
 
@@ -167,17 +169,23 @@ impl MemoryManager {
 
 /// Hashtable that stores nodes of the quadtree
 struct MemoryManagerRaw {
-    // buffer where heads of linked lists are stored
+    /// buffer where heads of linked lists are stored
     hashtable: Vec<QuadTreeNode>,
-    // total number of elements in the hashtable
-    pub ht_size: usize,
-    // how many times elements were found in the hashtable
+    /// striped locks for the hashtable
+    locks: Vec<std::sync::Mutex<()>>,
+    /// log2 of hashtable's capacity
+    ht_cap_log2: u32,
+    /// total number of elements in the hashtable
+    pub ht_size: u32,
+    /// how many times elements were found in the hashtable
     hits: u64,
-    // how many times elements were not found and therefore inserted
+    /// how many times elements were not found and therefore inserted
     misses: u64,
 }
 
 impl MemoryManagerRaw {
+    const STRIPED_LOCKS_CNT_LOG2: u32 = 10;
+
     // control byte:
     // 00000000     -> empty
     // 00111111     -> deleted
@@ -188,16 +196,22 @@ impl MemoryManagerRaw {
     const CTRL_LEAF_BASE: u8 = 1 << 6;
     const CTRL_NODE_BASE: u8 = 1 << 7;
 
-    /// Create a new memory manager with a given capacity.
-    ///
-    /// `cap` must be a power of two!
-    fn with_capacity(cap: usize) -> Self {
+    /// Create a new memory manager with a capacity of `1 << cap_log2`.
+    fn with_capacity(cap_log2: u32) -> Self {
         // TODO: speed up
-        assert!(cap.is_power_of_two(), "Capacity must be a power of two");
-        assert!(u32::try_from(cap).is_ok(), "Capacity must fit into 32 bits");
+        assert!(
+            cap_log2 <= 32,
+            "Hashtables bigger than 2^32 are not supported"
+        );
         Self {
             // first node must be reserved for null
-            hashtable: (0..cap).map(|_| QuadTreeNode::default()).collect(),
+            hashtable: (0..1u64 << cap_log2)
+                .map(|_| QuadTreeNode::default())
+                .collect(),
+            locks: (0..(1 << Self::STRIPED_LOCKS_CNT_LOG2))
+                .map(|_| std::sync::Mutex::new(()))
+                .collect(),
+            ht_cap_log2: cap_log2,
             ht_size: 0,
             hits: 0,
             misses: 0,
@@ -244,7 +258,9 @@ impl MemoryManagerRaw {
             }
         };
 
-        let mut first_deleted = None;
+        // let mut first_deleted = None;
+        let shift = self.ht_cap_log2 - Self::STRIPED_LOCKS_CNT_LOG2;
+        let mut lock = self.locks.get_unchecked(index >> shift).lock().unwrap();
         loop {
             let n = self.hashtable.get_unchecked(index);
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
@@ -253,13 +269,12 @@ impl MemoryManagerRaw {
             }
 
             if n.ctrl == Self::CTRL_EMPTY {
-                self.hashtable[index] = QuadTreeNode {
+                *self.hashtable.get_unchecked_mut(index) = QuadTreeNode {
                     nw,
                     ne,
                     sw,
                     se,
-                    cache: NodeIdx(0),
-                    has_cache: false,
+                    cache: tokio::sync::OnceCell::new(),
                     gc_marked: false,
                     ctrl,
                 };
@@ -267,11 +282,16 @@ impl MemoryManagerRaw {
                 self.misses += 1;
                 break;
             }
-            if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
-                first_deleted = Some(index);
-            }
+            // if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
+            //     first_deleted = Some(index);
+            // }
 
-            index = index.wrapping_add(1) & mask;
+            let next_index = index.wrapping_add(1) & mask;
+            if index >> shift != next_index >> shift {
+                drop(lock);
+                lock = self.locks[next_index >> shift].lock().unwrap();
+            }
+            index = next_index;
         }
 
         NodeIdx(index as u32)
@@ -279,7 +299,7 @@ impl MemoryManagerRaw {
 
     pub fn clear_cache(&mut self) {
         for n in self.hashtable.iter_mut() {
-            n.has_cache = false;
+            n.cache = tokio::sync::OnceCell::new();
         }
     }
 
@@ -293,7 +313,9 @@ impl MemoryManagerRaw {
 
         s.push_str(&format!(
             "hashtable size/capacity: {}/{} MB\n",
-            NiceInt::from_usize((self.ht_size * std::mem::size_of::<QuadTreeNode>()) >> 20),
+            NiceInt::from_usize(
+                (self.ht_size as usize * std::mem::size_of::<QuadTreeNode>()) >> 20
+            ),
             NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
         ));
 

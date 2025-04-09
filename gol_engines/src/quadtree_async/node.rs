@@ -1,4 +1,22 @@
-use std::sync::OnceLock;
+use std::sync::atomic::AtomicU8;
+
+#[test]
+fn f_sync() {
+    let t: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    eprintln!("Size = {}", std::mem::size_of_val(&t));
+    eprintln!("{:?}", t.get());
+    t.set(2).unwrap();
+    eprintln!("{:?}", t.get());
+}
+
+#[test]
+fn f_async() {
+    let t: tokio::sync::OnceCell<u32> = tokio::sync::OnceCell::new();
+    eprintln!("Size = {}", std::mem::size_of_val(&t));
+    // eprintln!("{:?}", t.get());
+    // t.set(2).unwrap();
+    // eprintln!("{:?}", t.get());
+}
 
 /// Location of a node is determined by its `idx` and `size_log2`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -6,18 +24,25 @@ pub struct NodeIdx(pub u32);
 
 unsafe impl Send for NodeIdx {}
 
+pub struct CacheStatus(AtomicU8);
+
+impl CacheStatus {
+    const EMPTY: u8 = 1;
+    const PROCESSING: u8 = 2;
+    const CACHED: u8 = 3;
+}
+
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
 // #[repr(align(4))]
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct QuadTreeNode {
     pub nw: NodeIdx,
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub cache: NodeIdx, // cached result of update
-    pub has_cache: bool,
+    pub cache: tokio::sync::OnceCell<NodeIdx>,
     pub gc_marked: bool,
     pub ctrl: u8,
     // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO

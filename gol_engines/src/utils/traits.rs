@@ -20,11 +20,10 @@ pub trait Engine {
         let mut rng = if let Some(x) = seed {
             rand_chacha::ChaCha8Rng::seed_from_u64(x)
         } else {
-            rand_chacha::ChaCha8Rng::from_entropy()
+            rand_chacha::ChaCha8Rng::from_os_rng()
         };
-        let cells = (0..(1 << (size_log2 * 2 - 6)))
-            .map(|_| rng.gen::<u64>())
-            .collect();
+        let mut cells = vec![0; 1 << (size_log2 * 2 - 6)];
+        rng.fill(&mut cells[..]);
         Self::from_cells_array(size_log2, cells)
     }
 
@@ -119,7 +118,7 @@ pub trait Engine {
     fn run_gc(&mut self) {}
 }
 
-/// Async Game engine for Game of Life
+/// Async game engine for Game of Life
 pub trait AsyncEngine {
     /// Create a blank field with dimensions `2^{size_log2} x 2^{size_log2}`.
     ///
@@ -139,11 +138,10 @@ pub trait AsyncEngine {
         let mut rng = if let Some(x) = seed {
             rand_chacha::ChaCha8Rng::seed_from_u64(x)
         } else {
-            rand_chacha::ChaCha8Rng::from_entropy()
+            rand_chacha::ChaCha8Rng::from_os_rng()
         };
-        let cells = (0..(1 << (size_log2 * 2 - 6)))
-            .map(|_| rng.gen::<u64>())
-            .collect();
+        let mut cells = vec![0; 1 << (size_log2 * 2 - 6)];
+        rng.fill(&mut cells[..]);
         Self::from_cells_array(size_log2, cells)
     }
 
@@ -180,7 +178,7 @@ pub trait AsyncEngine {
         Self: Sized;
 
     /// Save the field in MacroCell format.
-    fn save_as_macrocell(&mut self) -> Vec<u8> {
+    fn save_as_macrocell(&self) -> Vec<u8> {
         unimplemented!()
     }
 
@@ -200,7 +198,11 @@ pub trait AsyncEngine {
     /// This function may change the size of the field.
     ///
     /// Returns coordinate shift caused by the update.
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2];
+    fn update(
+        &mut self,
+        steps_log2: u32,
+        topology: Topology,
+    ) -> impl std::future::Future<Output = [i64; 2]> + Send;
 
     /// Fills the texture of given resolution with a part of field
     /// (from `viewport_x`, `viewport_y` to `viewport_x + size`, `viewport_y + size`).
