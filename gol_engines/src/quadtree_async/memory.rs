@@ -1,68 +1,10 @@
 use std::cell::UnsafeCell;
 
-use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
-use crate::NiceInt;
-
-/// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
-pub struct PrefetchedNode {
-    mem: *mut MemoryManager,
-    pub nw: NodeIdx,
-    pub ne: NodeIdx,
-    pub sw: NodeIdx,
-    pub se: NodeIdx,
-    pub is_leaf: bool,
-    pub hash: usize,
-}
-
-impl PrefetchedNode {
-    pub fn new(
-        mem: &MemoryManager,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-        size_log2: u32,
-    ) -> Self {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
-        // let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
-
-        // #[cfg(target_arch = "x86_64")]
-        // unsafe {
-        //     use std::arch::x86_64::*;
-        //     _mm_prefetch::<_MM_HINT_T0>(
-        //         (*mem.base.get()).hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
-        //     );
-        // }
-        Self {
-            mem: mem as *const MemoryManager as *mut MemoryManager,
-            nw,
-            ne,
-            sw,
-            se,
-            is_leaf: size_log2 == LEAF_SIZE_LOG2,
-            hash,
-        }
-    }
-
-    pub fn find(&self) -> NodeIdx {
-        unsafe {
-            (*(*self.mem).base.get()).find_or_create_inner(
-                self.nw,
-                self.ne,
-                self.sw,
-                self.se,
-                self.hash,
-                self.is_leaf,
-            )
-        }
-    }
-}
+use super::{NodeIdx, QuadTreeNode};
 
 pub struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
 }
-
-unsafe impl Send for MemoryManager {}
 
 unsafe impl Sync for MemoryManager {}
 
@@ -82,12 +24,6 @@ impl MemoryManager {
     /// Get a const reference to the node with the given index.
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { (*self.base.get()).get(idx) }
-    }
-
-    /// Get a mutable reference to the node with the given index.
-    pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
-        // TODO: it is very unsafe
-        unsafe { (*self.base.get()).get_mut(idx) }
     }
 
     /// Find a leaf node with the given parts.
@@ -175,12 +111,12 @@ struct MemoryManagerRaw {
     locks: Vec<std::sync::Mutex<()>>,
     /// log2 of hashtable's capacity
     ht_cap_log2: u32,
-    /// total number of elements in the hashtable
-    pub ht_size: u32,
-    /// how many times elements were found in the hashtable
-    hits: u64,
-    /// how many times elements were not found and therefore inserted
-    misses: u64,
+    // /// total number of elements in the hashtable
+    // pub ht_size: u32,
+    // /// how many times elements were found in the hashtable
+    // hits: AtomicU64,
+    // /// how many times elements were not found and therefore inserted
+    // misses: AtomicU64,
 }
 
 impl MemoryManagerRaw {
@@ -212,9 +148,9 @@ impl MemoryManagerRaw {
                 .map(|_| std::sync::Mutex::new(()))
                 .collect(),
             ht_cap_log2: cap_log2,
-            ht_size: 0,
-            hits: 0,
-            misses: 0,
+            // ht_size: 0,
+            // hits: AtomicU64::new(0),
+            // misses: AtomicU64::new(0),
         }
     }
 
@@ -222,12 +158,6 @@ impl MemoryManagerRaw {
     #[inline]
     fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
-    }
-
-    /// Get a mutable reference to the node with the given index.
-    #[inline]
-    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
-        unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 
     /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
@@ -264,7 +194,7 @@ impl MemoryManagerRaw {
         loop {
             let n = self.hashtable.get_unchecked(index);
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                self.hits += 1;
+                // self.hits.fetch_add(1, Ordering::Relaxed);
                 break;
             }
 
@@ -278,8 +208,8 @@ impl MemoryManagerRaw {
                     gc_marked: false,
                     ctrl,
                 };
-                self.ht_size += 1;
-                self.misses += 1;
+                // self.ht_size += 1;
+                // self.misses.fetch_add(1, Ordering::Relaxed);
                 break;
             }
             // if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
@@ -311,24 +241,24 @@ impl MemoryManagerRaw {
     pub fn stats_fast(&self) -> String {
         let mut s = String::new();
 
-        s.push_str(&format!(
-            "hashtable size/capacity: {}/{} MB\n",
-            NiceInt::from_usize(
-                (self.ht_size as usize * std::mem::size_of::<QuadTreeNode>()) >> 20
-            ),
-            NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
-        ));
+        // s.push_str(&format!(
+        //     "hashtable size/capacity: {}/{} MB\n",
+        //     NiceInt::from_usize(
+        //         (self.ht_size as usize * std::mem::size_of::<QuadTreeNode>()) >> 20
+        //     ),
+        //     NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
+        // ));
 
-        s.push_str(&format!(
-            "hashtable load factor: {:.3}\n",
-            self.ht_size as f64 / self.hashtable.len() as f64,
-        ));
+        // s.push_str(&format!(
+        //     "hashtable load factor: {:.3}\n",
+        //     self.ht_size as f64 / self.hashtable.len() as f64,
+        // ));
 
-        s.push_str(&format!(
-            "hashtable misses / hits: {} / {}\n",
-            NiceInt::from(self.misses),
-            NiceInt::from(self.hits),
-        ));
+        // s.push_str(&format!(
+        //     "hashtable misses / hits: {} / {}\n",
+        //     NiceInt::from(self.misses.load(Ordering::Relaxed)),
+        //     NiceInt::from(self.hits.load(Ordering::Relaxed)),
+        // ));
 
         s
     }

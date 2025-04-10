@@ -1,4 +1,4 @@
-use crate::{Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{GoLEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 
 pub struct SimdEngine {
     data: Vec<u64>,
@@ -104,7 +104,7 @@ impl SimdEngine {
     }
 }
 
-impl Engine for SimdEngine {
+impl GoLEngine for SimdEngine {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let n: u64 = 1 << size_log2;

@@ -18,19 +18,9 @@ fn f_async() {
     // eprintln!("{:?}", t.get());
 }
 
-/// Location of a node is determined by its `idx` and `size_log2`.
+/// Location of a node is determined by its `idx`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
-
-unsafe impl Send for NodeIdx {}
-
-pub struct CacheStatus(AtomicU8);
-
-impl CacheStatus {
-    const EMPTY: u8 = 1;
-    const PROCESSING: u8 = 2;
-    const CACHED: u8 = 3;
-}
 
 /// A node of the quadtree.
 ///

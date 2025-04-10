@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use gol_engines::{Engine, HashLifeEngine, SimdEngine, StreamLifeEngine, Topology};
+    use gol_engines::{GoLEngine, HashLifeEngine, SimdEngine, StreamLifeEngine, Topology};
 
     const SEED: u64 = 42;
 
-    fn randomly_filled(size_log2: u32, seed: u64) -> Vec<Box<dyn Engine>> {
-        let engines: Vec<Box<dyn Engine>> = vec![
+    fn randomly_filled(size_log2: u32, seed: u64) -> Vec<Box<dyn GoLEngine>> {
+        let engines: Vec<Box<dyn GoLEngine>> = vec![
             Box::new(SimdEngine::random(size_log2, Some(seed))),
             Box::new(HashLifeEngine::random(size_log2, Some(seed))),
             Box::new(StreamLifeEngine::random(size_log2, Some(seed))),
@@ -15,7 +15,7 @@ mod tests {
         engines
     }
 
-    fn assert_fields_equal(engines: &Vec<Box<dyn Engine>>) {
+    fn assert_fields_equal(engines: &Vec<Box<dyn GoLEngine>>) {
         if engines.is_empty() {
             return;
         }

@@ -1,7 +1,6 @@
 use gol_engines::*;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let timer = std::time::Instant::now();
     let data = std::fs::read("../res/0e0p-metaglider.mc").unwrap();
 
@@ -11,7 +10,7 @@ async fn main() {
 
     let timer = std::time::Instant::now();
     let steps_log2 = 10;
-    engine.update(steps_log2, Topology::Unbounded).await;
+    engine.update(steps_log2, Topology::Unbounded);
     println!("Time on big update: {:?}", timer.elapsed());
     print!("{}", engine.statistics());
     assert_eq!(engine.population(), 93_236_670.0);

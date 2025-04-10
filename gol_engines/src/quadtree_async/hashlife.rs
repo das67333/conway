@@ -1,5 +1,5 @@
 use super::{BlankNodes, MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{parse_rle, AsyncEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{parse_rle, GoLEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 // use std::sync::atomic::AtomicU64;
 
@@ -13,7 +13,7 @@ pub struct HashLifeEngineAsync {
     // metrics: Metrics,
 }
 
-const ACTIVE_COROUTINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ACTIVE_COROUTINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 // #[derive(Default)]
 // pub struct Metrics {
 //     pub threads_spawned: AtomicU64,
@@ -267,19 +267,17 @@ impl HashLifeEngineAsync {
                 let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
 
                 let mut arr4 = this.four_children_overlapping(&arr9);
-                let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
-                if cnt < 8 {
+                if ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed) < 64 {
+                    // TODO: sharded ACTIVE_COROUTINES
                     ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
-                    let mut handles = Vec::with_capacity(4);
-                    for i in 0..4 {
-                        let node = arr4[i];
-                        let this_ptr = this as *const _ as usize;
-                        handles.push(tokio::spawn(async move {
+                    let this_ptr = this as *const _ as usize;
+                    let handles = arr4.map(|x| {
+                        tokio::spawn(async move {
                             unsafe { &*(this_ptr as *const HashLifeEngineAsync) }
-                                .update_node(node, size_log2 - 1)
+                                .update_node(x, size_log2 - 1)
                                 .await
-                        }));
-                    }
+                        })
+                    });
                     for (i, handle) in handles.into_iter().enumerate() {
                         arr4[i] = handle.await.unwrap();
                     }
@@ -298,7 +296,13 @@ impl HashLifeEngineAsync {
             .mem
             .get(node)
             .cache
-            .get_or_init(|| inner(self, node, size_log2))
+            .get_or_init(|| {
+                let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
+                if false && cnt < 4 {
+                    ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
+                }
+                inner(self, node, size_log2)
+            })
             .await
     }
 
@@ -365,7 +369,7 @@ impl HashLifeEngineAsync {
     }
 }
 
-impl AsyncEngine for HashLifeEngineAsync {
+impl GoLEngine for HashLifeEngineAsync {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mem = MemoryManager::new();
@@ -796,7 +800,7 @@ impl AsyncEngine for HashLifeEngineAsync {
         self.root = inner(x, y, self.size_log2, self.root, state, &self.mem);
     }
 
-    async fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
+    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
         if let Some(cached_steps_log2) = self.steps_per_update_log2 {
             if cached_steps_log2 != steps_log2 {
                 self.run_gc();
@@ -810,7 +814,11 @@ impl AsyncEngine for HashLifeEngineAsync {
             self.add_frame(topology, &mut dx, &mut dy);
         }
 
-        self.root = self.update_node(self.root, self.size_log2).await;
+        self.root = tokio::runtime::Builder::new_multi_thread()
+            // .worker_threads(4)
+            .build()
+            .unwrap()
+            .block_on(async { self.update_node(self.root, self.size_log2).await });
         self.size_log2 -= 1;
         dx -= 1 << (self.size_log2 - 1);
         dy -= 1 << (self.size_log2 - 1);

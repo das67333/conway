@@ -1,5 +1,5 @@
 use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIDE_LOG2};
-use crate::{Engine, NiceInt, Topology, MIN_SIDE_LOG2};
+use crate::{GoLEngine, NiceInt, Topology, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 
 type MemoryManager = super::MemoryManager<u64>;
@@ -451,7 +451,7 @@ impl StreamLifeEngine {
     }
 }
 
-impl Engine for StreamLifeEngine {
+impl GoLEngine for StreamLifeEngine {
     fn blank(size_log2: u32) -> Self {
         Self {
             base: HashLifeEngine::<u64>::blank(size_log2),

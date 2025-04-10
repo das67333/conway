@@ -1,5 +1,5 @@
 use super::{MemoryManager, NodeIdx, PopulationManager, PrefetchedNode, LEAF_SIDE, LEAF_SIDE_LOG2};
-use crate::{parse_rle, Engine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{parse_rle, GoLEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
@@ -413,7 +413,7 @@ impl<Meta: Clone + Default> HashLifeEngine<Meta> {
     }
 }
 
-impl<Meta: Clone + Default> Engine for HashLifeEngine<Meta> {
+impl<Meta: Clone + Default> GoLEngine for HashLifeEngine<Meta> {
     fn blank(size_log2: u32) -> Self {
         assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
         let mut mem = MemoryManager::new();
