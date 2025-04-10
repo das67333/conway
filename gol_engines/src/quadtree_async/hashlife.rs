@@ -296,13 +296,7 @@ impl HashLifeEngineAsync {
             .mem
             .get(node)
             .cache
-            .get_or_init(|| {
-                let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
-                if false && cnt < 4 {
-                    ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
-                }
-                inner(self, node, size_log2)
-            })
+            .get_or_init(|| inner(self, node, size_log2))
             .await
     }
 
@@ -520,7 +514,7 @@ impl GoLEngine for HashLifeEngineAsync {
     {
         let mem = MemoryManager::new();
         let mut blank_nodes = BlankNodes::new();
-        let mut codes: HashMap<usize, NodeIdx> = HashMap::new();
+        let mut codes = HashMap::new();
         let mut last_node = None;
         let mut size_log2 = 0;
 

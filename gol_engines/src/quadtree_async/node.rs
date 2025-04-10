@@ -1,23 +1,3 @@
-use std::sync::atomic::AtomicU8;
-
-#[test]
-fn f_sync() {
-    let t: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
-    eprintln!("Size = {}", std::mem::size_of_val(&t));
-    eprintln!("{:?}", t.get());
-    t.set(2).unwrap();
-    eprintln!("{:?}", t.get());
-}
-
-#[test]
-fn f_async() {
-    let t: tokio::sync::OnceCell<u32> = tokio::sync::OnceCell::new();
-    eprintln!("Size = {}", std::mem::size_of_val(&t));
-    // eprintln!("{:?}", t.get());
-    // t.set(2).unwrap();
-    // eprintln!("{:?}", t.get());
-}
-
 /// Location of a node is determined by its `idx`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
