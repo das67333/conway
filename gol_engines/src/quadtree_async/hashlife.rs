@@ -1,5 +1,7 @@
+use std::sync::atomic::Ordering;
+
 use super::{BlankNodes, MemoryManager, NodeIdx, PopulationManager, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{parse_rle, GoLEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{parse_rle, GoLEngine, NiceInt, QuadTreeNode, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
 use ahash::AHashMap as HashMap;
 // use std::sync::atomic::AtomicU64;
 
@@ -290,14 +292,36 @@ impl HashLifeEngineAsync {
                 this.mem
                     .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
             }
+            // TODO: unite last two branches
         }
 
-        *self
-            .mem
-            .get(node)
-            .cache
-            .get_or_init(|| inner(self, node, size_log2))
-            .await
+        let n = self.mem.get(node);
+        let status = n.status.load(Ordering::Acquire);
+        if status == QuadTreeNode::STATUS_CACHED {
+            return n.cache;
+        }
+
+        if status == QuadTreeNode::STATUS_NOT_CACHED
+            && n.status
+                .compare_exchange(
+                    QuadTreeNode::STATUS_NOT_CACHED,
+                    QuadTreeNode::STATUS_PROCESSING,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+        {
+            let cache = inner(self, node, size_log2).await;
+            self.mem.get_mut(node).cache = cache;
+            n.status
+                .store(QuadTreeNode::STATUS_CACHED, Ordering::Release);
+            return cache;
+        }
+
+        while n.status.load(Ordering::Acquire) != QuadTreeNode::STATUS_CACHED {
+            tokio::task::yield_now().await;
+        }
+        n.cache
     }
 
     /// Add a frame around the field: if `topology` is Unbounded, frame is blank,
@@ -1032,11 +1056,5 @@ mod tests {
             let result = HashLifeEngineAsync::from_macrocell(&serialized);
             assert_eq!(source.hash(), result.hash());
         }
-    }
-
-    #[test]
-    fn temp() {
-        let t = tokio::sync::OnceCell::<u32>::new();
-        eprintln!("{}", std::mem::size_of_val(&t));
     }
 }

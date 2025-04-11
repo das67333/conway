@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU8;
+
 /// Location of a node is determined by its `idx`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
@@ -12,13 +14,18 @@ pub struct QuadTreeNode {
     pub ne: NodeIdx,
     pub sw: NodeIdx,
     pub se: NodeIdx,
-    pub cache: tokio::sync::OnceCell<NodeIdx>,
-    pub gc_marked: bool,
+    /// center after n/4 x n/4 generations, valid only if `status` is `STATUS_CACHED`
+    pub cache: NodeIdx,
+    pub status: AtomicU8,
     pub ctrl: u8,
     // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO
 }
 
 impl QuadTreeNode {
+    pub const STATUS_NOT_CACHED: u8 = 0;
+    pub const STATUS_PROCESSING: u8 = 1;
+    pub const STATUS_CACHED: u8 = 2;
+
     #[inline]
     pub fn is_leaf(&self) -> bool {
         self.ctrl >> 6 == 1

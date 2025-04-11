@@ -1,4 +1,4 @@
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, sync::atomic::Ordering};
 
 use super::{NodeIdx, QuadTreeNode};
 
@@ -24,6 +24,12 @@ impl MemoryManager {
     /// Get a const reference to the node with the given index.
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { (*self.base.get()).get(idx) }
+    }
+
+    /// Get a mutable reference to the node with the given index.
+    pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+        // TODO: it is very unsafe
+        unsafe { (*self.base.get()).get_mut(idx) }
     }
 
     /// Find a leaf node with the given parts.
@@ -128,7 +134,7 @@ impl MemoryManagerRaw {
     // 01<hash>     -> full (leaf)
     // 1<hash>      -> full (node)
     const CTRL_EMPTY: u8 = 0;
-    const CTRL_DELETED: u8 = (1 << 6) - 1;
+    // const CTRL_DELETED: u8 = (1 << 6) - 1;
     const CTRL_LEAF_BASE: u8 = 1 << 6;
     const CTRL_NODE_BASE: u8 = 1 << 7;
 
@@ -160,6 +166,12 @@ impl MemoryManagerRaw {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
+    /// Get a mutable reference to the node with the given index.
+    #[inline]
+    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
+        unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
+    }
+
     /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
     #[inline]
     unsafe fn find_or_create_inner(
@@ -173,6 +185,16 @@ impl MemoryManagerRaw {
     ) -> NodeIdx {
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
+
+        // prefetch(hashtable[index])
+        // TODO: research prefetch levels, QuadTreeNode alignments
+        {
+            use std::arch::x86_64::*;
+            #[cfg(target_arch = "x86_64")]
+            _mm_prefetch::<_MM_HINT_T0>(
+                (self.hashtable.get_unchecked(index) as *const QuadTreeNode) as *const i8,
+            );
+        }
 
         let ctrl = {
             let hash_compressed = {
@@ -204,9 +226,8 @@ impl MemoryManagerRaw {
                     ne,
                     sw,
                     se,
-                    cache: tokio::sync::OnceCell::new(),
-                    gc_marked: false,
                     ctrl,
+                    ..Default::default()
                 };
                 // self.ht_size += 1;
                 // self.misses.fetch_add(1, Ordering::Relaxed);
@@ -228,8 +249,9 @@ impl MemoryManagerRaw {
     }
 
     pub fn clear_cache(&mut self) {
-        for n in self.hashtable.iter_mut() {
-            n.cache = tokio::sync::OnceCell::new();
+        for n in self.hashtable.iter() {
+            n.status
+                .store(QuadTreeNode::STATUS_NOT_CACHED, Ordering::Relaxed);
         }
     }
 
