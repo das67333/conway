@@ -1,18 +1,22 @@
 use gol_engines::*;
+use num_bigint::BigInt;
 
 fn main() {
     let timer = std::time::Instant::now();
+    set_memory_manager_cap_log2(26);
     let data = std::fs::read("../res/0e0p-metaglider.mc").unwrap();
 
-    let mut engine = HashLifeEngineAsync::from_macrocell(&data);
+    let pattern = Pattern::from_format(PatternFormat::Macrocell, &data).unwrap();
     println!("Time spent on building field: {:?}", timer.elapsed());
-    assert_eq!(engine.population(), 93235805.0);
+    let mut engine = HashLifeEngineAsync::from_pattern(&pattern, Topology::Unbounded).unwrap();
+    assert_eq!(pattern.population(), BigInt::from(93_235_805));
 
     let timer = std::time::Instant::now();
-    let steps_log2 = 10;
-    engine.update(steps_log2, Topology::Unbounded);
+    let generations_log2 = 10;
+    engine.update(generations_log2);
+    let updated = engine.current_state();
     println!("Time on big update: {:?}", timer.elapsed());
     print!("{}", engine.statistics());
-    assert_eq!(engine.population(), 93_236_670.0);
-    assert_eq!(engine.hash(), 0x5e1805e773c45a65);
+    assert_eq!(updated.population(), BigInt::from(93_236_670));
+    assert_eq!(updated.hash(), 0x5e1805e773c45a65);
 }

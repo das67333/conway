@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use gol_engines::{GoLEngine, HashLifeEngine, SimdEngine, StreamLifeEngine, Topology};
+    use gol_engines::{GoLEngine, HashLifeEngineAsync, SIMDEngine, Topology, Pattern};
 
     const SEED: u64 = 42;
 
     fn randomly_filled(size_log2: u32, seed: u64) -> Vec<Box<dyn GoLEngine>> {
+        let pattern = Pattern::random(size_log2, Some(seed)).unwrap();
         let engines: Vec<Box<dyn GoLEngine>> = vec![
-            Box::new(SimdEngine::random(size_log2, Some(seed))),
-            Box::new(HashLifeEngine::random(size_log2, Some(seed))),
-            Box::new(StreamLifeEngine::random(size_log2, Some(seed))),
+            Box::new(HashLifeEngineAsync::from_pattern(&pattern, Topology::Torus).unwrap()),
+            Box::new(SIMDEngine::from_pattern(&pattern, Topology::Torus).unwrap()),
         ];
 
         assert_fields_equal(&engines);
@@ -16,61 +16,20 @@ mod tests {
     }
 
     fn assert_fields_equal(engines: &Vec<Box<dyn GoLEngine>>) {
-        if engines.is_empty() {
-            return;
-        }
-
-        let example = engines[0].as_ref();
+        let first = engines[0].current_state().hash();
         for engine in engines.iter().skip(1) {
-            assert_eq!(engine.side_length_log2(), example.side_length_log2());
-            let n = 1 << engine.side_length_log2();
-            if engine.get_cells() == example.get_cells() {
-                continue;
-            }
-
-            let (mut cells_curr, mut cells_example) = (vec![], vec![]);
-            for y in 0..n {
-                for x in 0..n {
-                    cells_curr.push(engine.get_cell(x, y) as u8);
-                    cells_example.push(example.get_cell(x, y) as u8);
-                }
-            }
-            const K: u64 = 10;
-            for (i, _) in cells_curr.iter().zip(cells_example.iter()).enumerate() {
-                if cells_curr[i] != cells_example[i] {
-                    let (x, y) = (i as u64 % n, i as u64 / n);
-                    let (x1, y1) = (x.max(K) - K, y.max(K) - K);
-                    let (x2, y2) = (x.min(n - K) + K, y.min(n - K) + K);
-                    let mut picture = String::new();
-                    for y in y1..y2 {
-                        picture.push('|');
-                        picture.extend(
-                            cells_curr[(y * n + x1) as usize..(y * n + x2) as usize]
-                                .iter()
-                                .map(|&c| if c == 0 { ' ' } else { '#' }),
-                        );
-                        picture.push('|');
-                        picture.extend(
-                            cells_example[(y * n + x1) as usize..(y * n + x2) as usize]
-                                .iter()
-                                .map(|&c| if c == 0 { ' ' } else { '#' }),
-                        );
-                        picture.push_str("|\n");
-                    }
-                    panic!("Mismatch at ({}, {}):\n{}", x, y, picture);
-                }
-            }
+            assert_eq!(engine.current_state().hash(), first, "Fields do not match");
         }
     }
 
     #[test]
     fn test_single_updates() {
         for size_log2 in [7, 9] {
-            for steps_log2 in 0..size_log2 {
+            for generations_log2 in 0..size_log2 {
                 let mut engines = randomly_filled(size_log2, SEED);
 
                 for engine in engines.iter_mut() {
-                    engine.update(steps_log2, Topology::Torus);
+                    engine.update(generations_log2);
                 }
 
                 assert_fields_equal(&engines);
@@ -83,9 +42,9 @@ mod tests {
         for size_log2 in [7, 9] {
             let mut engines = randomly_filled(size_log2, SEED);
 
-            for steps_log2 in 0..size_log2 {
+            for generations_log2 in 0..size_log2 {
                 for engine in engines.iter_mut() {
-                    engine.update(steps_log2, Topology::Torus);
+                    engine.update(generations_log2);
                 }
 
                 assert_fields_equal(&engines);
@@ -98,9 +57,9 @@ mod tests {
         for size_log2 in [7, 9] {
             let mut engines = randomly_filled(size_log2, SEED);
 
-            for steps_log2 in 0..size_log2 {
+            for generations_log2 in 0..size_log2 {
                 for engine in engines.iter_mut() {
-                    engine.update(steps_log2, Topology::Torus);
+                    engine.update(generations_log2);
                     engine.run_gc();
                 }
 

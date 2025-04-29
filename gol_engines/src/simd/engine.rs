@@ -1,12 +1,43 @@
-use crate::{GoLEngine, NiceInt, Topology, MAX_SIDE_LOG2, MIN_SIDE_LOG2};
+use crate::{GoLEngine, Pattern, PatternFormat, Topology};
+use anyhow::{anyhow, Result};
+use num_bigint::BigInt;
 
-pub struct SimdEngine {
+/// A fast, SIMD-optimized engine for Conway's Game of Life that uses bitwise operations
+/// for efficient cell state updates.
+///
+/// # Limitations
+///
+/// - Only supports torus topology (wrapping boundaries)
+/// - Requires patterns with `size_log2` of at least 7 (128×128 cells)
+///
+/// # Example
+///
+/// ```rust
+/// use gol_engines::{GoLEngine, Pattern, PatternFormat, SIMDEngine, Topology};
+///
+/// // Load a pattern (must be at least 128×128)
+/// let pattern = Pattern::random(7, None).unwrap();
+/// let mut expanded_pattern = pattern.clone();
+/// expanded_pattern.expand(7); // Expand to at least 128×128
+///
+/// // Create the SIMD engine
+/// let mut engine = SIMDEngine::from_pattern(&expanded_pattern, Topology::Torus).unwrap();
+///
+/// // Run for 2^10 = 1024 generations
+/// engine.update(10, Topology::Torus);
+///
+/// // Get the current state
+/// let result = engine.current_state();
+/// ```
+pub struct SIMDEngine {
+    /// The packed cell data, where each bit represents a cell and 64 cells are stored in each u64
     data: Vec<u64>,
-    n: u64,
+    /// The side length of the square grid (must be a power of 2)
+    n: usize,
 }
 
-impl SimdEngine {
-    const CELLS_IN_CHUNK: u64 = 64;
+impl SIMDEngine {
+    const CELLS_IN_CHUNK: usize = 64;
 
     fn update_row(row_prev: &[u64], row_curr: &[u64], row_next: &[u64], dst: &mut [u64]) {
         // TODO: double word technique
@@ -78,10 +109,7 @@ impl SimdEngine {
     }
 
     fn update_inner(&mut self) {
-        let (w, h) = (
-            self.n as usize >> Self::CELLS_IN_CHUNK.ilog2(),
-            self.n as usize,
-        );
+        let (w, h) = (self.n >> Self::CELLS_IN_CHUNK.ilog2(), self.n);
         let mut row_prev = self.data[(h - 1) * w..].to_vec();
         let mut row_curr = self.data[..w].to_vec();
         let row_preserved = row_curr.to_vec();
@@ -89,7 +117,7 @@ impl SimdEngine {
         let dst = &mut self.data[..w];
         Self::update_row(&row_prev, &row_curr, &row_next, dst);
 
-        for y in 1..self.n as usize - 1 {
+        for y in 1..self.n - 1 {
             std::mem::swap(&mut row_prev, &mut row_curr);
             std::mem::swap(&mut row_curr, &mut row_next);
             row_next.copy_from_slice(&self.data[(y + 1) * w..(y + 2) * w]);
@@ -104,121 +132,51 @@ impl SimdEngine {
     }
 }
 
-impl GoLEngine for SimdEngine {
-    fn blank(size_log2: u32) -> Self {
-        assert!((MIN_SIDE_LOG2..=MAX_SIDE_LOG2).contains(&size_log2));
-        let n: u64 = 1 << size_log2;
-        Self {
-            data: vec![0; 1 << (size_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())],
-            n,
+impl GoLEngine for SIMDEngine {
+    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
+        if topology != Topology::Torus {
+            return Err(anyhow!("Only torus topology is supported by SIMDEngine"));
         }
-    }
-
-    fn from_recursive_otca_metapixel(_depth: u32, _top_pattern: Vec<Vec<u8>>) -> Self
-    where
-        Self: Sized,
-    {
-        // let cells = HashLifeEngine::from_recursive_otca_metapixel(depth, top_pattern).get_cells();
-        // assert!(cells.len().is_power_of_two());
-        // let size_log2 = (cells.len().ilog2() + 6) / 2;
-        // Self::from_cells_array(size_log2, cells)
-        unimplemented!()
-    }
-
-    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self
-    where
-        Self: Sized,
-    {
-        assert_eq!(
-            cells.len(),
-            1 << (size_log2 * 2 - Self::CELLS_IN_CHUNK.ilog2())
-        );
-        Self {
-            data: cells,
-            n: 1 << size_log2,
+        if pattern.get_size_log2() < 7 {
+            return Err(anyhow!("Pattern is too small for SIMDEngine"));
         }
-    }
 
-    fn get_cells(&self) -> Vec<u64> {
-        self.data.clone()
-    }
-
-    fn side_length_log2(&self) -> u32 {
-        self.n.ilog2()
-    }
-
-    fn get_cell(&self, x: u64, y: u64) -> bool {
-        let pos = (x + y * self.n) >> Self::CELLS_IN_CHUNK.ilog2();
-        let offset = x & (Self::CELLS_IN_CHUNK - 1);
-        self.data[pos as usize] >> offset & 1 != 0
-    }
-
-    fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        let pos = (x + y * self.n) >> Self::CELLS_IN_CHUNK.ilog2();
-        let mask = 1 << (x & (Self::CELLS_IN_CHUNK - 1));
-        if state {
-            self.data[pos as usize] |= mask;
-        } else {
-            self.data[pos as usize] &= !mask;
+        let packed_cells = pattern.to_format(PatternFormat::PackedCells)?;
+        let n = 1 << pattern.get_size_log2();
+        let mut data = Vec::with_capacity(n * n / 64);
+        for chunk in packed_cells.chunks(8) {
+            let mut bytes = [0; 8];
+            bytes[..].copy_from_slice(chunk);
+            data.push(u64::from_le_bytes(bytes));
         }
+
+        Ok(Self { data, n })
     }
 
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
-        assert!(
-            matches!(topology, Topology::Torus),
-            "not supported ty this engine"
-        );
-        for _ in 0..1u64 << steps_log2 {
+    fn current_state(&self) -> Pattern {
+        let packed_cells = self
+            .data
+            .iter()
+            .flat_map(|&chunk| chunk.to_le_bytes())
+            .collect::<Vec<u8>>();
+        Pattern::from_format(PatternFormat::PackedCells, &packed_cells)
+            .expect("A bug in SIMDEngine")
+    }
+
+    fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
+        if generations_log2 >= 64 {
+            panic!(
+                "Generation count 2^{} is too large and would cause excessive runtime",
+                generations_log2
+            );
+        }
+        for _ in 0..1u64 << generations_log2 {
             self.update_inner();
         }
-        [0; 2]
-    }
-
-    fn fill_texture(
-        &mut self,
-        viewport_x: &mut f64,
-        viewport_y: &mut f64,
-        size: &mut f64,
-        resolution: &mut f64,
-        dst: &mut Vec<f64>,
-    ) {
-        *viewport_x = 0.;
-        *viewport_y = 0.;
-        *size = self.n as f64;
-        *resolution = self.n as f64;
-        dst.clear();
-        dst.resize((self.n.max(64) * self.n) as usize, 0.);
-        for y in 0..self.n {
-            for x in 0..self.n {
-                dst[(x + y * self.n) as usize] = self.get_cell(x, y) as u8 as f64;
-            }
-        }
-    }
-
-    fn population(&mut self) -> f64 {
-        self.data.iter().map(|x| x.count_ones() as u64).sum::<u64>() as f64
+        [BigInt::ZERO; 2]
     }
 
     fn bytes_total(&self) -> usize {
         self.data.capacity() * size_of::<u64>()
-    }
-
-    fn statistics(&mut self) -> String {
-        let mut s = "Engine: SIMD\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.n.ilog2());
-        let timer = std::time::Instant::now();
-        s += &format!("Population: {}\n", NiceInt::from_f64(self.population()));
-        s += &format!(
-            "Population compute time: {}\n",
-            timer.elapsed().as_secs_f64()
-        );
-        s += &format!("Memory on field: {} MB", self.bytes_total() >> 20);
-        s
-    }
-}
-
-impl Default for SimdEngine {
-    fn default() -> Self {
-        Self::blank(MIN_SIDE_LOG2)
     }
 }

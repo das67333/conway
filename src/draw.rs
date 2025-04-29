@@ -5,7 +5,7 @@ use eframe::egui::{
     TextureFilter, TextureOptions, TextureWrapMode, Ui, Vec2,
 };
 use egui_file::{DialogType, FileDialog};
-use gol_engines::{DefaultEngine, Engine, NiceInt, Topology};
+use gol_engines::{DefaultEngine, GoLEngine, NiceInt, Topology};
 
 impl App {
     fn new_text(text: &str) -> RichText {

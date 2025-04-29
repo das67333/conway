@@ -1,6 +1,8 @@
-use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIDE_LOG2};
-use crate::{GoLEngine, NiceInt, Topology, MIN_SIDE_LOG2};
+use super::{hashlife::HashLifeEngine, NodeIdx, LEAF_SIZE_LOG2};
+use crate::{GoLEngine, NiceInt, Topology, Pattern};
 use ahash::AHashMap as HashMap;
+use anyhow::Result;
+use num_bigint::BigInt;
 
 type MemoryManager = super::MemoryManager<u64>;
 
@@ -15,14 +17,14 @@ pub struct StreamLifeEngine {
 impl StreamLifeEngine {
     fn determine_direction(&mut self, idx: NodeIdx) -> u64 {
         let (nw, ne, sw, se) = {
-            let n = self.base.mem.get(idx, LEAF_SIDE_LOG2 + 1);
+            let n = self.base.mem.get(idx, LEAF_SIZE_LOG2 + 1);
             (n.nw, n.ne, n.sw, n.se)
         };
         let m = self.base.update_leaves(nw, ne, sw, se, 4);
-        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIDE_LOG2).leaf_cells());
+        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIZE_LOG2).leaf_cells());
 
         let [nw, ne, sw, se] = [nw, ne, sw, se]
-            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells()));
+            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()));
 
         let z64_centre_to_u64 = |x, y| {
             let xs = (4 + x) as u64;
@@ -79,7 +81,7 @@ impl StreamLifeEngine {
             return 0xffff;
         }
 
-        if size_log2 == LEAF_SIDE_LOG2 + 1 {
+        if size_log2 == LEAF_SIZE_LOG2 + 1 {
             if self.base.mem.get(idx, size_log2).meta & 0xffff0000 != 1 << 16 {
                 self.base.mem.get_mut(idx, size_log2).meta =
                     self.determine_direction(idx) | (1 << 16);
@@ -119,29 +121,29 @@ impl StreamLifeEngine {
                 return 0;
             }
 
-            if size_log2 == LEAF_SIDE_LOG2 + 2 {
+            if size_log2 == LEAF_SIZE_LOG2 + 2 {
                 let tlx = {
-                    let nw = self.base.mem.get(nw, LEAF_SIDE_LOG2 + 1);
+                    let nw = self.base.mem.get(nw, LEAF_SIZE_LOG2 + 1);
                     [nw.nw, nw.ne, nw.sw, nw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
                     })
                 };
                 let trx = {
-                    let ne = self.base.mem.get(ne, LEAF_SIDE_LOG2 + 1);
+                    let ne = self.base.mem.get(ne, LEAF_SIZE_LOG2 + 1);
                     [ne.nw, ne.ne, ne.sw, ne.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
                     })
                 };
                 let blx = {
-                    let sw = self.base.mem.get(sw, LEAF_SIDE_LOG2 + 1);
+                    let sw = self.base.mem.get(sw, LEAF_SIZE_LOG2 + 1);
                     [sw.nw, sw.ne, sw.sw, sw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
                     })
                 };
                 let brx = {
-                    let se = self.base.mem.get(se, LEAF_SIDE_LOG2 + 1);
+                    let se = self.base.mem.get(se, LEAF_SIZE_LOG2 + 1);
                     [se.nw, se.ne, se.sw, se.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIDE_LOG2).leaf_cells())
+                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
                     })
                 };
 
@@ -156,19 +158,19 @@ impl StreamLifeEngine {
                     let ne = mem.find_leaf_from_u64(x[1]);
                     let sw = mem.find_leaf_from_u64(x[2]);
                     let se = mem.find_leaf_from_u64(x[3]);
-                    mem.find_node(nw, ne, sw, se, LEAF_SIDE_LOG2 + 1)
+                    mem.find_node(nw, ne, sw, se, LEAF_SIZE_LOG2 + 1)
                 };
 
                 let x = prepared(&mut self.base.mem, &tc);
-                childlanes[1] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
+                childlanes[1] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cl);
-                childlanes[3] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
+                childlanes[3] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cc);
-                childlanes[4] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
+                childlanes[4] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &cr);
-                childlanes[5] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
+                childlanes[5] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 let x = prepared(&mut self.base.mem, &bc);
-                childlanes[7] = self.node2lanes(x, LEAF_SIDE_LOG2 + 1);
+                childlanes[7] = self.node2lanes(x, LEAF_SIZE_LOG2 + 1);
                 adml &=
                     childlanes[1] & childlanes[3] & childlanes[4] & childlanes[5] & childlanes[7];
             } else {
@@ -211,8 +213,8 @@ impl StreamLifeEngine {
              * Lane numbers are modulo 32, with each lane being either
              * 8 rows, 8 columns, or 8hd (in either diagonal direction)
              */
-            let a: u64 = if size_log2 - LEAF_SIDE_LOG2 - 2 <= 4 {
-                1 << (size_log2 - LEAF_SIDE_LOG2 - 2)
+            let a: u64 = if size_log2 - LEAF_SIZE_LOG2 - 2 <= 4 {
+                1 << (size_log2 - LEAF_SIZE_LOG2 - 2)
             } else {
                 0
             };
@@ -324,7 +326,7 @@ impl StreamLifeEngine {
         }
         let m0 = self.base.mem.get(idx.0, size_log2).clone();
         let m1 = self.base.mem.get(idx.1, size_log2).clone();
-        if size_log2 == LEAF_SIDE_LOG2 {
+        if size_log2 == LEAF_SIZE_LOG2 {
             let l0 = u64::from_le_bytes(m0.leaf_cells());
             let l1 = u64::from_le_bytes(m1.leaf_cells());
             debug_assert!(l0 & l1 == 0, "universes overlap");
@@ -361,7 +363,7 @@ impl StreamLifeEngine {
             return *cache;
         }
 
-        if size_log2 == LEAF_SIDE_LOG2 + 2 {
+        if size_log2 == LEAF_SIZE_LOG2 + 2 {
             // TODO: inline merging universities
             let hnode2 = self.merge_universes(idx, size_log2);
             let i3 = self.base.update_node(hnode2, size_log2);
@@ -380,7 +382,7 @@ impl StreamLifeEngine {
             let mut ch91 = self.ninechildren(idx.0, size_log2);
             let mut ch92 = self.ninechildren(idx.1, size_log2);
 
-            let both_stages = self.base.steps_per_update_log2 + 2 >= size_log2;
+            let both_stages = self.base.generations_per_update_log2 + 2 >= size_log2;
 
             for i in 0..9 {
                 if !both_stages {
@@ -424,21 +426,21 @@ impl StreamLifeEngine {
         }
     }
 
-    fn add_frame(&mut self, topology: Topology, dx: &mut i64, dy: &mut i64) {
+    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
                 self.base
-                    .with_frame(biroot.0, self.base.size_log2, topology),
+                    .with_frame(biroot.0, self.base.size_log2),
                 self.base
-                    .with_frame(biroot.1, self.base.size_log2, topology),
+                    .with_frame(biroot.1, self.base.size_log2),
             ))
         } else {
             None
         };
-        self.base.add_frame(topology, dx, dy);
+        self.base.add_frame(dx, dy);
     }
 
-    fn pop_frame(&mut self, dx: &mut i64, dy: &mut i64) {
+    fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
                 self.base.without_frame(biroot.0, self.base.size_log2),
@@ -452,73 +454,26 @@ impl StreamLifeEngine {
 }
 
 impl GoLEngine for StreamLifeEngine {
-    fn blank(size_log2: u32) -> Self {
-        Self {
-            base: HashLifeEngine::<u64>::blank(size_log2),
-            bicache: HashMap::default(),
-            biroot: None,
-        }
+    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
+        todo!()
     }
 
-    fn from_recursive_otca_metapixel(depth: u32, top_pattern: Vec<Vec<u8>>) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            base: HashLifeEngine::<u64>::from_recursive_otca_metapixel(depth, top_pattern),
-            ..Default::default()
-        }
+    fn current_state(&self) -> Pattern {
+        todo!()
     }
 
-    fn from_macrocell(data: &[u8]) -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            base: HashLifeEngine::<u64>::from_macrocell(data),
-            ..Default::default()
-        }
-    }
-
-    fn from_cells_array(size_log2: u32, cells: Vec<u64>) -> Self {
-        Self {
-            base: HashLifeEngine::<u64>::from_cells_array(size_log2, cells),
-            ..Default::default()
-        }
-    }
-
-    fn save_as_macrocell(&self) -> Vec<u8> {
-        self.base.save_as_macrocell()
-    }
-
-    fn get_cells(&self) -> Vec<u64> {
-        self.base.get_cells()
-    }
-
-    fn side_length_log2(&self) -> u32 {
-        self.base.side_length_log2()
-    }
-
-    fn get_cell(&self, x: u64, y: u64) -> bool {
-        self.base.get_cell(x, y)
-    }
-
-    fn set_cell(&mut self, x: u64, y: u64, state: bool) {
-        self.base.set_cell(x, y, state);
-    }
-
-    fn update(&mut self, steps_log2: u32, topology: Topology) -> [i64; 2] {
-        if self.base.has_cache && self.base.steps_per_update_log2 != steps_log2 {
+    fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
+        if self.base.has_cache && self.base.generations_per_update_log2 != generations_log2 {
             self.run_gc();
         }
 
         self.base.has_cache = true;
-        self.base.steps_per_update_log2 = steps_log2;
+        self.base.generations_per_update_log2 = generations_log2;
 
-        let frames_cnt = (steps_log2 + 2).max(self.base.size_log2 + 1) - self.base.size_log2;
-        let (mut dx, mut dy) = (0, 0);
+        let frames_cnt = (generations_log2 + 2).max(self.base.size_log2 + 1) - self.base.size_log2;
+        let (mut dx, mut dy) = (BigInt::ZERO, BigInt::ZERO);
         for _ in 0..frames_cnt {
-            self.add_frame(topology, &mut dx, &mut dy);
+            self.add_frame(&mut dx, &mut dy);
         }
 
         let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
@@ -526,17 +481,17 @@ impl GoLEngine for StreamLifeEngine {
         self.base.size_log2 -= 1;
         self.biroot = Some(biroot);
         self.base.root = self.merge_universes(biroot, self.base.size_log2);
-        dx -= 1 << (self.base.size_log2 - 1);
-        dy -= 1 << (self.base.size_log2 - 1);
+        dx -= BigInt::from(1) << (self.base.size_log2 - 1);
+        dy -= BigInt::from(1) << (self.base.size_log2 - 1);
 
-        match topology {
+        match self.base.topology {
             Topology::Torus => {
                 for _ in 0..frames_cnt - 1 {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
             Topology::Unbounded => {
-                while self.base.frame_is_blank() {
+                while self.base.can_pop_blank_frame() {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -545,24 +500,11 @@ impl GoLEngine for StreamLifeEngine {
         [dx, dy]
     }
 
-    fn fill_texture(
-        &mut self,
-        viewport_x: &mut f64,
-        viewport_y: &mut f64,
-        size: &mut f64,
-        resolution: &mut f64,
-        dst: &mut Vec<f64>,
-    ) {
-        self.base
-            .fill_texture(viewport_x, viewport_y, size, resolution, dst);
-    }
-
-    fn population(&mut self) -> f64 {
-        self.base.population()
-    }
-
-    fn hash(&self) -> u64 {
-        self.base.hash()
+    fn run_gc(&mut self) {
+        self.bicache.clear();
+        self.biroot = None;
+        self.base.gc_mark(self.base.root, self.base.size_log2);
+        self.base.mem.gc_finish();
     }
 
     fn bytes_total(&self) -> usize {
@@ -574,13 +516,6 @@ impl GoLEngine for StreamLifeEngine {
     fn statistics(&mut self) -> String {
         let mut s = "Engine: Hashlife\n".to_string();
         s += &format!("Side length: 2^{}\n", self.base.size_log2);
-        let (population, duration) = {
-            let timer = std::time::Instant::now();
-            let population = self.population();
-            (population, timer.elapsed())
-        };
-        s += &format!("Population: {}\n", NiceInt::from_f64(population));
-        s += &format!("Population compute time: {}\n", duration.as_secs_f64());
         let total_bytes =
             self.bicache.capacity() * size_of::<(((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx))>();
         s += &format!(
@@ -589,19 +524,5 @@ impl GoLEngine for StreamLifeEngine {
         );
         s += &self.base.mem.stats_fast();
         s
-    }
-
-    fn run_gc(&mut self) {
-        self.bicache.clear();
-        self.biroot = None;
-        self.base.gc_mark(self.base.root, self.base.size_log2);
-        self.base.mem.gc_finish();
-        self.base.population.clear_cache();
-    }
-}
-
-impl Default for StreamLifeEngine {
-    fn default() -> Self {
-        Self::blank(MIN_SIDE_LOG2)
     }
 }

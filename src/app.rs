@@ -3,10 +3,10 @@ use eframe::egui::{
     CentralPanel, Color32, ColorImage, Context, Frame, Rect, TextureHandle, TextureOptions,
 };
 use egui_file::FileDialog;
-use gol_engines::{DefaultEngine, Engine, Topology};
+use gol_engines::{DefaultEngine, GoLEngine, Topology};
 
 pub struct App {
-    pub(super) life_engine: Box<dyn Engine>, // Conway's GoL engine.
+    pub(super) life_engine: Box<dyn GoLEngine>, // Conway's GoL engine.
     pub(super) is_paused: bool,              // Flag indicating whether the simulation is paused.
     pub(super) pause_after_updates: bool, // Flag indicating whether to pause after a certain number of updates.
     pub(super) updates_before_pause: u64, // Number of updates left before stopping.

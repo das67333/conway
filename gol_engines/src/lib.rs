@@ -1,17 +1,24 @@
 #![warn(clippy::all, clippy::cargo)]
 
-mod quadtree;
+mod pattern;
+// mod quadtree;
+mod config;
 mod quadtree_async;
 mod simd;
+mod topology;
+mod traits;
 mod utils;
 
-pub use quadtree::{HashLifeEngine, StreamLifeEngine};
+pub use pattern::{Pattern, PatternFormat, PatternNode};
+pub use topology::Topology;
+pub use traits::GoLEngine;
+
+pub use config::{get_config, set_memory_manager_cap_log2};
+// pub use quadtree::{HashLifeEngine, StreamLifeEngine};
 pub use quadtree_async::HashLifeEngineAsync;
-pub use quadtree_async::{NodeIdx, QuadTreeNode};
-pub use simd::SimdEngine;
-pub use utils::{parse_rle, GoLEngine, NiceInt, Topology};
+pub use simd::SIMDEngine;
+pub use utils::NiceInt;
 
-pub type DefaultEngine = StreamLifeEngine;
+pub type DefaultEngine = SIMDEngine;
 
-pub const MIN_SIDE_LOG2: u32 = 7;
-pub const MAX_SIDE_LOG2: u32 = 62;
+pub const VERSION: &str = "1.0";

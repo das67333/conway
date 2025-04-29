@@ -1,4 +1,4 @@
-use super::{MemoryManager, NodeIdx, LEAF_SIDE_LOG2};
+use super::{MemoryManager, NodeIdx, LEAF_SIZE_LOG2};
 use ahash::AHashMap as HashMap;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -31,7 +31,7 @@ impl PopulationManager {
             *val
         } else {
             let n = mem.get(idx, size_log2);
-            let population = if size_log2 == LEAF_SIDE_LOG2 {
+            let population = if size_log2 == LEAF_SIZE_LOG2 {
                 u64::from_le_bytes(n.leaf_cells()).count_ones() as f64
             } else {
                 self.get(n.nw, size_log2 - 1, mem)

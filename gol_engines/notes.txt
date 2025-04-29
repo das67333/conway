@@ -8,7 +8,13 @@ https://dotat.at/prog/life/hashlife.c
 
 heaptrack target/release/bench_0e0p
 
-TODO: proper app name, comments in save_as_macrocell
+TODO:
+SPECIFIC "struct Pattern" for API !!!
+inline less in update_node
+benchmark prefetching
+other rules
+write logs
+proper app name, comments in save_as_macrocell
 create a set of different patterns for tests
 validate more (from_macrocell, ...)
 

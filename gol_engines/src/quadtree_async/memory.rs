@@ -1,6 +1,6 @@
 use std::{cell::UnsafeCell, sync::atomic::Ordering};
-
 use super::{NodeIdx, QuadTreeNode};
+use crate::get_config;
 
 pub struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
@@ -11,7 +11,7 @@ unsafe impl Sync for MemoryManager {}
 impl MemoryManager {
     /// Create a new memory manager with a default capacity.
     pub fn new() -> Self {
-        Self::with_capacity(26)
+        Self::with_capacity(get_config().memory_manager_cap_log2)
     }
 
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
@@ -101,11 +101,6 @@ impl MemoryManager {
 
     pub fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
-    }
-
-    /// Statistics about the memory manager that are fast to compute.
-    pub fn stats_fast(&self) -> String {
-        unsafe { (*self.base.get()).stats_fast() }
     }
 }
 
@@ -257,72 +252,5 @@ impl MemoryManagerRaw {
 
     pub fn bytes_total(&self) -> usize {
         self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
-    }
-
-    /// Statistics about the memory manager that are fast to compute.
-    pub fn stats_fast(&self) -> String {
-        let mut s = String::new();
-
-        // s.push_str(&format!(
-        //     "hashtable size/capacity: {}/{} MB\n",
-        //     NiceInt::from_usize(
-        //         (self.ht_size as usize * std::mem::size_of::<QuadTreeNode>()) >> 20
-        //     ),
-        //     NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
-        // ));
-
-        // s.push_str(&format!(
-        //     "hashtable load factor: {:.3}\n",
-        //     self.ht_size as f64 / self.hashtable.len() as f64,
-        // ));
-
-        // s.push_str(&format!(
-        //     "hashtable misses / hits: {} / {}\n",
-        //     NiceInt::from(self.misses.load(Ordering::Relaxed)),
-        //     NiceInt::from(self.hits.load(Ordering::Relaxed)),
-        // ));
-
-        s
-    }
-
-    /// Statistics about the memory manager that are slow to compute.
-    pub fn stats_slow(&self) -> String {
-        unimplemented!()
-        // let mut size_log2_cnt: Vec<u64> = vec![];
-
-        // for mut n in self.hashtable.iter() {
-        //     if n.ctrl == Self::CTRL_EMPTY || n.ctrl == Self::CTRL_DELETED {
-        //         continue;
-        //     }
-        //     let mut height = 0;
-        //     while !n.is_leaf() {
-        //         n = self.get(n.nw);
-        //         height += 1;
-        //     }
-        //     if size_log2_cnt.len() <= height {
-        //         size_log2_cnt.resize(height + 1, 0);
-        //     }
-        //     size_log2_cnt[height] += 1;
-        // }
-
-        // let sum = size_log2_cnt.iter().sum::<u64>();
-
-        // let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
-        // s.push_str(&format!("total - {}\n", NiceInt::from(sum)));
-        // for (height, count) in size_log2_cnt.iter().enumerate() {
-        //     let percent = count * 100 / sum;
-        //     if percent == 0 {
-        //         continue;
-        //     }
-        //     s.push_str(&format!(
-        //         "2^{:<2} -{:>3}%\n",
-        //         LEAF_SIZE.ilog2() + height as u32,
-        //         percent,
-        //     ));
-        // }
-
-        // s.push('\n');
-
-        // s
     }
 }

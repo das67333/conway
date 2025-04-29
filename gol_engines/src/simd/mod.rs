@@ -1,3 +1,3 @@
 mod engine;
 
-pub use engine::SimdEngine;
+pub use engine::SIMDEngine;
