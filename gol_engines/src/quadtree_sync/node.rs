@@ -11,7 +11,7 @@ pub(super) struct QuadTreeNode {
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
     pub(super) se: NodeIdx,
-    /// center after n/4 x n/4 generations, valid only if `status` is `STATUS_CACHED`
+    /// center after n/4 x n/4 generations, valid only if `has_cache` is true
     pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
     pub(super) gc_marked: bool,
@@ -20,6 +20,10 @@ pub(super) struct QuadTreeNode {
 }
 
 impl QuadTreeNode {
+    pub(super) fn is_leaf(&self) -> bool {
+        self.ctrl >> 6 == 1
+    }
+
     pub(super) fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
             .wrapping_add((nw.0).wrapping_mul(5))

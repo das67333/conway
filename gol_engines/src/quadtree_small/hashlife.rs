@@ -391,11 +391,6 @@ impl HashLifeEngineSmall {
         self.size_log2 -= 1;
     }
 
-    fn invalidate_broken_cache(&mut self, old_generations_log2: u32, new_generations_log2: u32) {
-        let since_size_log2 = old_generations_log2.min(new_generations_log2) + 3;
-        self.mem.invalidate_cache(since_size_log2);
-    }
-
     /// Recursively mark nodes to rescue them from garbage collection.
     fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
         if idx == NodeIdx(0) {
@@ -497,7 +492,9 @@ impl GoLEngine for HashLifeEngineSmall {
     fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
         if let Some(cached_generations_log2) = self.generations_per_update_log2 {
             if cached_generations_log2 != generations_log2 {
-                self.invalidate_broken_cache(cached_generations_log2, generations_log2);
+                let since_size_log2 = cached_generations_log2.min(generations_log2) + 3;
+                let since_size_log2 = since_size_log2.max(4); // leaves never have cache
+                self.mem.invalidate_cache(since_size_log2);
             }
         }
         self.generations_per_update_log2 = Some(generations_log2);

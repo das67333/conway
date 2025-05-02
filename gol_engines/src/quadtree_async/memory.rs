@@ -1,6 +1,6 @@
 use super::{NodeIdx, QuadTreeNode};
 use crate::get_config;
-use std::{cell::UnsafeCell, sync::atomic::Ordering};
+use std::cell::UnsafeCell;
 
 pub(super) struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
@@ -100,8 +100,11 @@ impl MemoryManager {
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
-    pub(super) fn clear_cache(&mut self) {
-        self.base.get_mut().clear_cache();
+    pub(super) fn clear(&mut self) {
+        self.base
+            .get_mut()
+            .hashtable
+            .fill_with(|| QuadTreeNode::default());
     }
 
     pub(super) fn bytes_total(&self) -> usize {
@@ -241,13 +244,6 @@ impl MemoryManagerRaw {
         }
 
         NodeIdx(index as u32)
-    }
-
-    fn clear_cache(&mut self) {
-        for n in self.hashtable.iter() {
-            n.status
-                .store(QuadTreeNode::STATUS_NOT_CACHED, Ordering::Relaxed);
-        }
     }
 
     fn bytes_total(&self) -> usize {

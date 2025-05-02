@@ -3,7 +3,7 @@ use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 
 /// A fast, SIMD-optimized engine for Conway's Game of Life that uses bitwise operations
-/// for efficient cell state updates.
+/// for efficient cell state updates. Its performance is pattern-oblivious.
 ///
 /// # Limitations
 ///

@@ -386,39 +386,39 @@ impl HashLifeEngineAsync {
         *dy -= BigInt::from(1) << (self.size_log2 - 2);
         self.size_log2 -= 1;
     }
+
+    fn from_pattern_recursive(
+        idx: u32,
+        pattern: &Pattern,
+        mem: &MemoryManager,
+        cache: &mut HashMap<u32, NodeIdx>,
+    ) -> NodeIdx {
+        if let Some(&cached) = cache.get(&idx) {
+            return cached;
+        }
+        let result = match pattern.get_node(idx) {
+            PatternNode::Leaf(cells) => mem.find_or_create_leaf_from_u64(*cells),
+            PatternNode::Node { nw, ne, sw, se } => mem.find_or_create_node(
+                Self::from_pattern_recursive(*nw, pattern, mem, cache),
+                Self::from_pattern_recursive(*ne, pattern, mem, cache),
+                Self::from_pattern_recursive(*sw, pattern, mem, cache),
+                Self::from_pattern_recursive(*se, pattern, mem, cache),
+            ),
+        };
+        cache.insert(idx, result);
+        result
+    }
 }
 
 impl GoLEngine for HashLifeEngineAsync {
     fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
-        fn inner(
-            idx: u32,
-            pattern: &Pattern,
-            mem: &MemoryManager,
-            cache: &mut HashMap<u32, NodeIdx>,
-        ) -> NodeIdx {
-            if let Some(&cached) = cache.get(&idx) {
-                return cached;
-            }
-            let result = match pattern.get_node(idx) {
-                PatternNode::Leaf(cells) => mem.find_or_create_leaf_from_u64(*cells),
-                PatternNode::Node { nw, ne, sw, se } => mem.find_or_create_node(
-                    inner(*nw, pattern, mem, cache),
-                    inner(*ne, pattern, mem, cache),
-                    inner(*sw, pattern, mem, cache),
-                    inner(*se, pattern, mem, cache),
-                ),
-            };
-            cache.insert(idx, result);
-            result
-        }
-
         let size_log2 = pattern.get_size_log2();
         if size_log2 < LEAF_SIZE_LOG2 {
             return Err(anyhow!("Pattern is too small"));
         }
         let mut cache = HashMap::new();
         let mem = MemoryManager::new();
-        let root = inner(pattern.get_root(), pattern, &mem, &mut cache);
+        let root = Self::from_pattern_recursive(pattern.get_root(), pattern, &mem, &mut cache);
         Ok(Self {
             size_log2,
             root,
@@ -469,7 +469,7 @@ impl GoLEngine for HashLifeEngineAsync {
     fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
         if let Some(cached_generations_log2) = self.generations_per_update_log2 {
             if cached_generations_log2 != generations_log2 {
-                self.run_gc(); // TODO: only invalid cache
+                self.run_gc();
             }
         }
         self.generations_per_update_log2 = Some(generations_log2);
@@ -507,27 +507,11 @@ impl GoLEngine for HashLifeEngineAsync {
     }
 
     fn run_gc(&mut self) {
-        /// Recursively mark nodes to rescue them from garbage collection.
-        fn gc_mark(mem: &MemoryManager, idx: NodeIdx, size_log2: u32) {
-            if idx == NodeIdx(0) {
-                return;
-            }
-
-            mem.get(idx)
-                .status
-                .fetch_or(QuadTreeNode::STATUS_GC_MASK, Ordering::Relaxed);
-            if size_log2 == LEAF_SIZE_LOG2 {
-                return;
-            }
-
-            for x in mem.get(idx).parts() {
-                gc_mark(mem, x, size_log2 - 1);
-            }
-        }
-
-        // self.mem.gc_mark(self.root, self.size_log2);
-        // self.mem.gc_finish();
-        // self.population.clear_cache();
+        let pattern = self.current_state();
+        self.mem.clear();
+        let mut cache = HashMap::new();
+        self.root =
+            Self::from_pattern_recursive(pattern.get_root(), &pattern, &self.mem, &mut cache);
     }
 
     fn bytes_total(&self) -> usize {

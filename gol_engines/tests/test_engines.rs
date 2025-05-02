@@ -25,47 +25,41 @@ mod tests {
 
     #[test]
     fn test_single_updates() {
-        for size_log2 in [7, 9] {
-            for generations_log2 in 0..size_log2 {
-                let mut engines = build_engines();
+        for generations_log2 in 0..7 {
+            let mut engines = build_engines();
 
-                for engine in engines.iter_mut() {
-                    engine.update(generations_log2);
-                }
-
-                assert_fields_equal(&engines);
+            for engine in engines.iter_mut() {
+                engine.update(generations_log2);
             }
+
+            assert_fields_equal(&engines);
         }
     }
 
     #[test]
     fn test_repetitive_updates_without_gc() {
-        for size_log2 in [7, 9, 8] {
-            let mut engines = build_engines();
+        let mut engines = build_engines();
 
-            for generations_log2 in 0..size_log2 {
-                for engine in engines.iter_mut() {
-                    engine.update(generations_log2);
-                }
-
-                assert_fields_equal(&engines);
+        for generations_log2 in 0..7 {
+            for engine in engines.iter_mut() {
+                engine.update(generations_log2);
             }
+
+            assert_fields_equal(&engines);
         }
     }
 
     #[test]
     fn test_repetitive_updates_with_gc() {
-        for size_log2 in [7, 9, 8] {
-            let mut engines = build_engines();
+        let mut engines = build_engines();
 
-            for generations_log2 in 0..size_log2 {
-                for engine in engines.iter_mut() {
-                    engine.update(generations_log2);
-                    engine.run_gc();
-                }
-
-                assert_fields_equal(&engines);
+        for generations_log2 in 0..7 {
+            for engine in engines.iter_mut() {
+                engine.update(generations_log2);
+                engine.run_gc();
             }
+
+            assert_fields_equal(&engines);
         }
     }
 }

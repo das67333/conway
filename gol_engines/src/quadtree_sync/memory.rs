@@ -1,5 +1,5 @@
 use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
-use crate::{get_config, NiceInt};
+use crate::get_config;
 use std::cell::UnsafeCell;
 
 /// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
@@ -153,8 +153,11 @@ impl MemoryManager {
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
-    pub(super) fn clear_cache(&mut self) {
-        self.base.get_mut().clear_cache();
+    pub(super) fn clear(&mut self) {
+        self.base
+            .get_mut()
+            .hashtable
+            .fill_with(|| QuadTreeNode::default());
     }
 
     pub(super) fn bytes_total(&self) -> usize {
@@ -175,11 +178,10 @@ struct MemoryManagerRaw {
 impl MemoryManagerRaw {
     // control byte:
     // 00000000     -> empty
-    // 00111111     -> deleted
+    // 00111111     -> deleted (not used)
     // 01<hash>     -> full (leaf)
     // 1<hash>      -> full (node)
     const CTRL_EMPTY: u8 = 0;
-    const CTRL_DELETED: u8 = (1 << 6) - 1;
     const CTRL_LEAF_BASE: u8 = 1 << 6;
     const CTRL_NODE_BASE: u8 = 1 << 7;
 
@@ -239,7 +241,6 @@ impl MemoryManagerRaw {
             }
         };
 
-        let mut first_deleted = None;
         loop {
             let n = self.hashtable.get_unchecked(index);
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
@@ -248,7 +249,7 @@ impl MemoryManagerRaw {
             }
 
             if n.ctrl == Self::CTRL_EMPTY {
-                self.hashtable[index] = QuadTreeNode {
+                *self.hashtable.get_unchecked_mut(index) = QuadTreeNode {
                     nw,
                     ne,
                     sw,
@@ -259,9 +260,6 @@ impl MemoryManagerRaw {
                 self.misses += 1;
                 break;
             }
-            if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
-                first_deleted = Some(index);
-            }
 
             index = index.wrapping_add(1) & mask;
         }
@@ -269,73 +267,7 @@ impl MemoryManagerRaw {
         NodeIdx(index as u32)
     }
 
-    fn clear_cache(&mut self) {
-        for n in self.hashtable.iter_mut() {
-            n.has_cache = false;
-        }
-    }
-
     fn bytes_total(&self) -> usize {
         self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
-    }
-
-    /// Statistics about the memory manager that are fast to compute.
-    fn stats_fast(&self) -> String {
-        let mut s = String::new();
-
-        s.push_str(&format!(
-            "hashtable size/capacity: {}/{} MB\n",
-            NiceInt::from_usize((self.misses as usize * std::mem::size_of::<QuadTreeNode>()) >> 20),
-            NiceInt::from_usize((self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()) >> 20),
-        ));
-
-        s.push_str(&format!(
-            "hashtable misses / hits: {} / {}\n",
-            NiceInt::from(self.misses),
-            NiceInt::from(self.hits),
-        ));
-
-        s
-    }
-
-    /// Statistics about the memory manager that are slow to compute.
-    fn stats_slow(&self) -> String {
-        unimplemented!()
-        // let mut size_log2_cnt: Vec<u64> = vec![];
-
-        // for mut n in self.hashtable.iter() {
-        //     if n.ctrl == Self::CTRL_EMPTY || n.ctrl == Self::CTRL_DELETED {
-        //         continue;
-        //     }
-        //     let mut height = 0;
-        //     while !n.is_leaf() {
-        //         n = self.get(n.nw);
-        //         height += 1;
-        //     }
-        //     if size_log2_cnt.len() <= height {
-        //         size_log2_cnt.resize(height + 1, 0);
-        //     }
-        //     size_log2_cnt[height] += 1;
-        // }
-
-        // let sum = size_log2_cnt.iter().sum::<u64>();
-
-        // let mut s = "\nNodes' sizes (side lengths) distribution:\n".to_string();
-        // s.push_str(&format!("total - {}\n", NiceInt::from(sum)));
-        // for (height, count) in size_log2_cnt.iter().enumerate() {
-        //     let percent = count * 100 / sum;
-        //     if percent == 0 {
-        //         continue;
-        //     }
-        //     s.push_str(&format!(
-        //         "2^{:<2} -{:>3}%\n",
-        //         LEAF_SIZE.ilog2() + height as u32,
-        //         percent,
-        //     ));
-        // }
-
-        // s.push('\n');
-
-        // s
     }
 }

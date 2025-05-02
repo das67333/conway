@@ -7,7 +7,7 @@ fn main() {
     let data = std::fs::read("../res/0e0p-metaglider.mc").unwrap();
 
     let pattern = Pattern::from_format(PatternFormat::Macrocell, &data).unwrap();
-    let mut engine = HashLifeEngineSmall::from_pattern(&pattern, Topology::Unbounded).unwrap();
+    let mut engine = HashLifeEngineSync::from_pattern(&pattern, Topology::Unbounded).unwrap();
     assert_eq!(pattern.population(), BigInt::from(93_235_805));
     println!("Time spent on building field: {:?}", timer.elapsed());
 
