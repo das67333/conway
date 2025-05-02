@@ -21,7 +21,8 @@ fn main() {
     )
     .unwrap();
     let pattern = top_pattern.metafy(&[otca_off, otca_on], 2).unwrap();
-    let mut engine = HashLifeEngineAsync::from_pattern(&pattern, Topology::Unbounded).unwrap();
+    let mut engine = HashLifeEngineAsync::new();
+    engine.load_pattern(&pattern, Topology::Unbounded).unwrap();
     println!("Time on building field: {:?}", timer.elapsed());
 
     let timer = std::time::Instant::now();

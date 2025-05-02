@@ -246,11 +246,11 @@ impl Pattern {
     /// use gol_engines::{Pattern, PatternFormat};
     ///
     /// let mut pattern = gol_engines::Pattern::random(2, None).unwrap();
-    /// assert_eq!(pattern.size_log2(), 2); // 4x4 pattern
+    /// assert_eq!(pattern.get_size_log2(), 2); // 4x4 pattern
     ///
     /// // Expand to 256x256
     /// pattern.expand(8);
-    /// assert_eq!(pattern.size_log2(), 8);
+    /// assert_eq!(pattern.get_size_log2(), 8);
     /// ```
     ///
     /// # Note

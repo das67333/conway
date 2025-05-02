@@ -21,10 +21,11 @@ use num_bigint::BigInt;
 /// expanded_pattern.expand(7); // Expand to at least 128×128
 ///
 /// // Create the SIMD engine
-/// let mut engine = SIMDEngine::from_pattern(&expanded_pattern, Topology::Torus).unwrap();
+/// let mut engine = SIMDEngine::new();
+/// engine.load_pattern(&expanded_pattern, Topology::Torus).unwrap();
 ///
 /// // Run for 2^10 = 1024 generations
-/// engine.update(10, Topology::Torus);
+/// engine.update(10);
 ///
 /// // Get the current state
 /// let result = engine.current_state();
@@ -133,7 +134,14 @@ impl SIMDEngine {
 }
 
 impl GoLEngine for SIMDEngine {
-    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
+    fn new() -> Self {
+        Self {
+            data: vec![0; 1 << (7 * 2 - 6)],
+            n: 0,
+        }
+    }
+
+    fn load_pattern(&mut self, pattern: &Pattern, topology: Topology) -> Result<()> {
         if topology != Topology::Torus {
             return Err(anyhow!("Only torus topology is supported by SIMDEngine"));
         }
@@ -150,7 +158,9 @@ impl GoLEngine for SIMDEngine {
             data.push(u64::from_le_bytes(bytes));
         }
 
-        Ok(Self { data, n })
+        self.data = data;
+        self.n = n;
+        Ok(())
     }
 
     fn current_state(&self) -> Pattern {

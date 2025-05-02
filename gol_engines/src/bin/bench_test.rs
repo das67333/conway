@@ -16,20 +16,22 @@ fn main() {
     set_memory_manager_cap_log2(28);
 
     let paths = std::fs::read_dir("/home/das/Downloads/very_large_patterns").unwrap();
+    let mut engine = HashLifeEngineSync::new();
     for (i, path) in paths.enumerate() {
         let path = path.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap();
         println!("i={}\t{}", i, name);
         let format = detect_format(name).unwrap();
         let data = std::fs::read(path).unwrap();
-        let _pattern = Pattern::from_format(format, &data).unwrap();
+        let pattern = Pattern::from_format(format, &data).unwrap();
 
-        // let timer = std::time::Instant::now();
-        // let mut engine = HashLifeEngineAsync::from_pattern(&pattern, Topology::Unbounded).unwrap();
-        // let elapsed_build = timer.elapsed();
-        // println!("build time: {:?}", elapsed_build);
-        // engine.update(10);
-        // let elapsed_update = timer.elapsed() - elapsed_build;
-        // println!("update time: {:?}", elapsed_update);
+        let timer = std::time::Instant::now();
+        engine.load_pattern(&pattern, Topology::Unbounded).unwrap();
+        // engine = Some(HashLifeEngineSync::from_pattern(&pattern, Topology::Unbounded).unwrap());
+        let elapsed_build = timer.elapsed();
+        println!("build time: {:?}", elapsed_build);
+        engine.update(10);
+        let elapsed_update = timer.elapsed() - elapsed_build;
+        println!("update time: {:?}", elapsed_update);
     }
 }

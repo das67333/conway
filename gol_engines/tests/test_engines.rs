@@ -5,12 +5,15 @@ mod tests {
     fn build_engines() -> Vec<Box<dyn GoLEngine>> {
         let data = std::fs::read("../res/otca_0.rle").unwrap();
         let pattern = Pattern::from_format(PatternFormat::RLE, &data).unwrap();
-        let engines: Vec<Box<dyn GoLEngine>> = vec![
-            Box::new(SIMDEngine::from_pattern(&pattern, Topology::Torus).unwrap()),
-            Box::new(HashLifeEngineSmall::from_pattern(&pattern, Topology::Torus).unwrap()),
-            Box::new(HashLifeEngineSync::from_pattern(&pattern, Topology::Torus).unwrap()),
-            Box::new(HashLifeEngineAsync::from_pattern(&pattern, Topology::Torus).unwrap()),
+        let mut engines: Vec<Box<dyn GoLEngine>> = vec![
+            Box::new(SIMDEngine::new()),
+            Box::new(HashLifeEngineSmall::new()),
+            Box::new(HashLifeEngineSync::new()),
+            Box::new(HashLifeEngineAsync::new()),
         ];
+        for engine in engines.iter_mut() {
+            engine.load_pattern(&pattern, Topology::Torus).unwrap();
+        }
 
         assert_fields_equal(&engines);
         engines

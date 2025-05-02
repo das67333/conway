@@ -411,7 +411,18 @@ impl HashLifeEngineSmall {
 }
 
 impl GoLEngine for HashLifeEngineSmall {
-    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
+    fn new() -> Self {
+        let mut mem = MemoryManager::new();
+        Self {
+            size_log2: LEAF_SIZE_LOG2,
+            root: mem.find_or_create_leaf_from_u64(0),
+            mem,
+            generations_per_update_log2: None,
+            topology: Topology::Unbounded,
+        }
+    }
+
+    fn load_pattern(&mut self, pattern: &Pattern, topology: Topology) -> Result<()> {
         fn inner(
             idx: u32,
             size_log2: u32,
@@ -440,16 +451,20 @@ impl GoLEngine for HashLifeEngineSmall {
         if size_log2 < LEAF_SIZE_LOG2 {
             return Err(anyhow!("Pattern is too small"));
         }
+        self.size_log2 = size_log2;
+        // rebuilding MemoryManager is fast
+        self.mem = MemoryManager::new();
         let mut cache = HashMap::new();
-        let mut mem = MemoryManager::new();
-        let root = inner(pattern.get_root(), size_log2, pattern, &mut mem, &mut cache);
-        Ok(Self {
+        self.root = inner(
+            pattern.get_root(),
             size_log2,
-            root,
-            mem,
-            generations_per_update_log2: None,
-            topology,
-        })
+            pattern,
+            &mut self.mem,
+            &mut cache,
+        );
+        self.generations_per_update_log2 = None;
+        self.topology = topology;
+        Ok(())
     }
 
     fn current_state(&self) -> Pattern {
@@ -552,7 +567,8 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let engine = HashLifeEngineSmall::from_pattern(&original, Topology::Unbounded).unwrap();
+            let mut engine = HashLifeEngineSmall::new();
+            engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 
             assert_eq!(

@@ -330,21 +330,31 @@ impl HashLifeEngineSync {
 }
 
 impl GoLEngine for HashLifeEngineSync {
-    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self> {
+    fn new() -> Self {
+        let mem = MemoryManager::new();
+        Self {
+            size_log2: LEAF_SIZE_LOG2,
+            root: mem.find_or_create_leaf_from_u64(0),
+            mem,
+            generations_per_update_log2: None,
+            topology: Topology::Unbounded,
+        }
+    }
+
+    fn load_pattern(&mut self, pattern: &Pattern, topology: Topology) -> Result<()> {
         let size_log2 = pattern.get_size_log2();
         if size_log2 < LEAF_SIZE_LOG2 {
             return Err(anyhow!("Pattern is too small"));
         }
+        self.size_log2 = size_log2;
+        self.mem.clear();
         let mut cache = HashMap::new();
-        let mem = MemoryManager::new();
-        let root = Self::from_pattern_recursive(pattern.get_root(), pattern, &mem, &mut cache);
-        Ok(Self {
-            size_log2,
-            root,
-            mem,
-            generations_per_update_log2: None,
-            topology,
-        })
+        self.root =
+            Self::from_pattern_recursive(pattern.get_root(), pattern, &self.mem, &mut cache);
+        // rebuilding MemoryManager is slower than just clearing it
+        self.generations_per_update_log2 = None;
+        self.topology = topology;
+        Ok(())
     }
 
     fn current_state(&self) -> Pattern {
@@ -427,6 +437,7 @@ impl GoLEngine for HashLifeEngineSync {
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), &pattern, &self.mem, &mut cache);
+        self.generations_per_update_log2 = None;
     }
 
     fn bytes_total(&self) -> usize {
@@ -449,7 +460,8 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let engine = HashLifeEngineSync::from_pattern(&original, Topology::Unbounded).unwrap();
+            let mut engine = HashLifeEngineSync::new();
+            engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 
             assert_eq!(

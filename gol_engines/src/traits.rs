@@ -4,19 +4,28 @@ use num_bigint::BigInt;
 
 /// Game engine for Game of Life
 pub trait GoLEngine {
-    /// Creates a new Game of Life engine instance from the given pattern.
+    /// Creates a new Game of Life engine instance with a blank pattern.
+    ///
+    /// This method initializes a Game of Life engine with an empty grid of the
+    /// implementation's default size.
+    ///
+    /// # Returns
+    /// A new instance of the Game of Life engine with a blank pattern
+    fn new() -> Self
+    where
+        Self: Sized;
+
+    /// Loads a pattern into the Game of Life engine with the specified topology.
     ///
     /// # Parameters
-    /// * `pattern` - The initial cell configuration to start the simulation
+    /// * `pattern` - The cell configuration to load into the simulation
     /// * `topology` - The topology rules that define how the grid boundaries behave
     ///
     /// # Returns
-    /// A Result containing either:
-    /// * `Ok(Self)` - A new instance of the Game of Life engine initialized with the given pattern
-    /// * `Err(_)` - If the engine creation fails (e.g., invalid pattern or unsupported topology)
-    fn from_pattern(pattern: &Pattern, topology: Topology) -> Result<Self>
-    where
-        Self: Sized;
+    /// A Result indicating success or failure:
+    /// * `Ok(())` - Pattern was successfully loaded
+    /// * `Err(_)` - If loading fails (e.g., invalid pattern or unsupported topology)
+    fn load_pattern(&mut self, pattern: &Pattern, topology: Topology) -> Result<()>;
 
     /// Returns the current state of the Game of Life field.
     ///
