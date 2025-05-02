@@ -21,12 +21,12 @@ impl MemoryManager {
         }
     }
 
-    /// Get a const reference to the node with the given index.
+    /// Get a const reference to the node at the given index.
     pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { (*self.base.get()).get(idx) }
     }
 
-    /// Get a mutable reference to the node with the given index.
+    /// Get a mutable reference to the node at the given index.
     pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
         // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
@@ -155,13 +155,13 @@ impl MemoryManagerRaw {
         }
     }
 
-    /// Get a const reference to the node with the given index.
+    /// Get a const reference to the node at the given index.
     #[inline]
     fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
-    /// Get a mutable reference to the node with the given index.
+    /// Get a mutable reference to the node at the given index.
     #[inline]
     fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
         unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }

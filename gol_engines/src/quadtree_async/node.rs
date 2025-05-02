@@ -1,13 +1,12 @@
 use std::sync::atomic::AtomicU8;
 
 /// Location of a node is determined by its `idx`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct NodeIdx(pub u32);
 
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
-// #[repr(align(4))]
 #[derive(Default)]
 pub struct QuadTreeNode {
     pub nw: NodeIdx,
@@ -18,13 +17,14 @@ pub struct QuadTreeNode {
     pub cache: NodeIdx,
     pub status: AtomicU8,
     pub ctrl: u8,
-    // pub meta: Meta, // metadata for engine: () for hashlife and u64 for streamlife // TODO
+    // pub extra: Extra, // metadata for engine: () for hashlife and u64 for streamlife // TODO
 }
 
 impl QuadTreeNode {
     pub const STATUS_NOT_CACHED: u8 = 0;
     pub const STATUS_PROCESSING: u8 = 1;
     pub const STATUS_CACHED: u8 = 2;
+    pub const STATUS_GC_MASK: u8 = 4;
 
     #[inline]
     pub fn is_leaf(&self) -> bool {

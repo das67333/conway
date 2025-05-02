@@ -12,12 +12,12 @@ fn main() {
     .unwrap();
     let otca_off = Pattern::from_format(
         PatternFormat::RLE,
-        &std::fs::read("../res/otca_0.rle").unwrap(),
+        &std::fs::read("../res/otca_0.mc.gz").unwrap(),
     )
     .unwrap();
     let otca_on = Pattern::from_format(
         PatternFormat::RLE,
-        &std::fs::read("../res/otca_1.rle").unwrap(),
+        &std::fs::read("../res/otca_1.mc.gz").unwrap(),
     )
     .unwrap();
     let pattern = top_pattern.metafy(&[otca_off, otca_on], 2).unwrap();

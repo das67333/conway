@@ -50,6 +50,22 @@ type SizeLog2 = u32;
 ///     delivers higher performance than Golly scripts and enables efficient creation
 ///     of multi-level metapatterns.
 ///
+/// # Format Recommendations
+///
+/// For best performance and memory efficiency, prefer [`PatternFormat::Macrocell`] or
+/// [`PatternFormat::CompressedMacrocell`] over other formats. These formats:
+///
+/// * Best align with the internal quadtree representation used by `Pattern`
+/// * Provide faster loading and saving for large patterns
+/// * Handle sparse patterns more efficiently
+/// * Support patterns of virtually unlimited size
+///
+/// If you encounter issues loading patterns that work in Golly and should work here,
+/// the file might not conform to the format specifications detailed at
+/// https://golly.sourceforge.io/Help/formats.html.
+/// Try opening the problematic pattern in a modern version of Golly and saving it again
+/// to ensure it meets the expected format requirements.
+///
 /// # Limitations
 ///
 /// *   **Two-State Only:** Currently supports only standard two-state
@@ -116,10 +132,7 @@ impl Pattern {
     /// # Returns
     ///
     /// A `NodeIdx` that uniquely identifies the node with the specified content
-    pub fn find_or_create_node(
-        &mut self,
-        node: PatternNode,
-    ) -> NodeIdx {
+    pub fn find_or_create_node(&mut self, node: PatternNode) -> NodeIdx {
         self.kiv.find_or_create_node(node)
     }
 
@@ -500,8 +513,15 @@ impl Pattern {
     ///
     /// Returns format-specific errors:
     /// - `PackedCells`: If the data does not represent a square with a side that is a power of 2
-    /// - `Macrocell` or `RLE`: If data is invalid, uses more than two states, or specifies non-B3/S23 rules
+    /// - `Macrocell` or `RLE`: If data is invalid, uses more than two states, or specifies
+    ///   non-B3/S23 rules
     /// - `CompressedMacrocell`: If decompression fails or macrocell parsing errors occur
+    ///
+    /// # Performance Considerations
+    ///
+    /// For large or highly non-square patterns, the tree-based formats (`Macrocell` and
+    /// `CompressedMacrocell`) generally provide better performance and memory efficiency than
+    /// the flat array-based formats (`PackedCells` and `RLE`).
     pub fn from_format(format: PatternFormat, data: &[u8]) -> Result<Self> {
         match format {
             PatternFormat::PackedCells => Self::from_packed_cells(data),
@@ -696,6 +716,10 @@ impl Pattern {
                 continue;
             }
 
+            let idx = (codes_and_sizes.len() + 1).try_into().with_context(|| {
+                format!("Failed to convert {} to NodeIdx", codes_and_sizes.len() + 1)
+            })?;
+
             let code_and_size = if s[0].is_ascii_digit() {
                 // non-leaf
                 let numbers: Vec<u32> = s
@@ -713,6 +737,13 @@ impl Pattern {
                 if numbers.len() != 5 {
                     return Err(anyhow!("Expected 5 numbers, got {}", numbers.len()));
                 }
+                if numbers[0] < 4 {
+                    return Err(anyhow!(
+                        "Node {} has size_log2 {}, expected >= 4",
+                        idx,
+                        numbers[0],
+                    ));
+                }
 
                 let mut resolve = |x: u32| -> Result<NodeIdx> {
                     if x == 0 {
@@ -722,10 +753,10 @@ impl Pattern {
                             &mut blank_nodes,
                         ))
                     } else {
-                        let (code, size_log2) = codes_and_sizes
-                            .get(&x)
-                            .copied()
-                            .ok_or_else(|| anyhow!("Node with code {} not found", x))?;
+                        let (code, size_log2) =
+                            codes_and_sizes.get(&x).copied().ok_or_else(|| {
+                                anyhow!("Reference to undeclared node with code {}", x)
+                            })?;
                         if size_log2 != numbers[0] - 1 {
                             return Err(anyhow!(
                                 "Node {} has size_log2 {}, expected {}",
@@ -777,9 +808,6 @@ impl Pattern {
                 (code, 3)
             };
             last_code_and_size = Some(code_and_size);
-            let idx = (codes_and_sizes.len() + 1).try_into().with_context(|| {
-                format!("Failed to convert {} to NodeIdx", codes_and_sizes.len() + 1)
-            })?;
             codes_and_sizes.insert(idx, code_and_size);
         }
         let (root, size_log2) =
@@ -950,6 +978,14 @@ impl Pattern {
     /// - Data is invalid
     /// - Algorithm has more than two states
     /// - Rule is not B3/S23
+    ///
+    /// # Performance Considerations
+    ///
+    /// The current implementation struggles with highly non-square patterns
+    /// (like very long and narrow ones), as it fills a square grid based on the
+    /// maximum dimension. This can lead to excessive memory usage for patterns
+    /// with disparate dimensions. Consider using [`PatternFormat::Macrocell`]
+    /// or [`PatternFormat::CompressedMacrocell`] instead.
     fn from_rle(data: &[u8]) -> Result<Self> {
         let mut lines = data
             .split(|&b| b == b'\n')
@@ -1074,6 +1110,14 @@ impl Pattern {
     /// # Errors
     ///
     /// Returns an error if pattern is too large.
+    ///
+    /// # Performance Considerations
+    ///
+    /// The current implementation struggles with highly non-square patterns
+    /// (like very long and narrow ones), as it fills a square grid based on the
+    /// maximum dimension. This can lead to excessive memory usage for patterns
+    /// with disparate dimensions. Consider using [`PatternFormat::Macrocell`]
+    /// or [`PatternFormat::CompressedMacrocell`] instead.
     fn to_rle(&self) -> Result<Vec<u8>> {
         let cells_data = self.to_packed_cells()?;
         let n = 1usize << self.size_log2;

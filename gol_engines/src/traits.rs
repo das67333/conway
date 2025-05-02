@@ -30,7 +30,7 @@ pub trait GoLEngine {
 
     /// Updates the Game of Life field by simulating multiple generations.
     ///
-    /// This method advances the simulation by 2^generations_log2 generations.
+    /// This method advances the simulation by `2^generations_log2` generations.
     ///
     /// # Arguments
     ///

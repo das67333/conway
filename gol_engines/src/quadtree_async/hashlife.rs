@@ -1,4 +1,4 @@
-use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
+use super::{blank, BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
 use crate::{GoLEngine, NiceInt, Pattern, PatternNode, Topology};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
@@ -328,9 +328,9 @@ impl HashLifeEngineAsync {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, blank_nodes: &mut BlankNodes) -> NodeIdx {
         let n = self.mem.get(idx);
-        let b = BlankNodes::new().get(size_log2 - 1, &self.mem);
+        let b = blank_nodes.get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match self.topology {
             Topology::Torus => [self.mem.find_or_create_node(n.se, n.sw, n.ne, n.nw); 4],
             Topology::Unbounded => [
@@ -349,12 +349,12 @@ impl HashLifeEngineAsync {
         self.mem.find_or_create_node(nw.se, ne.sw, sw.ne, se.nw)
     }
 
-    fn has_blank_frame(&mut self) -> bool {
+    fn has_blank_frame(&mut self, blank_nodes: &mut BlankNodes) -> bool {
         if self.size_log2 <= LEAF_SIZE_LOG2 + 1 {
             return false;
         }
 
-        let b = BlankNodes::new().get(self.size_log2 - 2, &self.mem);
+        let b = blank_nodes.get(self.size_log2 - 2, &self.mem);
 
         let root = self.mem.get(self.root);
         let [nw, ne, sw, se] = [
@@ -369,8 +369,8 @@ impl HashLifeEngineAsync {
         frame_parts.iter().all(|&x| x == b)
     }
 
-    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
-        self.root = self.with_frame(self.root, self.size_log2);
+    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt, blank_nodes: &mut BlankNodes) {
+        self.root = self.with_frame(self.root, self.size_log2, blank_nodes);
         *dx += BigInt::from(1) << (self.size_log2 - 1);
         *dy += BigInt::from(1) << (self.size_log2 - 1);
         self.size_log2 += 1;
@@ -472,8 +472,9 @@ impl GoLEngine for HashLifeEngineAsync {
 
         let frames_cnt = (generations_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
         let (mut dx, mut dy) = (BigInt::ZERO, BigInt::ZERO);
+        let mut blank_nodes = BlankNodes::new();
         for _ in 0..frames_cnt {
-            self.add_frame(&mut dx, &mut dy);
+            self.add_frame(&mut dx, &mut dy, &mut blank_nodes);
         }
 
         self.root = tokio::runtime::Builder::new_multi_thread()
@@ -492,7 +493,7 @@ impl GoLEngine for HashLifeEngineAsync {
                 }
             }
             Topology::Unbounded => {
-                while self.has_blank_frame() {
+                while self.has_blank_frame(&mut blank_nodes) {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -502,7 +503,24 @@ impl GoLEngine for HashLifeEngineAsync {
     }
 
     fn run_gc(&mut self) {
-        unimplemented!()
+        /// Recursively mark nodes to rescue them from garbage collection.
+        fn gc_mark(mem: &MemoryManager, idx: NodeIdx, size_log2: u32) {
+            if idx == NodeIdx(0) {
+                return;
+            }
+
+            mem.get(idx)
+                .status
+                .fetch_or(QuadTreeNode::STATUS_GC_MASK, Ordering::Relaxed);
+            if size_log2 == LEAF_SIZE_LOG2 {
+                return;
+            }
+
+            for x in mem.get(idx).parts() {
+                gc_mark(mem, x, size_log2 - 1);
+            }
+        }
+
         // self.mem.gc_mark(self.root, self.size_log2);
         // self.mem.gc_finish();
         // self.population.clear_cache();
@@ -513,7 +531,7 @@ impl GoLEngine for HashLifeEngineAsync {
     }
 
     fn statistics(&mut self) -> String {
-        let mut s = "Engine: HashlifeAsync\n".to_string();
+        let mut s = "Engine: HashLifeAsync\n".to_string();
         s += &format!("Side length: 2^{}\n", self.size_log2);
         s
     }
