@@ -1,15 +1,15 @@
 use super::{MemoryManager, NodeIdx, LEAF_SIZE_LOG2};
 
-pub struct BlankNodes {
+pub(super) struct BlankNodes {
     data: Vec<NodeIdx>,
 }
 
 impl BlankNodes {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self { data: vec![] }
     }
 
-    pub fn get(&mut self, size_log2: u32, mem: &MemoryManager) -> NodeIdx {
+    pub(super) fn get(&mut self, size_log2: u32, mem: &MemoryManager) -> NodeIdx {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         while self.data.len() <= i {
             if let Some(&b) = self.data.last() {

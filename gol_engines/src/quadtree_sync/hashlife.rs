@@ -1,9 +1,10 @@
-use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2, PrefetchedNode};
+use super::{
+    BlankNodes, MemoryManager, NodeIdx, PrefetchedNode, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2,
+};
 use crate::{GoLEngine, Pattern, PatternNode, Topology};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
-// use std::sync::atomic::AtomicU64;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngineSync {
@@ -163,8 +164,8 @@ impl HashLifeEngineSync {
         let arr9 = self.nine_children_disjoint(nw, ne, sw, se, size_log2);
 
         let mut arr4 = self.four_children_overlapping(&arr9);
-        for i in 0..4 {
-            arr4[i] = self.update_node(arr4[i], size_log2);
+        for x in arr4.iter_mut() {
+            *x = self.update_node(*x, size_log2);
         }
         let [nw, ne, sw, se] = arr4;
         self.mem.find_or_create_node(nw, ne, sw, se)
@@ -189,13 +190,13 @@ impl HashLifeEngineSync {
         let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
 
         let t00 = self.update_node(nw, size_log2);
-        let t01 = self.update_node(p01.find(), size_log2);
+        let t01 = self.update_node(p01.find_or_create(), size_log2);
         let t02 = self.update_node(ne, size_log2);
-        let t12 = self.update_node(p12.find(), size_log2);
-        let t11 = self.update_node(p11.find(), size_log2);
-        let t10 = self.update_node(p10.find(), size_log2);
+        let t12 = self.update_node(p12.find_or_create(), size_log2);
+        let t11 = self.update_node(p11.find_or_create(), size_log2);
+        let t10 = self.update_node(p10.find_or_create(), size_log2);
         let t20 = self.update_node(sw, size_log2);
-        let t21 = self.update_node(p21.find(), size_log2);
+        let t21 = self.update_node(p21.find_or_create(), size_log2);
         let t22 = self.update_node(se, size_log2);
 
         // Second stage
@@ -203,18 +204,17 @@ impl HashLifeEngineSync {
         let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
         let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
         let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
-        let t_se = self.update_node(pse.find(), size_log2);
-        let t_sw = self.update_node(psw.find(), size_log2);
-        let t_nw = self.update_node(pnw.find(), size_log2);
-        let t_ne = self.update_node(pne.find(), size_log2);
+        let t_se = self.update_node(pse.find_or_create(), size_log2);
+        let t_sw = self.update_node(psw.find_or_create(), size_log2);
+        let t_nw = self.update_node(pnw.find_or_create(), size_log2);
+        let t_ne = self.update_node(pne.find_or_create(), size_log2);
         self.mem.find_or_create_node(t_nw, t_ne, t_sw, t_se)
     }
 
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    #[inline]
-    pub(super) fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         fn inner(this: &HashLifeEngineSync, n: &mut QuadTreeNode, size_log2: u32) -> NodeIdx {
             let generations_log2 = this.generations_per_update_log2.unwrap();
             let both_stages = generations_log2 + 2 >= size_log2;
@@ -245,7 +245,12 @@ impl HashLifeEngineSync {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, blank_nodes: &mut BlankNodes) -> NodeIdx {
+    fn with_frame(
+        &mut self,
+        idx: NodeIdx,
+        size_log2: u32,
+        blank_nodes: &mut BlankNodes,
+    ) -> NodeIdx {
         let n = self.mem.get(idx);
         let b = blank_nodes.get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match self.topology {

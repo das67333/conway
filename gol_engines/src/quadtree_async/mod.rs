@@ -8,6 +8,6 @@ const LEAF_SIZE_LOG2: u32 = LEAF_SIZE.ilog2();
 
 use blank::BlankNodes;
 use memory::MemoryManager;
-pub use node::{NodeIdx, QuadTreeNode};
+use node::{NodeIdx, QuadTreeNode};
 
 pub use hashlife::HashLifeEngineAsync;

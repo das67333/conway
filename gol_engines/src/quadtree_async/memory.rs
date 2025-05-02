@@ -1,8 +1,8 @@
-use std::{cell::UnsafeCell, sync::atomic::Ordering};
 use super::{NodeIdx, QuadTreeNode};
 use crate::get_config;
+use std::{cell::UnsafeCell, sync::atomic::Ordering};
 
-pub struct MemoryManager {
+pub(super) struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
 }
 
@@ -10,24 +10,24 @@ unsafe impl Sync for MemoryManager {}
 
 impl MemoryManager {
     /// Create a new memory manager with a default capacity.
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::with_capacity(get_config().memory_manager_cap_log2)
     }
 
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
-    pub fn with_capacity(cap_log2: u32) -> Self {
+    pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
             base: UnsafeCell::new(MemoryManagerRaw::with_capacity(cap_log2)),
         }
     }
 
     /// Get a const reference to the node at the given index.
-    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { (*self.base.get()).get(idx) }
     }
 
     /// Get a mutable reference to the node at the given index.
-    pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
         // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
     }
@@ -36,7 +36,13 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
-    pub fn find_or_create_leaf_from_parts(&self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_parts(
+        &self,
+        nw: u16,
+        ne: u16,
+        sw: u16,
+        se: u16,
+    ) -> NodeIdx {
         /// See Morton order: https://en.wikipedia.org/wiki/Z-order_curve
         fn demorton_u64(nw: u16, ne: u16, sw: u16, se: u16) -> u64 {
             let (mut nw, mut ne, mut sw, mut se) = (nw as u64, ne as u64, sw as u64, se as u64);
@@ -65,7 +71,7 @@ impl MemoryManager {
         self.find_or_create_leaf_from_array(cells)
     }
 
-    pub fn find_or_create_leaf_from_u64(&self, value: u64) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_u64(&self, value: u64) -> NodeIdx {
         self.find_or_create_leaf_from_array(value.to_le_bytes())
     }
 
@@ -73,7 +79,7 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx(0); 2];
@@ -83,8 +89,7 @@ impl MemoryManager {
 
     /// Find a node with the given parts.
     /// If the node is not found, it is created.
-    #[inline]
-    pub fn find_or_create_node(
+    pub(super) fn find_or_create_node(
         &self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -95,11 +100,11 @@ impl MemoryManager {
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
-    pub fn clear_cache(&mut self) {
+    pub(super) fn clear_cache(&mut self) {
         self.base.get_mut().clear_cache();
     }
 
-    pub fn bytes_total(&self) -> usize {
+    pub(super) fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
     }
 }
@@ -112,8 +117,6 @@ struct MemoryManagerRaw {
     locks: Vec<std::sync::Mutex<()>>,
     /// log2 of hashtable's capacity
     ht_cap_log2: u32,
-    // /// total number of elements in the hashtable
-    // pub ht_size: u32,
     // /// how many times elements were found in the hashtable
     // hits: AtomicU64,
     // /// how many times elements were not found and therefore inserted
@@ -149,7 +152,6 @@ impl MemoryManagerRaw {
                 .map(|_| std::sync::Mutex::new(()))
                 .collect(),
             ht_cap_log2: cap_log2,
-            // ht_size: 0,
             // hits: AtomicU64::new(0),
             // misses: AtomicU64::new(0),
         }
@@ -168,7 +170,6 @@ impl MemoryManagerRaw {
     }
 
     /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
-    #[inline]
     unsafe fn find_or_create_inner(
         &mut self,
         nw: NodeIdx,
@@ -183,9 +184,9 @@ impl MemoryManagerRaw {
 
         // prefetch(hashtable[index])
         // TODO: research prefetch levels, QuadTreeNode alignments
+        #[cfg(target_arch = "x86_64")]
         {
             use std::arch::x86_64::*;
-            #[cfg(target_arch = "x86_64")]
             _mm_prefetch::<_MM_HINT_T0>(
                 (self.hashtable.get_unchecked(index) as *const QuadTreeNode) as *const i8,
             );
@@ -224,7 +225,6 @@ impl MemoryManagerRaw {
                     ctrl,
                     ..Default::default()
                 };
-                // self.ht_size += 1;
                 // self.misses.fetch_add(1, Ordering::Relaxed);
                 break;
             }
@@ -243,14 +243,14 @@ impl MemoryManagerRaw {
         NodeIdx(index as u32)
     }
 
-    pub fn clear_cache(&mut self) {
+    fn clear_cache(&mut self) {
         for n in self.hashtable.iter() {
             n.status
                 .store(QuadTreeNode::STATUS_NOT_CACHED, Ordering::Relaxed);
         }
     }
 
-    pub fn bytes_total(&self) -> usize {
+    fn bytes_total(&self) -> usize {
         self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
     }
 }

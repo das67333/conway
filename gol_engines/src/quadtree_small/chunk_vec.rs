@@ -28,7 +28,6 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
     }
 
     /// Allocate memory for a new node and return its NodeIdx.
-    #[inline]
     pub(super) fn allocate(&mut self) -> NodeIdx {
         if self.next_free_node == NodeIdx(0) {
             let chunk = Self::new_chunk();
@@ -36,7 +35,8 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
                 let next = self.capacity() + i + 1;
                 unsafe { (*chunk.add(i)).next = NodeIdx(next as u32) };
             }
-            self.next_free_node = NodeIdx(self.capacity().try_into().expect("Ran out of u32 indices"));
+            self.next_free_node =
+                NodeIdx(self.capacity().try_into().expect("Ran out of u32 indices"));
             self.chunks.push(chunk);
         }
 
@@ -78,7 +78,7 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         self.len
     }
 
-    pub fn capacity(&self) -> usize {
+    pub(super) fn capacity(&self) -> usize {
         self.chunks.len() * CHUNK_SIZE
     }
 }

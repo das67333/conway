@@ -20,7 +20,6 @@ pub(super) struct QuadTreeNode {
 impl QuadTreeNode {
     /// For blank nodes (without population) must return zero.
     /// They are guaranteed to have all parts equal to NodeIdx(0).
-    #[inline]
     pub(super) fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
             .wrapping_add(nw.0.wrapping_mul(5))

@@ -47,7 +47,6 @@ pub trait GoLEngine {
     /// When using [`Topology::Unbounded`], the field size may grow to accommodate expanding patterns.
     fn update(&mut self, generations_log2: u32) -> [BigInt; 2];
 
-
     /// Runs garbage collection to free accumulated caches and temporary data.
     ///
     /// Some engine implementations may accumulate temporary data structures or caches

@@ -101,7 +101,6 @@ impl KIVMap {
 
     /// Find an item in hashtable; if it is not present, it is created.
     /// Returns its index in hashtable.
-    #[inline]
     unsafe fn find_or_create(
         &mut self,
         nw: NodeIdx,
@@ -270,7 +269,6 @@ impl MemoryManager {
     /// `size_log2` is related to the result! `nw`, `ne`, `sw`, `se` are `size_log2 - 1`
     ///
     /// If the node is not found, it is created.
-    #[inline]
     pub(super) fn find_or_create_node(
         &mut self,
         nw: NodeIdx,

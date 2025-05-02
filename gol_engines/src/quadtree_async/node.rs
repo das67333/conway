@@ -2,36 +2,31 @@ use std::sync::atomic::AtomicU8;
 
 /// Location of a node is determined by its `idx`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct NodeIdx(pub u32);
+pub(super) struct NodeIdx(pub(super) u32);
 
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
 #[derive(Default)]
-pub struct QuadTreeNode {
-    pub nw: NodeIdx,
-    pub ne: NodeIdx,
-    pub sw: NodeIdx,
-    pub se: NodeIdx,
+pub(super) struct QuadTreeNode {
+    pub(super) nw: NodeIdx,
+    pub(super) ne: NodeIdx,
+    pub(super) sw: NodeIdx,
+    pub(super) se: NodeIdx,
     /// center after n/4 x n/4 generations, valid only if `status` is `STATUS_CACHED`
-    pub cache: NodeIdx,
-    pub status: AtomicU8,
-    pub ctrl: u8,
-    // pub extra: Extra, // metadata for engine: () for hashlife and u64 for streamlife // TODO
+    pub(super) cache: NodeIdx,
+    pub(super) status: AtomicU8,
+    pub(super) ctrl: u8,
+    // pub(super) extra: Extra, // extra information for engine: () for hashlife and u64 for streamlife // TODO
 }
 
 impl QuadTreeNode {
-    pub const STATUS_NOT_CACHED: u8 = 0;
-    pub const STATUS_PROCESSING: u8 = 1;
-    pub const STATUS_CACHED: u8 = 2;
-    pub const STATUS_GC_MASK: u8 = 4;
+    pub(super) const STATUS_NOT_CACHED: u8 = 0;
+    pub(super) const STATUS_PROCESSING: u8 = 1;
+    pub(super) const STATUS_CACHED: u8 = 2;
+    pub(super) const STATUS_GC_MASK: u8 = 4;
 
-    #[inline]
-    pub fn is_leaf(&self) -> bool {
-        self.ctrl >> 6 == 1
-    }
-
-    pub fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
+    pub(super) fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
             .wrapping_add((nw.0).wrapping_mul(5))
             .wrapping_add((ne.0).wrapping_mul(17))
@@ -40,16 +35,16 @@ impl QuadTreeNode {
         h.wrapping_add(h.rotate_right(11)) as usize
     }
 
-    pub fn parts(&self) -> [NodeIdx; 4] {
+    pub(super) fn parts(&self) -> [NodeIdx; 4] {
         [self.nw, self.ne, self.sw, self.se]
     }
 
     /// Returns the cells of a leaf node row by row.
-    pub fn leaf_cells(&self) -> [u8; 8] {
+    pub(super) fn leaf_cells(&self) -> [u8; 8] {
         (self.nw.0 as u64 | ((self.ne.0 as u64) << 32)).to_le_bytes()
     }
 
-    pub fn leaf_nw(&self) -> u16 {
+    pub(super) fn leaf_nw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
             result |= ((self.nw.0 >> (i * 8)) & 0xF) << (i * 4);
@@ -57,7 +52,7 @@ impl QuadTreeNode {
         result as u16
     }
 
-    pub fn leaf_ne(&self) -> u16 {
+    pub(super) fn leaf_ne(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
             result |= ((self.nw.0 >> (i * 8 + 4)) & 0xF) << (i * 4);
@@ -65,7 +60,7 @@ impl QuadTreeNode {
         result as u16
     }
 
-    pub fn leaf_sw(&self) -> u16 {
+    pub(super) fn leaf_sw(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
             result |= ((self.ne.0 >> (i * 8)) & 0xF) << (i * 4);
@@ -73,7 +68,7 @@ impl QuadTreeNode {
         result as u16
     }
 
-    pub fn leaf_se(&self) -> u16 {
+    pub(super) fn leaf_se(&self) -> u16 {
         let mut result = 0;
         for i in 0..4 {
             result |= ((self.ne.0 >> (i * 8 + 4)) & 0xF) << (i * 4);

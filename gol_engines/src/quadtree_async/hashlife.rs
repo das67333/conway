@@ -1,10 +1,9 @@
-use super::{blank, BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{GoLEngine, NiceInt, Pattern, PatternNode, Topology};
+use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
+use crate::{GoLEngine, Pattern, PatternNode, Topology};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 use std::sync::atomic::Ordering;
-// use std::sync::atomic::AtomicU64;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngineAsync {
@@ -18,8 +17,8 @@ pub struct HashLifeEngineAsync {
 
 static ACTIVE_COROUTINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 // #[derive(Default)]
-// pub struct Metrics {
-//     pub threads_spawned: AtomicU64,
+// struct Metrics {
+//     threads_spawned: AtomicU64,
 // }
 
 impl HashLifeEngineAsync {
@@ -238,7 +237,7 @@ impl HashLifeEngineAsync {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    pub(super) async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         #[async_recursion::async_recursion]
         async fn inner(this: &HashLifeEngineAsync, node: NodeIdx, size_log2: u32) -> NodeIdx {
             let n = this.mem.get(node);
@@ -254,13 +253,13 @@ impl HashLifeEngineAsync {
             } else if both_stages {
                 // this.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
                 let mut arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
-                for i in 0..9 {
-                    arr9[i] = this.update_node(arr9[i], size_log2 - 1).await;
+                for x in arr9.iter_mut() {
+                    *x = this.update_node(*x, size_log2 - 1).await;
                 }
 
                 let mut arr4 = this.four_children_overlapping(&arr9);
-                for i in 0..4 {
-                    arr4[i] = this.update_node(arr4[i], size_log2 - 1).await;
+                for x in arr4.iter_mut() {
+                    *x = this.update_node(*x, size_log2 - 1).await;
                 }
                 this.mem
                     .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
@@ -286,8 +285,8 @@ impl HashLifeEngineAsync {
                     }
                     ACTIVE_COROUTINES.fetch_sub(4, std::sync::atomic::Ordering::Relaxed);
                 } else {
-                    for i in 0..4 {
-                        arr4[i] = this.update_node(arr4[i], size_log2 - 1).await;
+                    for x in arr4.iter_mut() {
+                        *x = this.update_node(*x, size_log2 - 1).await;
                     }
                 }
                 this.mem
@@ -328,7 +327,12 @@ impl HashLifeEngineAsync {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32, blank_nodes: &mut BlankNodes) -> NodeIdx {
+    fn with_frame(
+        &mut self,
+        idx: NodeIdx,
+        size_log2: u32,
+        blank_nodes: &mut BlankNodes,
+    ) -> NodeIdx {
         let n = self.mem.get(idx);
         let b = blank_nodes.get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match self.topology {

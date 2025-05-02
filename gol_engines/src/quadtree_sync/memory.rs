@@ -3,18 +3,18 @@ use crate::{get_config, NiceInt};
 use std::cell::UnsafeCell;
 
 /// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
-pub struct PrefetchedNode {
+pub(super) struct PrefetchedNode {
     mem: *mut MemoryManager,
-    pub nw: NodeIdx,
-    pub ne: NodeIdx,
-    pub sw: NodeIdx,
-    pub se: NodeIdx,
-    pub is_leaf: bool,
-    pub hash: usize,
+    nw: NodeIdx,
+    ne: NodeIdx,
+    sw: NodeIdx,
+    se: NodeIdx,
+    is_leaf: bool,
+    hash: usize,
 }
 
 impl PrefetchedNode {
-    pub fn new(
+    pub(super) fn new(
         mem: &MemoryManager,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -43,7 +43,7 @@ impl PrefetchedNode {
         }
     }
 
-    pub fn find(&self) -> NodeIdx {
+    pub(super) fn find_or_create(&self) -> NodeIdx {
         unsafe {
             (*(*self.mem).base.get()).find_or_create_inner(
                 self.nw,
@@ -57,30 +57,30 @@ impl PrefetchedNode {
     }
 }
 
-pub struct MemoryManager {
+pub(super) struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
 }
 
 impl MemoryManager {
     /// Create a new memory manager with a default capacity.
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::with_capacity(get_config().memory_manager_cap_log2)
     }
 
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
-    pub fn with_capacity(cap_log2: u32) -> Self {
+    pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
             base: UnsafeCell::new(MemoryManagerRaw::with_capacity(cap_log2)),
         }
     }
 
     /// Get a const reference to the node at the given index.
-    pub fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
         unsafe { (*self.base.get()).get(idx) }
     }
 
     /// Get a mutable reference to the node at the given index.
-    pub fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
         // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
     }
@@ -89,7 +89,13 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `nw`, `ne`, `sw`, `se` are 16-bit integers, where each 4 bits represent a row of 4 cells.
-    pub fn find_or_create_leaf_from_parts(&self, nw: u16, ne: u16, sw: u16, se: u16) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_parts(
+        &self,
+        nw: u16,
+        ne: u16,
+        sw: u16,
+        se: u16,
+    ) -> NodeIdx {
         /// See Morton order: https://en.wikipedia.org/wiki/Z-order_curve
         fn demorton_u64(nw: u16, ne: u16, sw: u16, se: u16) -> u64 {
             let (mut nw, mut ne, mut sw, mut se) = (nw as u64, ne as u64, sw as u64, se as u64);
@@ -118,7 +124,7 @@ impl MemoryManager {
         self.find_or_create_leaf_from_array(cells)
     }
 
-    pub fn find_or_create_leaf_from_u64(&self, value: u64) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_u64(&self, value: u64) -> NodeIdx {
         self.find_or_create_leaf_from_array(value.to_le_bytes())
     }
 
@@ -126,7 +132,7 @@ impl MemoryManager {
     /// If the node is not found, it is created.
     ///
     /// `cells` is an array of 8 bytes, where each byte represents a row of 8 cells.
-    pub fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
+    pub(super) fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx(0); 2];
@@ -136,8 +142,7 @@ impl MemoryManager {
 
     /// Find a node with the given parts.
     /// If the node is not found, it is created.
-    #[inline]
-    pub fn find_or_create_node(
+    pub(super) fn find_or_create_node(
         &self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -148,11 +153,11 @@ impl MemoryManager {
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
-    pub fn clear_cache(&mut self) {
+    pub(super) fn clear_cache(&mut self) {
         self.base.get_mut().clear_cache();
     }
 
-    pub fn bytes_total(&self) -> usize {
+    pub(super) fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
     }
 }
@@ -208,7 +213,6 @@ impl MemoryManagerRaw {
     }
 
     /// Find an item in hashtable; if it is not present, it is created and its index in hashtable is returned.
-    #[inline]
     unsafe fn find_or_create_inner(
         &mut self,
         nw: NodeIdx,
@@ -265,18 +269,18 @@ impl MemoryManagerRaw {
         NodeIdx(index as u32)
     }
 
-    pub fn clear_cache(&mut self) {
+    fn clear_cache(&mut self) {
         for n in self.hashtable.iter_mut() {
             n.has_cache = false;
         }
     }
 
-    pub fn bytes_total(&self) -> usize {
+    fn bytes_total(&self) -> usize {
         self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
     }
 
     /// Statistics about the memory manager that are fast to compute.
-    pub fn stats_fast(&self) -> String {
+    fn stats_fast(&self) -> String {
         let mut s = String::new();
 
         s.push_str(&format!(
@@ -295,7 +299,7 @@ impl MemoryManagerRaw {
     }
 
     /// Statistics about the memory manager that are slow to compute.
-    pub fn stats_slow(&self) -> String {
+    fn stats_slow(&self) -> String {
         unimplemented!()
         // let mut size_log2_cnt: Vec<u64> = vec![];
 

@@ -22,7 +22,7 @@ fn main() {
         println!("i={}\t{}", i, name);
         let format = detect_format(name).unwrap();
         let data = std::fs::read(path).unwrap();
-        let pattern = Pattern::from_format(format, &data).unwrap();
+        let _pattern = Pattern::from_format(format, &data).unwrap();
 
         // let timer = std::time::Instant::now();
         // let mut engine = HashLifeEngineAsync::from_pattern(&pattern, Topology::Unbounded).unwrap();

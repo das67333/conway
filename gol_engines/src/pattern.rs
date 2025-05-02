@@ -169,12 +169,7 @@ impl Pattern {
     ///
     /// A 64-bit hash value for the pattern.
     pub fn hash(&self) -> u64 {
-        fn inner(
-            idx: NodeIdx,
-            size_log2: SizeLog2,
-            cache: &mut HashMap<NodeIdx, u64>,
-            kiv: &KIVMap,
-        ) -> u64 {
+        fn inner(idx: NodeIdx, cache: &mut HashMap<NodeIdx, u64>, kiv: &KIVMap) -> u64 {
             if let Some(&val) = cache.get(&idx) {
                 return val;
             }
@@ -191,7 +186,7 @@ impl Pattern {
                 PatternNode::Node { nw, ne, sw, se } => {
                     let mut result = 0;
                     for x in [*nw, *ne, *sw, *se] {
-                        result = combine(result, inner(x, size_log2 - 1, cache, kiv));
+                        result = combine(result, inner(x, cache, kiv));
                     }
                     cache.insert(idx, result);
                     result
@@ -200,7 +195,7 @@ impl Pattern {
         }
 
         let mut cache = HashMap::new();
-        inner(self.root, self.size_log2, &mut cache, &self.kiv)
+        inner(self.root, &mut cache, &self.kiv)
     }
 
     /// Counts the total number of alive cells in the pattern.
@@ -293,7 +288,7 @@ impl Pattern {
     ///
     /// * `size_log2` - Log base 2 of the pattern's side length.
     /// * `seed` - Optional seed for the random number generator.
-    /// If None, seeds from the OS.
+    ///    If None, seeds from the OS.
     ///
     /// # Returns
     ///
@@ -402,7 +397,7 @@ impl Pattern {
         let mut cache = HashMap::new();
         let mut metacell_idx = [0; 2];
         for (src, dst) in metacells.iter().zip(metacell_idx.iter_mut()) {
-            *dst = copy_from_pattern(src.root, &src, &mut kiv, &mut cache);
+            *dst = copy_from_pattern(src.root, src, &mut kiv, &mut cache);
             cache.clear();
         }
 
@@ -607,10 +602,10 @@ impl Pattern {
         while t != 1 {
             for y in (0..t).step_by(2) {
                 for x in (0..t).step_by(2) {
-                    let nw = nodes_curr[(x + y * t) as usize];
-                    let ne = nodes_curr[((x + 1) + y * t) as usize];
-                    let sw = nodes_curr[(x + (y + 1) * t) as usize];
-                    let se = nodes_curr[((x + 1) + (y + 1) * t) as usize];
+                    let nw = nodes_curr[x + y * t];
+                    let ne = nodes_curr[(x + 1) + y * t];
+                    let sw = nodes_curr[x + (y + 1) * t];
+                    let se = nodes_curr[(x + 1) + (y + 1) * t];
                     nodes_next.push(kiv.find_or_create_node(PatternNode::Node { nw, ne, sw, se }));
                 }
             }
@@ -708,10 +703,8 @@ impl Pattern {
 
         for s in lines {
             if s[0] == b'#' {
-                if s.starts_with(b"#R") {
-                    if &s[2..] != b" B3/S23" {
-                        return Err(anyhow!("Only B3/S23 rule is supported"));
-                    }
+                if s.starts_with(b"#R") && &s[2..] != b" B3/S23" {
+                    return Err(anyhow!("Only B3/S23 rule is supported"));
                 }
                 continue;
             }
@@ -850,7 +843,7 @@ impl Pattern {
                 }
             }
 
-            match this.get_node(idx).clone() {
+            match *this.get_node(idx) {
                 PatternNode::Leaf(x) => {
                     for t in x.to_le_bytes() {
                         for i in 0..8 {
@@ -1131,7 +1124,7 @@ impl Pattern {
         for y in 0..n {
             for x in 0..n {
                 let pos = x + y * stride;
-                if cells_data[pos / 8] & (1 << pos % 8) != 0 {
+                if cells_data[pos / 8] & (1 << (pos % 8)) != 0 {
                     min_x = min_x.min(x);
                     max_x = max_x.max(x);
                     min_y = min_y.min(y);
@@ -1160,7 +1153,7 @@ impl Pattern {
 
             for x in min_x..=max_x {
                 let pos = x + y * stride;
-                let current_state = (cells_data[pos / 8] & (1 << pos % 8)) != 0;
+                let current_state = (cells_data[pos / 8] & (1 << (pos % 8))) != 0;
 
                 if x == min_x || current_state != last_state {
                     if run_length > 0 {
@@ -1344,7 +1337,7 @@ impl PatternNode {
 /// This data structure efficiently stores pattern nodes with two key access methods:
 /// 1. By index: retrieve a node by its unique integer ID
 /// 2. By content: find a node with specific content orcreate a new one if
-/// it doesn't exist
+///    it doesn't exist
 ///
 /// KIVMap is an essential component of the Pattern's quadtree implementation,
 /// providing node deduplication to reduce memory usage in large patterns.

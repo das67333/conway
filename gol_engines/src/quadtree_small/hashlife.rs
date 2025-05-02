@@ -93,7 +93,6 @@ impl HashLifeEngineSmall {
     }
 
     /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    #[inline(never)]
     fn update_nodes_single(
         &mut self,
         nw: NodeIdx,
@@ -254,7 +253,6 @@ impl HashLifeEngineSmall {
     }
 
     /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    #[inline(never)]
     fn update_nodes_double(
         &mut self,
         nw: NodeIdx,
