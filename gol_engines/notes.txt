@@ -9,13 +9,28 @@ https://dotat.at/prog/life/hashlife.c
 heaptrack target/release/bench_0e0p
 
 TODO:
-SPECIFIC "struct Pattern" for API !!!
 inline less in update_node
 benchmark prefetching
-other rules
 write logs
-proper app name, comments in save_as_macrocell
-create a set of different patterns for tests
-validate more (from_macrocell, ...)
+proper app name
 
 59'191'018
+
+План:
+1. (skip?) логирование
+2. детекция переполнения памяти
+3. терминация рантайма
+4. очистка памяти
+
+quadtree_small
+quadtree_sync
+
+pattern.open_file / save_to_file
+remove redundant pub
+
+
+Зависимость времени обновления от количества поколений.
+Тестирование на паттернах из архива Very Large Patterns с правилами B3/S23 - паттернах, не поставляющихся с Golly из-за своего большого размера.  Измерения проведены на всех 28 паттернах.
+benchmark_all_patterns.png
+Использовалась оптимизированная однопоточная имплементация HashLife на Rust с предаллоцированной хэш-таблицей, памяти было достаточно для хранения всех возникающих узлов дерева квадрантов и load factor нигде не превышал 0.75.
+Обратим внимание, что некоторые паттерны были вычислены "до конца" и время из симуляции вышло на плато; 

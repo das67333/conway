@@ -16,7 +16,7 @@ name = "bench_otca"
 name = "bench_0e0p"
 
 [[bin]]
-name = "bench_test"
+name = "bench_dev"
 
 [dependencies]
 ahash = "0.8"

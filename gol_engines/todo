@@ -1,12 +1,6 @@
 low priority:
 - multiversion dependencies
-- metafy function
-- universal NiceInt::from
-- `fn get_cells(&self) -> Vec<u64>` to `impl Iterator<Item = u64>`
+- remove NiceInt
 - docs
 - exhaustive tests
 
-huge:
-- ASYNC (1 thread -> many coroutines)
-- MMAP (ram -> ssd)
-- update by arbitrary number of steps

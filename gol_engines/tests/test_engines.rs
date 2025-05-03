@@ -3,8 +3,8 @@ mod tests {
     use gol_engines::*;
 
     fn build_engines() -> Vec<Box<dyn GoLEngine>> {
-        let data = std::fs::read("../res/otca_0.rle").unwrap();
-        let pattern = Pattern::from_format(PatternFormat::RLE, &data).unwrap();
+        let data = std::fs::read("../res/otca_0.mc.gz").unwrap();
+        let pattern = Pattern::from_format(PatternFormat::CompressedMacrocell, &data).unwrap();
         let mut engines: Vec<Box<dyn GoLEngine>> = vec![
             Box::new(SIMDEngine::new()),
             Box::new(HashLifeEngineSmall::new()),

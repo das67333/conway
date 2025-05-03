@@ -158,10 +158,15 @@ impl MemoryManager {
             .get_mut()
             .hashtable
             .fill_with(|| QuadTreeNode::default());
+        self.base.get_mut().len = 0;
     }
 
     pub(super) fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
+    }
+
+    pub(super) fn len(&self) -> usize {
+        unsafe { (*self.base.get()).len }
     }
 }
 
@@ -169,10 +174,8 @@ impl MemoryManager {
 struct MemoryManagerRaw {
     /// buffer where heads of linked lists are stored
     hashtable: Vec<QuadTreeNode>,
-    /// how many times elements were found in the hashtable
-    hits: u64,
-    /// how many times elements were not found and therefore inserted
-    misses: u64,
+    /// number of nodes that were created
+    len: usize,
 }
 
 impl MemoryManagerRaw {
@@ -197,8 +200,7 @@ impl MemoryManagerRaw {
             hashtable: (0..1u64 << cap_log2)
                 .map(|_| QuadTreeNode::default())
                 .collect(),
-            hits: 0,
-            misses: 0,
+            len: 0,
         }
     }
 
@@ -244,7 +246,6 @@ impl MemoryManagerRaw {
         loop {
             let n = self.hashtable.get_unchecked(index);
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                self.hits += 1;
                 break;
             }
 
@@ -257,7 +258,10 @@ impl MemoryManagerRaw {
                     ctrl,
                     ..Default::default()
                 };
-                self.misses += 1;
+                self.len += 1;
+                if self.len == self.hashtable.len() * 15 / 16 {
+                    panic!("MemoryManager is full. Consider restarting with greater capacity.");
+                }
                 break;
             }
 
