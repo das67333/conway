@@ -86,27 +86,6 @@ impl HashLifeEngineSync {
             .find_or_create_leaf_from_u64(u64::from_le_bytes(arr.map(|x| (x >> 4) as u8)))
     }
 
-    fn nine_children_overlapping(
-        &self,
-        nw: NodeIdx,
-        ne: NodeIdx,
-        sw: NodeIdx,
-        se: NodeIdx,
-    ) -> [NodeIdx; 9] {
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
-        [
-            nw,
-            self.mem.find_or_create_node(nw_.ne, ne_.nw, nw_.se, ne_.sw),
-            ne,
-            self.mem.find_or_create_node(nw_.sw, nw_.se, sw_.nw, sw_.ne),
-            self.mem.find_or_create_node(nw_.se, ne_.sw, sw_.ne, se_.nw),
-            self.mem.find_or_create_node(ne_.sw, ne_.se, se_.nw, se_.ne),
-            sw,
-            self.mem.find_or_create_node(sw_.ne, se_.nw, sw_.se, se_.sw),
-            se,
-        ]
-    }
-
     fn nine_children_disjoint(
         &self,
         nw: NodeIdx,

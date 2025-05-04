@@ -288,7 +288,7 @@ impl Pattern {
     ///
     /// * `size_log2` - Log base 2 of the pattern's side length.
     /// * `seed` - Optional seed for the random number generator.
-    ///    If None, seeds from the OS.
+    ///   If None, seeds from the OS.
     ///
     /// # Returns
     ///

@@ -20,7 +20,7 @@ fn main() {
     )
     .unwrap();
     let pattern = top_pattern.metafy(&[otca_off, otca_on], 2).unwrap();
-    let mut engine = HashLifeEngineAsync::new(2 << 10);
+    let mut engine = HashLifeEngineSync::new(4 << 10);
     engine.load_pattern(&pattern, Topology::Unbounded).unwrap();
     println!("Time on building field: {:?}", timer.elapsed());
 

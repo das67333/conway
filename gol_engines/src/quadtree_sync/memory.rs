@@ -151,17 +151,13 @@ impl MemoryManager {
         self.base
             .get_mut()
             .hashtable
-            .fill_with(|| QuadTreeNode::default());
+            .fill_with(QuadTreeNode::default);
         self.base.get_mut().len = 0;
         self.base.get_mut().poisoned = false;
     }
 
     pub(super) fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
-    }
-
-    pub(super) fn len(&self) -> usize {
-        unsafe { (*self.base.get()).len }
     }
 
     pub(super) fn poisoned(&self) -> bool {
@@ -229,7 +225,7 @@ impl MemoryManagerRaw {
         is_leaf: bool,
     ) -> NodeIdx {
         if self.poisoned {
-            return NodeIdx(0 as u32);
+            return NodeIdx(0);
         }
 
         let mask = self.hashtable.len() - 1;
@@ -267,7 +263,7 @@ impl MemoryManagerRaw {
                 self.len += 1;
                 if self.len > self.hashtable.len() * 3 / 4 {
                     self.poisoned = true;
-                    return NodeIdx(0 as u32)
+                    return NodeIdx(0);
                 }
                 break;
             }

@@ -101,7 +101,7 @@ impl MemoryManager {
         self.base
             .get_mut()
             .hashtable
-            .fill_with(|| QuadTreeNode::default());
+            .fill_with(QuadTreeNode::default);
     }
 
     pub(super) fn bytes_total(&self) -> usize {
@@ -180,7 +180,7 @@ impl MemoryManagerRaw {
         is_leaf: bool,
     ) -> NodeIdx {
         if self.poisoned.load(Ordering::Relaxed) {
-            return NodeIdx(0 as u32);
+            return NodeIdx(0);
         }
 
         let mask = self.hashtable.len() - 1;

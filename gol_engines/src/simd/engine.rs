@@ -155,7 +155,7 @@ impl GoLEngine for SIMDEngine {
         // `mem_limit_mib` must be at least twice the size of the pattern
         // to fit the convertion buffer and the pattern itself
         if (BigInt::from(self.mem_limit_mib) << 20)
-            < (BigInt::from(2) << pattern.get_size_log2() * 2) / 8
+            < (BigInt::from(2) << (pattern.get_size_log2() * 2)) / 8
         {
             return Err(anyhow!("Pattern is too large for SIMDEngine"));
         }

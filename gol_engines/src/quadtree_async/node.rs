@@ -24,7 +24,6 @@ impl QuadTreeNode {
     pub(super) const STATUS_NOT_CACHED: u8 = 0;
     pub(super) const STATUS_PROCESSING: u8 = 1;
     pub(super) const STATUS_CACHED: u8 = 2;
-    pub(super) const STATUS_GC_MASK: u8 = 4;
 
     pub(super) fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {
         let h = 0u32
