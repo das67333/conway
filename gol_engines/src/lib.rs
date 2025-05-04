@@ -23,3 +23,6 @@ pub use utils::NiceInt;
 pub type DefaultEngine = SIMDEngine;
 
 pub const VERSION: &str = "1.0";
+
+use std::sync::atomic::AtomicU32;
+pub static WORKER_THREADS: AtomicU32 = AtomicU32::new(0);

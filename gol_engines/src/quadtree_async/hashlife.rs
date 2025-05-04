@@ -1,5 +1,5 @@
 use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{GoLEngine, Pattern, PatternNode, Topology};
+use crate::{GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
@@ -157,82 +157,6 @@ impl HashLifeEngineAsync {
             self.mem.find_or_create_node(arr[4], arr[5], arr[7], arr[8]),
         ]
     }
-
-    // /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    // async fn update_nodes_single(
-    //     &self,
-    //     nw: NodeIdx,
-    //     ne: NodeIdx,
-    //     sw: NodeIdx,
-    //     se: NodeIdx,
-    //     size_log2: u32,
-    // ) -> NodeIdx {
-    //     let arr9 = self.nine_children_disjoint(nw, ne, sw, se, size_log2);
-
-    //     let mut arr4 = self.four_children_overlapping(&arr9);
-    //     let cnt = ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed);
-    //     if cnt < 20 {
-    //         ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
-    //         let mut handles = Vec::with_capacity(4);
-    //         for i in 0..4 {
-    //             let node = arr4[i];
-    //             let this = self as *const HashLifeEngineAsync as usize;
-    //             handles.push(tokio::spawn(async move {
-    //                 unsafe { (*(this as *const HashLifeEngineAsync)).update_node(node, size_log2).await }
-    //             }));
-    //         }
-    //         for (i, handle) in handles.into_iter().enumerate() {
-    //             arr4[i] = handle.await.unwrap();
-    //         }
-    //         ACTIVE_COROUTINES.fetch_sub(4, std::sync::atomic::Ordering::Relaxed);
-    //     } else {
-    //         for i in 0..4 {
-    //             arr4[i] = self.update_node(arr4[i], size_log2).await;
-    //         }
-    //     }
-    //     let [nw, ne, sw, se] = arr4;
-    //     self.mem.find_or_create_node(nw, ne, sw, se)
-    // }
-
-    // /// `size_log2` is related to `nw`, `ne`, `sw`, `se` and return value
-    // fn update_nodes_double(
-    //     &self,
-    //     nw: NodeIdx,
-    //     ne: NodeIdx,
-    //     sw: NodeIdx,
-    //     se: NodeIdx,
-    //     size_log2: u32,
-    // ) -> NodeIdx {
-    //     let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.mem.get(x));
-
-    //     // First stage
-    //     let p11 = PrefetchedNode::new(&self.mem, nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2);
-    //     let p01 = PrefetchedNode::new(&self.mem, nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2);
-    //     let p12 = PrefetchedNode::new(&self.mem, ne_.sw, ne_.se, se_.nw, se_.ne, size_log2);
-    //     let p10 = PrefetchedNode::new(&self.mem, nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2);
-    //     let p21 = PrefetchedNode::new(&self.mem, sw_.ne, se_.nw, sw_.se, se_.sw, size_log2);
-
-    //     let t00 = self.update_node(nw, size_log2);
-    //     let t01 = self.update_node(p01.find(), size_log2);
-    //     let t02 = self.update_node(ne, size_log2);
-    //     let t12 = self.update_node(p12.find(), size_log2);
-    //     let t11 = self.update_node(p11.find(), size_log2);
-    //     let t10 = self.update_node(p10.find(), size_log2);
-    //     let t20 = self.update_node(sw, size_log2);
-    //     let t21 = self.update_node(p21.find(), size_log2);
-    //     let t22 = self.update_node(se, size_log2);
-
-    //     // Second stage
-    //     let pse = PrefetchedNode::new(&self.mem, t11, t12, t21, t22, size_log2);
-    //     let psw = PrefetchedNode::new(&self.mem, t10, t11, t20, t21, size_log2);
-    //     let pnw = PrefetchedNode::new(&self.mem, t00, t01, t10, t11, size_log2);
-    //     let pne = PrefetchedNode::new(&self.mem, t01, t02, t11, t12, size_log2);
-    //     let t_se = self.update_node(pse.find(), size_log2);
-    //     let t_sw = self.update_node(psw.find(), size_log2);
-    //     let t_nw = self.update_node(pnw.find(), size_log2);
-    //     let t_ne = self.update_node(pne.find(), size_log2);
-    //     self.mem.find_or_create_node(t_nw, t_ne, t_sw, t_se)
-    // }
 
     /// Recursively updates nodes in graph.
     ///
@@ -497,11 +421,18 @@ impl GoLEngine for HashLifeEngineAsync {
             self.add_frame(&mut dx, &mut dy, &mut blank_nodes);
         }
 
-        self.root = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .build()
-            .unwrap()
-            .block_on(async { self.update_node(self.root, self.size_log2).await });
+        {
+            let mut builder = tokio::runtime::Builder::new_multi_thread();
+            let threads = WORKER_THREADS.load(Ordering::Relaxed);
+            if threads > 0 {
+                builder.worker_threads(WORKER_THREADS.load(Ordering::Relaxed) as usize);
+            }
+
+            self.root = builder
+                .build()
+                .unwrap()
+                .block_on(async { self.update_node(self.root, self.size_log2).await });
+        }
         if self.mem.poisoned() {
             self.size_log2 = backup.get_size_log2();
             self.mem.clear();

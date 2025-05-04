@@ -875,7 +875,7 @@ impl Pattern {
                     result.extend_from_slice(new_line.as_bytes());
                 }
             }
-            assert!(codes.insert(idx, codes.len() + 1).is_none());
+            codes.insert(idx, codes.len() + 1);
             codes.len()
         }
 

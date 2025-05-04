@@ -75,7 +75,6 @@ impl MemoryManager {
 
     /// Get a mutable reference to the node at the given index.
     pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
-        // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
     }
 
@@ -187,7 +186,6 @@ impl MemoryManagerRaw {
 
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     fn with_capacity(cap_log2: u32) -> Self {
-        // TODO: speed up
         assert!(
             cap_log2 <= 32,
             "Hashtables bigger than 2^32 are not supported"

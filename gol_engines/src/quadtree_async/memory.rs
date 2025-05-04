@@ -1,6 +1,7 @@
 use super::{NodeIdx, QuadTreeNode};
 use std::{
     cell::UnsafeCell,
+    hint::spin_loop,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -25,7 +26,6 @@ impl MemoryManager {
 
     /// Get a mutable reference to the node at the given index.
     pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
-        // TODO: it is very unsafe
         unsafe { (*self.base.get()).get_mut(idx) }
     }
 
@@ -117,17 +117,11 @@ impl MemoryManager {
 struct MemoryManagerRaw {
     /// buffer where heads of linked lists are stored
     hashtable: Vec<QuadTreeNode>,
-    /// striped locks for the hashtable
-    locks: Vec<std::sync::Mutex<()>>,
-    /// log2 of hashtable's capacity
-    ht_cap_log2: u32,
     /// if true, the hashtable is poisoned and should be restored from the backup
     poisoned: AtomicBool,
 }
 
 impl MemoryManagerRaw {
-    const STRIPED_LOCKS_CNT_LOG2: u32 = 10;
-
     // control byte:
     // 00000000     -> empty
     // 00111111     -> deleted
@@ -139,7 +133,6 @@ impl MemoryManagerRaw {
 
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     fn with_capacity(cap_log2: u32) -> Self {
-        // TODO: speed up
         assert!(
             cap_log2 <= 32,
             "Hashtables bigger than 2^32 are not supported"
@@ -149,10 +142,6 @@ impl MemoryManagerRaw {
             hashtable: (0..1u64 << cap_log2)
                 .map(|_| QuadTreeNode::default())
                 .collect(),
-            locks: (0..(1 << Self::STRIPED_LOCKS_CNT_LOG2))
-                .map(|_| std::sync::Mutex::new(()))
-                .collect(),
-            ht_cap_log2: cap_log2,
             poisoned: AtomicBool::new(false),
         }
     }
@@ -188,13 +177,13 @@ impl MemoryManagerRaw {
 
         // prefetch(hashtable[index])
         // TODO: research prefetch levels, QuadTreeNode alignments
-        #[cfg(target_arch = "x86_64")]
-        {
-            use std::arch::x86_64::*;
-            _mm_prefetch::<_MM_HINT_T0>(
-                (self.hashtable.get_unchecked(index) as *const QuadTreeNode) as *const i8,
-            );
-        }
+        // #[cfg(target_arch = "x86_64")]
+        // {
+        //     use std::arch::x86_64::*;
+        //     _mm_prefetch::<_MM_HINT_T0>(
+        //         (self.hashtable.get_unchecked(index) as *const QuadTreeNode) as *const i8,
+        //     );
+        // }
 
         let ctrl = {
             let hash_compressed = {
@@ -210,36 +199,42 @@ impl MemoryManagerRaw {
             }
         };
 
-        let shift = self.ht_cap_log2 - Self::STRIPED_LOCKS_CNT_LOG2;
-        let mut lock = self.locks.get_unchecked(index >> shift).lock().unwrap();
         loop {
-            let n = self.hashtable.get_unchecked(index);
+            // First check if we can acquire the lock for this index
+            let lock = &(*self.hashtable.as_mut_ptr().add(index)).lock;
+
+            while lock
+                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_err()
+            {
+                spin_loop();
+            }
+
+            // Now safely get the mutable reference after acquiring the lock
+            let n = self.hashtable.get_unchecked_mut(index);
+
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+                n.lock.store(0, Ordering::Release);
                 break;
             }
 
             if n.ctrl == Self::CTRL_EMPTY {
-                *self.hashtable.get_unchecked_mut(index) = QuadTreeNode {
-                    nw,
-                    ne,
-                    sw,
-                    se,
-                    ctrl,
-                    ..Default::default()
-                };
+                n.nw = nw;
+                n.ne = ne;
+                n.sw = sw;
+                n.se = se;
+                n.ctrl = ctrl;
                 // self.misses.fetch_add(1, Ordering::Relaxed);
                 // if self.len > self.hashtable.len() * 3 / 4 {
                 //     self.poisoned.store(Ordering::Relaxed, true);
                 //     return NodeIdx(0 as u32);
                 // }
+                n.lock.store(0, Ordering::Release);
                 break;
             }
 
             let next_index = index.wrapping_add(1) & mask;
-            if index >> shift != next_index >> shift {
-                drop(lock);
-                lock = self.locks[next_index >> shift].lock().unwrap();
-            }
+            n.lock.store(0, Ordering::Release);
             index = next_index;
         }
 
