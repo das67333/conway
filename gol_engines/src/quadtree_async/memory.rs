@@ -1,6 +1,8 @@
 use super::{NodeIdx, QuadTreeNode};
-use crate::get_config;
-use std::cell::UnsafeCell;
+use std::{
+    cell::UnsafeCell,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 pub(super) struct MemoryManager {
     base: UnsafeCell<MemoryManagerRaw>,
@@ -9,11 +11,6 @@ pub(super) struct MemoryManager {
 unsafe impl Sync for MemoryManager {}
 
 impl MemoryManager {
-    /// Create a new memory manager with a default capacity.
-    pub(super) fn new() -> Self {
-        Self::with_capacity(get_config().memory_manager_cap_log2)
-    }
-
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
@@ -110,6 +107,10 @@ impl MemoryManager {
     pub(super) fn bytes_total(&self) -> usize {
         unsafe { (*self.base.get()).bytes_total() }
     }
+
+    pub(super) fn poisoned(&self) -> bool {
+        unsafe { (*self.base.get()).poisoned.load(Ordering::Relaxed) }
+    }
 }
 
 /// Hashtable that stores nodes of the quadtree
@@ -120,10 +121,8 @@ struct MemoryManagerRaw {
     locks: Vec<std::sync::Mutex<()>>,
     /// log2 of hashtable's capacity
     ht_cap_log2: u32,
-    // /// how many times elements were found in the hashtable
-    // hits: AtomicU64,
-    // /// how many times elements were not found and therefore inserted
-    // misses: AtomicU64,
+    /// if true, the hashtable is poisoned and should be restored from the backup
+    poisoned: AtomicBool,
 }
 
 impl MemoryManagerRaw {
@@ -135,7 +134,6 @@ impl MemoryManagerRaw {
     // 01<hash>     -> full (leaf)
     // 1<hash>      -> full (node)
     const CTRL_EMPTY: u8 = 0;
-    // const CTRL_DELETED: u8 = (1 << 6) - 1;
     const CTRL_LEAF_BASE: u8 = 1 << 6;
     const CTRL_NODE_BASE: u8 = 1 << 7;
 
@@ -155,8 +153,7 @@ impl MemoryManagerRaw {
                 .map(|_| std::sync::Mutex::new(()))
                 .collect(),
             ht_cap_log2: cap_log2,
-            // hits: AtomicU64::new(0),
-            // misses: AtomicU64::new(0),
+            poisoned: AtomicBool::new(false),
         }
     }
 
@@ -182,6 +179,10 @@ impl MemoryManagerRaw {
         hash: usize,
         is_leaf: bool,
     ) -> NodeIdx {
+        if self.poisoned.load(Ordering::Relaxed) {
+            return NodeIdx(0 as u32);
+        }
+
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
 
@@ -209,13 +210,11 @@ impl MemoryManagerRaw {
             }
         };
 
-        // let mut first_deleted = None;
         let shift = self.ht_cap_log2 - Self::STRIPED_LOCKS_CNT_LOG2;
         let mut lock = self.locks.get_unchecked(index >> shift).lock().unwrap();
         loop {
             let n = self.hashtable.get_unchecked(index);
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                // self.hits.fetch_add(1, Ordering::Relaxed);
                 break;
             }
 
@@ -229,11 +228,12 @@ impl MemoryManagerRaw {
                     ..Default::default()
                 };
                 // self.misses.fetch_add(1, Ordering::Relaxed);
+                // if self.len > self.hashtable.len() * 3 / 4 {
+                //     self.poisoned.store(Ordering::Relaxed, true);
+                //     return NodeIdx(0 as u32);
+                // }
                 break;
             }
-            // if n.ctrl == Self::CTRL_DELETED && first_deleted.is_none() {
-            //     first_deleted = Some(index);
-            // }
 
             let next_index = index.wrapping_add(1) & mask;
             if index >> shift != next_index >> shift {

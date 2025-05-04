@@ -1,5 +1,4 @@
 use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
-use crate::get_config;
 use std::cell::UnsafeCell;
 
 /// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
@@ -62,11 +61,6 @@ pub(super) struct MemoryManager {
 }
 
 impl MemoryManager {
-    /// Create a new memory manager with a default capacity.
-    pub(super) fn new() -> Self {
-        Self::with_capacity(get_config().memory_manager_cap_log2)
-    }
-
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
@@ -159,6 +153,7 @@ impl MemoryManager {
             .hashtable
             .fill_with(|| QuadTreeNode::default());
         self.base.get_mut().len = 0;
+        self.base.get_mut().poisoned = false;
     }
 
     pub(super) fn bytes_total(&self) -> usize {
@@ -168,6 +163,10 @@ impl MemoryManager {
     pub(super) fn len(&self) -> usize {
         unsafe { (*self.base.get()).len }
     }
+
+    pub(super) fn poisoned(&self) -> bool {
+        unsafe { (*self.base.get()).poisoned }
+    }
 }
 
 /// Hashtable that stores nodes of the quadtree
@@ -176,6 +175,8 @@ struct MemoryManagerRaw {
     hashtable: Vec<QuadTreeNode>,
     /// number of nodes that were created
     len: usize,
+    /// if true, the hashtable is poisoned and should be restored from the backup
+    poisoned: bool,
 }
 
 impl MemoryManagerRaw {
@@ -201,6 +202,7 @@ impl MemoryManagerRaw {
                 .map(|_| QuadTreeNode::default())
                 .collect(),
             len: 0,
+            poisoned: false,
         }
     }
 
@@ -226,6 +228,10 @@ impl MemoryManagerRaw {
         hash: usize,
         is_leaf: bool,
     ) -> NodeIdx {
+        if self.poisoned {
+            return NodeIdx(0 as u32);
+        }
+
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
 
@@ -259,8 +265,9 @@ impl MemoryManagerRaw {
                     ..Default::default()
                 };
                 self.len += 1;
-                if self.len == self.hashtable.len() * 15 / 16 {
-                    panic!("MemoryManager is full. Consider restarting with greater capacity.");
+                if self.len > self.hashtable.len() * 3 / 4 {
+                    self.poisoned = true;
+                    return NodeIdx(0 as u32)
                 }
                 break;
             }

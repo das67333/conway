@@ -15,13 +15,13 @@ use num_bigint::BigInt;
 /// ```rust
 /// use gol_engines::{GoLEngine, Pattern, PatternFormat, SIMDEngine, Topology};
 ///
-/// // Load a pattern (must be at least 128×128)
-/// let pattern = Pattern::random(7, None).unwrap();
+/// // Load a 16x16 pattern
+/// let pattern = Pattern::random(4, None).unwrap();
 /// let mut expanded_pattern = pattern.clone();
 /// expanded_pattern.expand(7); // Expand to at least 128×128
 ///
 /// // Create the SIMD engine
-/// let mut engine = SIMDEngine::new();
+/// let mut engine = SIMDEngine::new(1);
 /// engine.load_pattern(&expanded_pattern, Topology::Torus).unwrap();
 ///
 /// // Run for 2^10 = 1024 generations
@@ -35,6 +35,8 @@ pub struct SIMDEngine {
     data: Vec<u64>,
     /// The side length of the square grid (must be a power of 2)
     n: usize,
+    /// The memory limit in MiB
+    mem_limit_mib: u32,
 }
 
 impl SIMDEngine {
@@ -134,10 +136,11 @@ impl SIMDEngine {
 }
 
 impl GoLEngine for SIMDEngine {
-    fn new() -> Self {
+    fn new(mem_limit_mib: u32) -> Self {
         Self {
-            data: vec![0; 1 << (7 * 2 - 6)],
-            n: 0,
+            data: vec![0; 128 * 128 / Self::CELLS_IN_CHUNK],
+            n: 128,
+            mem_limit_mib,
         }
     }
 
@@ -149,9 +152,17 @@ impl GoLEngine for SIMDEngine {
             return Err(anyhow!("Pattern is too small for SIMDEngine"));
         }
 
+        // `mem_limit_mib` must be at least twice the size of the pattern
+        // to fit the convertion buffer and the pattern itself
+        if (BigInt::from(self.mem_limit_mib) << 20)
+            < (BigInt::from(2) << pattern.get_size_log2() * 2) / 8
+        {
+            return Err(anyhow!("Pattern is too large for SIMDEngine"));
+        }
+
         let packed_cells = pattern.to_format(PatternFormat::PackedCells)?;
         let n = 1 << pattern.get_size_log2();
-        let mut data = Vec::with_capacity(n * n / 64);
+        let mut data = Vec::with_capacity(n * n / Self::CELLS_IN_CHUNK);
         for chunk in packed_cells.chunks(8) {
             let mut bytes = [0; 8];
             bytes[..].copy_from_slice(chunk);
@@ -173,20 +184,43 @@ impl GoLEngine for SIMDEngine {
             .expect("A bug in SIMDEngine")
     }
 
-    fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
+    fn update(&mut self, generations_log2: u32) -> Result<[BigInt; 2]> {
         if generations_log2 >= 64 {
-            panic!(
-                "Generation count 2^{} is too large and would cause excessive runtime",
+            return Err(anyhow!(
+                "Generation count 2^{} is insanely large for SIMDEngine",
                 generations_log2
-            );
+            ));
         }
         for _ in 0..1u64 << generations_log2 {
             self.update_inner();
         }
-        [BigInt::ZERO; 2]
+        Ok([BigInt::ZERO; 2])
     }
 
     fn bytes_total(&self) -> usize {
         self.data.capacity() * size_of::<u64>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SEED: u64 = 42;
+
+    #[test]
+    fn test_pattern_roundtrip() {
+        for size_log2 in 7..10 {
+            let original = Pattern::random(size_log2, Some(SEED)).unwrap();
+            let mut engine = SIMDEngine::new(1);
+            engine.load_pattern(&original, Topology::Torus).unwrap();
+            let converted = engine.current_state();
+
+            assert_eq!(
+                original.hash(),
+                converted.hash(),
+                "Pattern roundtrip failed for size 2^{}",
+                size_log2
+            );
+        }
     }
 }

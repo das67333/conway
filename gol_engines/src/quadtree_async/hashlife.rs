@@ -411,8 +411,14 @@ impl HashLifeEngineAsync {
 }
 
 impl GoLEngine for HashLifeEngineAsync {
-    fn new() -> Self {
-        let mem = MemoryManager::new();
+    fn new(mem_limit_mib: u32) -> Self {
+        let nodes = ((mem_limit_mib as u64) << 20) / std::mem::size_of::<QuadTreeNode>() as u64;
+        // previous power of two
+        let cap_log2 = (nodes / 2 + 1)
+            .checked_next_power_of_two()
+            .unwrap()
+            .trailing_zeros();
+        let mem = MemoryManager::with_capacity(cap_log2);
         Self {
             size_log2: LEAF_SIZE_LOG2,
             root: mem.find_or_create_leaf_from_u64(0),
@@ -475,12 +481,13 @@ impl GoLEngine for HashLifeEngineAsync {
         pattern
     }
 
-    fn update(&mut self, generations_log2: u32) -> [BigInt; 2] {
+    fn update(&mut self, generations_log2: u32) -> Result<[BigInt; 2]> {
         if let Some(cached_generations_log2) = self.generations_per_update_log2 {
             if cached_generations_log2 != generations_log2 {
                 self.run_gc();
             }
         }
+        let backup = self.current_state();
         self.generations_per_update_log2 = Some(generations_log2);
 
         let frames_cnt = (generations_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
@@ -491,10 +498,22 @@ impl GoLEngine for HashLifeEngineAsync {
         }
 
         self.root = tokio::runtime::Builder::new_multi_thread()
-            // .worker_threads(4)
+            .worker_threads(1)
             .build()
             .unwrap()
             .block_on(async { self.update_node(self.root, self.size_log2).await });
+        if self.mem.poisoned() {
+            self.size_log2 = backup.get_size_log2();
+            self.mem.clear();
+            let mut cache = HashMap::new();
+            self.root =
+                Self::from_pattern_recursive(backup.get_root(), &backup, &self.mem, &mut cache);
+            self.generations_per_update_log2 = None;
+            return Err(anyhow!(
+                "HashLifeSync: overfilled MemoryManager, try to reduce generations_log2"
+            ));
+        }
+
         self.size_log2 -= 1;
         dx -= BigInt::from(1) << (self.size_log2 - 1);
         dy -= BigInt::from(1) << (self.size_log2 - 1);
@@ -512,7 +531,7 @@ impl GoLEngine for HashLifeEngineAsync {
             }
         }
 
-        [dx, dy]
+        Ok([dx, dy])
     }
 
     fn run_gc(&mut self) {
@@ -544,7 +563,7 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let mut engine = HashLifeEngineAsync::new();
+            let mut engine = HashLifeEngineAsync::new(1);
             engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 

@@ -7,11 +7,18 @@ pub trait GoLEngine {
     /// Creates a new Game of Life engine instance with a blank pattern.
     ///
     /// This method initializes a Game of Life engine with an empty grid of the
-    /// implementation's default size.
+    /// implementation's default size and a specified memory limit.
+    ///
+    /// # Parameters
+    /// * `mem_limit_mib` - The maximum amount of memory the engine can use, in MiB.
+    ///   Note that this is not a hard limit and implementations may
+    ///   insignificantly exceed this value when necessary.
+    ///   For example, the amount of memory consumed by [`Pattern`]
+    ///   is considered negligible.
     ///
     /// # Returns
     /// A new instance of the Game of Life engine with a blank pattern
-    fn new() -> Self
+    fn new(mem_limit_mib: u32) -> Self
     where
         Self: Sized;
 
@@ -47,14 +54,26 @@ pub trait GoLEngine {
     ///
     /// # Returns
     ///
-    /// An array `[dx, dy]` containing the coordinate shifts of the pattern's top-left corner.
+    /// If successful, returns an array `[dx, dy]` containing the coordinate shifts
+    /// of the pattern's top-left corner.
     /// Only relevant for unbounded topologies where patterns can grow and move.
     /// For bounded topologies, returns `[0, 0]`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the engine experiences a recoverable failure during simulation,
+    /// for example, overfills its non-growable hashtable. This can happen with
+    /// large patterns or high generation counts. If this error occurs, try reducing the
+    /// `generations_log2` value to process fewer generations at once. While it is
+    /// possible to handle it internally, it was decided to choose a more explicit approach.
+    ///
+    /// It is guaranteed that in case of failure, the engine will store the pattern
+    /// that it stored before the update.
     ///
     /// # Notes
     ///
     /// When using [`Topology::Unbounded`], the field size may grow to accommodate expanding patterns.
-    fn update(&mut self, generations_log2: u32) -> [BigInt; 2];
+    fn update(&mut self, generations_log2: u32) -> Result<[BigInt; 2]>;
 
     /// Runs garbage collection to free accumulated caches and temporary data.
     ///

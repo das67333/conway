@@ -13,10 +13,8 @@ fn detect_format(filename: &str) -> Option<PatternFormat> {
 }
 
 fn main() {
-    set_memory_manager_cap_log2(29);
-
     let paths = std::fs::read_dir("../res/very_large_patterns").unwrap();
-    let mut engine = HashLifeEngineSync::new();
+    let mut engine = HashLifeEngineSync::new(16 << 10);
     for (i, path) in paths.enumerate() {
         let path = path.unwrap().path();
         let name = path.file_name().unwrap().to_str().unwrap();
@@ -35,7 +33,7 @@ fn main() {
             // println!("build time: {:?}", elapsed_build);
 
             let timer = std::time::Instant::now();
-            engine.update(gens_log2);
+            engine.update(gens_log2).unwrap();
             let elapsed_update = timer.elapsed();
             println!("{} -> {:?}", gens_log2, elapsed_update.as_secs_f64());
             if elapsed_update.as_secs_f64() > 60.0 {

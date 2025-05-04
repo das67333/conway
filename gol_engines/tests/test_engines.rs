@@ -5,11 +5,12 @@ mod tests {
     fn build_engines() -> Vec<Box<dyn GoLEngine>> {
         let data = std::fs::read("../res/otca_0.mc.gz").unwrap();
         let pattern = Pattern::from_format(PatternFormat::CompressedMacrocell, &data).unwrap();
+        let mem_limit_mib = 16;
         let mut engines: Vec<Box<dyn GoLEngine>> = vec![
-            Box::new(SIMDEngine::new()),
-            Box::new(HashLifeEngineSmall::new()),
-            Box::new(HashLifeEngineSync::new()),
-            Box::new(HashLifeEngineAsync::new()),
+            Box::new(SIMDEngine::new(mem_limit_mib)),
+            Box::new(HashLifeEngineSmall::new(mem_limit_mib)),
+            Box::new(HashLifeEngineSync::new(mem_limit_mib)),
+            Box::new(HashLifeEngineAsync::new(mem_limit_mib)),
         ];
         for engine in engines.iter_mut() {
             engine.load_pattern(&pattern, Topology::Torus).unwrap();
@@ -32,7 +33,7 @@ mod tests {
             let mut engines = build_engines();
 
             for engine in engines.iter_mut() {
-                engine.update(generations_log2);
+                engine.update(generations_log2).unwrap();
             }
 
             assert_fields_equal(&engines);
@@ -45,7 +46,7 @@ mod tests {
 
         for generations_log2 in 0..7 {
             for engine in engines.iter_mut() {
-                engine.update(generations_log2);
+                engine.update(generations_log2).unwrap();
             }
 
             assert_fields_equal(&engines);
@@ -58,7 +59,7 @@ mod tests {
 
         for generations_log2 in 0..7 {
             for engine in engines.iter_mut() {
-                engine.update(generations_log2);
+                engine.update(generations_log2).unwrap();
                 engine.run_gc();
             }
 

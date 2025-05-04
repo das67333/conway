@@ -3,7 +3,6 @@ use num_bigint::BigInt;
 
 fn main() {
     let timer = std::time::Instant::now();
-    set_memory_manager_cap_log2(26);
 
     let top_pattern = Pattern::from_format(
         PatternFormat::PackedCells,
@@ -11,23 +10,23 @@ fn main() {
     )
     .unwrap();
     let otca_off = Pattern::from_format(
-        PatternFormat::RLE,
+        PatternFormat::CompressedMacrocell,
         &std::fs::read("../res/otca_0.mc.gz").unwrap(),
     )
     .unwrap();
     let otca_on = Pattern::from_format(
-        PatternFormat::RLE,
+        PatternFormat::CompressedMacrocell,
         &std::fs::read("../res/otca_1.mc.gz").unwrap(),
     )
     .unwrap();
     let pattern = top_pattern.metafy(&[otca_off, otca_on], 2).unwrap();
-    let mut engine = HashLifeEngineAsync::new();
+    let mut engine = HashLifeEngineAsync::new(2 << 10);
     engine.load_pattern(&pattern, Topology::Unbounded).unwrap();
     println!("Time on building field: {:?}", timer.elapsed());
 
     let timer = std::time::Instant::now();
     let generations_log2 = 23;
-    engine.update(generations_log2);
+    engine.update(generations_log2).unwrap();
     let updated = engine.current_state();
     println!("Time on big update: {:?}", timer.elapsed());
     println!("{}", engine.statistics());

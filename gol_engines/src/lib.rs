@@ -1,6 +1,5 @@
 #![warn(clippy::all, clippy::cargo)]
 
-mod config;
 mod pattern;
 mod quadtree_async;
 mod quadtree_small;
@@ -14,7 +13,6 @@ pub use pattern::{Pattern, PatternFormat, PatternNode};
 pub use topology::Topology;
 pub use traits::GoLEngine;
 
-pub use config::{get_config, set_memory_manager_cap_log2};
 // pub use quadtree::{HashLifeEngine, StreamLifeEngine};
 pub use quadtree_async::HashLifeEngineAsync;
 pub use quadtree_small::HashLifeEngineSmall;
