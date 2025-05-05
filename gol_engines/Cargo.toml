@@ -27,7 +27,10 @@ rand = "0.9"
 rand_chacha = "0.9"
 
 tokio = { version = "1.44", features = ["rt-multi-thread", "sync"] }
-async-recursion = "1.1.1"
+async-recursion = "1.1"
+
+[dev-dependencies]
+serial_test = "3.2"
 
 [profile.release]
 debug = true

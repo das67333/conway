@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use gol_engines::*;
+    use serial_test::serial;
 
     fn build_engines() -> Vec<Box<dyn GoLEngine>> {
         let data = std::fs::read("../res/otca_0.mc.gz").unwrap();
@@ -28,6 +29,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_single_updates() {
         for generations_log2 in 0..7 {
             let mut engines = build_engines();
@@ -41,6 +43,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_repetitive_updates_without_gc() {
         let mut engines = build_engines();
 
@@ -54,6 +57,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_repetitive_updates_with_gc() {
         let mut engines = build_engines();
 

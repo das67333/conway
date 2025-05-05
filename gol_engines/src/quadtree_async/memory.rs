@@ -1,4 +1,4 @@
-use super::{NodeIdx, QuadTreeNode};
+use super::{NodeIdx, QuadTreeNode, ThreadLocalCounter};
 use std::{
     cell::UnsafeCell,
     hint::spin_loop,
@@ -102,6 +102,8 @@ impl MemoryManager {
             .get_mut()
             .hashtable
             .fill_with(QuadTreeNode::default);
+        self.base.get_mut().len.reset();
+        self.base.get_mut().poisoned.store(false, Ordering::Relaxed);
     }
 
     pub(super) fn bytes_total(&self) -> usize {
@@ -117,6 +119,8 @@ impl MemoryManager {
 struct MemoryManagerRaw {
     /// buffer where heads of linked lists are stored
     hashtable: Vec<QuadTreeNode>,
+    /// len
+    len: ThreadLocalCounter,
     /// if true, the hashtable is poisoned and should be restored from the backup
     poisoned: AtomicBool,
 }
@@ -142,6 +146,7 @@ impl MemoryManagerRaw {
             hashtable: (0..1u64 << cap_log2)
                 .map(|_| QuadTreeNode::default())
                 .collect(),
+            len: ThreadLocalCounter::new(),
             poisoned: AtomicBool::new(false),
         }
     }
@@ -224,12 +229,12 @@ impl MemoryManagerRaw {
                 n.sw = sw;
                 n.se = se;
                 n.ctrl = ctrl;
-                // self.misses.fetch_add(1, Ordering::Relaxed);
-                // if self.len > self.hashtable.len() * 3 / 4 {
-                //     self.poisoned.store(Ordering::Relaxed, true);
-                //     return NodeIdx(0 as u32);
-                // }
                 n.lock.store(0, Ordering::Release);
+
+                if self.len.increment() > self.hashtable.len() * 3 / 4 {
+                    self.poisoned.store(true, Ordering::Relaxed);
+                    return NodeIdx(0 as u32);
+                }
                 break;
             }
 

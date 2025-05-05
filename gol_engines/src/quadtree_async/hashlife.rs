@@ -243,6 +243,9 @@ impl HashLifeEngineAsync {
         }
 
         while n.status.load(Ordering::Acquire) != QuadTreeNode::STATUS_CACHED {
+            if self.mem.poisoned() {
+                return NodeIdx(0);
+            }
             tokio::task::yield_now().await;
         }
         n.cache
@@ -488,9 +491,11 @@ impl GoLEngine for HashLifeEngineAsync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     const SEED: u64 = 42;
 
     #[test]
+    #[serial]
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
