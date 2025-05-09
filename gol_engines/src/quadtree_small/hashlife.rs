@@ -408,6 +408,13 @@ impl HashLifeEngineSmall {
         self.gc_mark(n.sw, size_log2 - 1);
         self.gc_mark(n.se, size_log2 - 1);
     }
+
+    pub(super) fn statistics(&mut self) -> String {
+        let mut s = "Engine: HashLifeSmall\n".to_string();
+        s += &format!("Side length: 2^{}\n", self.size_log2);
+        s += &self.mem.stats_fast();
+        s
+    }
 }
 
 impl GoLEngine for HashLifeEngineSmall {
@@ -550,13 +557,6 @@ impl GoLEngine for HashLifeEngineSmall {
 
     fn bytes_total(&self) -> usize {
         self.mem.bytes_total()
-    }
-
-    fn statistics(&mut self) -> String {
-        let mut s = "Engine: HashLifeSmall\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.size_log2);
-        s += &self.mem.stats_fast();
-        s
     }
 }
 

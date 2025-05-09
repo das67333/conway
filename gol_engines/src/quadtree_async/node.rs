@@ -32,7 +32,7 @@ impl QuadTreeNode {
             .wrapping_add((ne.0).wrapping_mul(17))
             .wrapping_add((sw.0).wrapping_mul(257))
             .wrapping_add((se.0).wrapping_mul(65537));
-        h.wrapping_add(h.rotate_right(11)) as usize
+        h.wrapping_add(h >> 11) as usize
     }
 
     pub(super) fn parts(&self) -> [NodeIdx; 4] {

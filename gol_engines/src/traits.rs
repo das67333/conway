@@ -88,9 +88,4 @@ pub trait GoLEngine {
 
     /// Returns the approximate heap memory usage of the engine in bytes.
     fn bytes_total(&self) -> usize;
-
-    /// Returns multiline string reporting engine stats.
-    fn statistics(&mut self) -> String {
-        String::new()
-    }
 }

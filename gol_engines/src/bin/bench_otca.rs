@@ -29,7 +29,6 @@ fn main() {
     engine.update(generations_log2).unwrap();
     let updated = engine.current_state();
     println!("Time on big update: {:?}", timer.elapsed());
-    println!("{}", engine.statistics());
     assert_eq!(updated.population(), BigInt::from(6_094_494_746_384u64));
     assert_eq!(updated.hash(), 0xf35ef0ba0c9db279);
 }

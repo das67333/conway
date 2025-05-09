@@ -336,7 +336,6 @@ impl GoLEngine for HashLifeEngineSync {
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), pattern, &self.mem, &mut cache);
-        // rebuilding MemoryManager is slower than just clearing it
         self.generations_per_update_log2 = None;
         self.topology = topology;
         Ok(())
@@ -440,12 +439,6 @@ impl GoLEngine for HashLifeEngineSync {
 
     fn bytes_total(&self) -> usize {
         self.mem.bytes_total()
-    }
-
-    fn statistics(&mut self) -> String {
-        let mut s = "Engine: HashlifeSync\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.size_log2);
-        s
     }
 }
 

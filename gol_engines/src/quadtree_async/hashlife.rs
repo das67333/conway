@@ -1,5 +1,7 @@
 use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
-use crate::{GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS};
+use crate::{
+    quadtree_async::CoroutinesCountGuard, GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS,
+};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
@@ -14,12 +16,6 @@ pub struct HashLifeEngineAsync {
     topology: Topology,
     // metrics: Metrics,
 }
-
-static ACTIVE_COROUTINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-// #[derive(Default)]
-// struct Metrics {
-//     threads_spawned: AtomicU64,
-// }
 
 impl HashLifeEngineAsync {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
@@ -174,28 +170,47 @@ impl HashLifeEngineAsync {
                     1 << generations_log2
                 };
                 this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
-            } else if both_stages {
-                // this.update_nodes_double(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
-                let mut arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
-                for x in arr9.iter_mut() {
-                    *x = this.update_node(*x, size_log2 - 1).await;
-                }
-
-                let mut arr4 = this.four_children_overlapping(&arr9);
-                for x in arr4.iter_mut() {
-                    *x = this.update_node(*x, size_log2 - 1).await;
-                }
-                this.mem
-                    .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
             } else {
-                // this.update_nodes_single(n.nw, n.ne, n.sw, n.se, size_log2 - 1)
-                //     .await
-                let arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+                // let mut arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
+                // for x in arr9.iter_mut() {
+                //     *x = this.update_node(*x, size_log2 - 1).await;
+                // }
+
+                // let mut arr4 = this.four_children_overlapping(&arr9);
+                // for x in arr4.iter_mut() {
+                //     *x = this.update_node(*x, size_log2 - 1).await;
+                // }
+                // this.mem
+                //     .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
+                let mut arr9;
+                if both_stages {
+                    arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
+                    if size_log2 >= 12 && this.mem.should_spawn(size_log2) {
+                        let _guard = CoroutinesCountGuard::new(9);
+                        let this_ptr = this as *const _ as usize;
+                        let handles = arr9.map(|x| {
+                            tokio::spawn(async move {
+                                unsafe { &*(this_ptr as *const HashLifeEngineAsync) }
+                                    .update_node(x, size_log2 - 1)
+                                    .await
+                            })
+                        });
+                        for (i, handle) in handles.into_iter().enumerate() {
+                            arr9[i] = handle.await.unwrap();
+                        }
+                    } else {
+                        for x in arr9.iter_mut() {
+                            *x = this.update_node(*x, size_log2 - 1).await;
+                        }
+                    }
+                } else {
+                    arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+                }
 
                 let mut arr4 = this.four_children_overlapping(&arr9);
-                if ACTIVE_COROUTINES.load(std::sync::atomic::Ordering::Relaxed) < 64 {
+                if this.mem.should_spawn(size_log2) {
                     // TODO: sharded ACTIVE_COROUTINES
-                    ACTIVE_COROUTINES.fetch_add(4, std::sync::atomic::Ordering::Relaxed);
+                    let _guard = CoroutinesCountGuard::new(4);
                     let this_ptr = this as *const _ as usize;
                     let handles = arr4.map(|x| {
                         tokio::spawn(async move {
@@ -207,7 +222,6 @@ impl HashLifeEngineAsync {
                     for (i, handle) in handles.into_iter().enumerate() {
                         arr4[i] = handle.await.unwrap();
                     }
-                    ACTIVE_COROUTINES.fetch_sub(4, std::sync::atomic::Ordering::Relaxed);
                 } else {
                     for x in arr4.iter_mut() {
                         *x = this.update_node(*x, size_log2 - 1).await;
@@ -216,7 +230,6 @@ impl HashLifeEngineAsync {
                 this.mem
                     .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
             }
-            // TODO: unite last two branches
         }
 
         let n = self.mem.get(node);
@@ -479,12 +492,6 @@ impl GoLEngine for HashLifeEngineAsync {
 
     fn bytes_total(&self) -> usize {
         self.mem.bytes_total()
-    }
-
-    fn statistics(&mut self) -> String {
-        let mut s = "Engine: HashLifeAsync\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.size_log2);
-        s
     }
 }
 

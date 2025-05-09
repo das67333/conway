@@ -24,5 +24,10 @@ pub type DefaultEngine = SIMDEngine;
 
 pub const VERSION: &str = "1.0";
 
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 pub static WORKER_THREADS: AtomicU32 = AtomicU32::new(0);
+pub static COUNTER_1: AtomicU64 = AtomicU64::new(0);
+pub static COUNTER_2: AtomicU64 = AtomicU64::new(0);
+pub static COUNTER_3: AtomicU64 = AtomicU64::new(0);
+pub static COUNTER_4: AtomicU64 = AtomicU64::new(0);
+pub static mut OPTION_1: u32 = 0;

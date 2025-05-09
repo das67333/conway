@@ -191,7 +191,6 @@ impl MemoryManagerRaw {
             "Hashtables bigger than 2^32 are not supported"
         );
         Self {
-            // first node must be reserved for null
             hashtable: (0..1u64 << cap_log2)
                 .map(|_| QuadTreeNode::default())
                 .collect(),
