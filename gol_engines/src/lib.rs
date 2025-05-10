@@ -26,8 +26,7 @@ pub const VERSION: &str = "1.0";
 
 use std::sync::atomic::{AtomicU32, AtomicU64};
 pub static WORKER_THREADS: AtomicU32 = AtomicU32::new(0);
-pub static COUNTER_1: AtomicU64 = AtomicU64::new(0);
-pub static COUNTER_2: AtomicU64 = AtomicU64::new(0);
-pub static COUNTER_3: AtomicU64 = AtomicU64::new(0);
-pub static COUNTER_4: AtomicU64 = AtomicU64::new(0);
-pub static mut OPTION_1: u32 = 0;
+pub static MIN_COROUTINE_SPAWN_SIZE_LOG2: AtomicU32 = AtomicU32::new(12);
+pub const MAX_COROUTINES_COUNT: usize = 1024;
+pub static COROUTINES_SPAWN_COUNT: AtomicU64 = AtomicU64::new(0);
+pub static NODES_CREATED_COUNT: AtomicU64 = AtomicU64::new(0);

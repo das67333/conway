@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::AtomicBool;
 
 /// Location of a node is determined by its `idx`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -13,10 +13,10 @@ pub(super) struct QuadTreeNode {
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
     pub(super) se: NodeIdx,
-    /// center after n/4 x n/4 generations, valid only if `status` is `STATUS_CACHED`
+    /// center after n/4 x n/4 generations, valid only if `has_cache` is true
     pub(super) cache: NodeIdx,
-    pub(super) lock: AtomicU8,
-    pub(super) status: AtomicU8,
+    pub(super) status: std::sync::atomic::AtomicU8,
+    pub(super) lock: AtomicBool,
     pub(super) ctrl: u8,
     // pub(super) extra: Extra, // extra information for engine: () for hashlife and u64 for streamlife // TODO
 }

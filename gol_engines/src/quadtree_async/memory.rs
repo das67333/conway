@@ -1,4 +1,5 @@
-use super::{NodeIdx, QuadTreeNode, ExecutionStatistics};
+use super::{ExecutionStatistics, NodeIdx, QuadTreeNode};
+use crate::NODES_CREATED_COUNT;
 use std::{
     cell::UnsafeCell,
     hint::spin_loop,
@@ -176,9 +177,9 @@ impl MemoryManagerRaw {
         hash: usize,
         is_leaf: bool,
     ) -> NodeIdx {
-        // if self.poisoned.load(Ordering::Relaxed) {
-        //     return NodeIdx(0);
-        // }
+        if self.poisoned.load(Ordering::Relaxed) {
+            return NodeIdx(0);
+        }
 
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
@@ -212,7 +213,7 @@ impl MemoryManagerRaw {
             let lock = &(*self.hashtable.as_mut_ptr().add(index)).lock;
 
             while lock
-                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
             {
                 spin_loop();
@@ -222,7 +223,7 @@ impl MemoryManagerRaw {
             let n = self.hashtable.get_unchecked_mut(index);
 
             if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
-                n.lock.store(0, Ordering::Release);
+                n.lock.store(false, Ordering::Release);
                 break;
             }
 
@@ -232,18 +233,19 @@ impl MemoryManagerRaw {
                 n.sw = sw;
                 n.se = se;
                 n.ctrl = ctrl;
-                n.lock.store(0, Ordering::Release);
+                n.lock.store(false, Ordering::Release);
 
                 // TODO: provide size_log2
-                // if self.stats.should_poison_on_creation(0) {
-                //     self.poisoned.store(true, Ordering::Relaxed);
-                //     return NodeIdx(0 as u32);
-                // }
+                if self.stats.should_poison_on_creation(0) {
+                    self.poisoned.store(true, Ordering::Relaxed);
+                    return NodeIdx(0 as u32);
+                }
+                NODES_CREATED_COUNT.fetch_add(1, Ordering::Relaxed);
                 break;
             }
 
             let next_index = index.wrapping_add(1) & mask;
-            n.lock.store(0, Ordering::Release);
+            n.lock.store(false, Ordering::Release);
             index = next_index;
         }
 

@@ -1,17 +1,18 @@
 //! A thread-local statistics collector for quadtree operations.
-
+use crate::{COROUTINES_SPAWN_COUNT, MAX_COROUTINES_COUNT, MIN_COROUTINE_SPAWN_SIZE_LOG2};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Enforce singleton: only one ExecutionStatistics may be instantiated.
 static INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+static ACTIVE_COROUTINES_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 /// Global accumulated count flushed from all threads.
 static LENGTH_GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
     static LENGTH_LOCAL_COUNT: Cell<u8> = Cell::new(0);
-    static ACTIVE_COROUTINES_LOCAL_COUNT: Cell<u8> = Cell::new(0);
 }
 
 /// Thread-safe execution statistics collector with efficient batched counters.
@@ -49,8 +50,8 @@ impl ExecutionStatistics {
     /// # Returns
     /// `true` if the system should spawn a new task, `false` otherwise.
     pub(super) fn should_spawn(&self, size_log2: u32) -> bool {
-        // size_log2 == unsafe { crate::OPTION_1 } &&
-        ACTIVE_COROUTINES_LOCAL_COUNT.get() < 8
+        size_log2 >= MIN_COROUTINE_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
+            && ACTIVE_COROUTINES_COUNT.load(Ordering::Relaxed) < MAX_COROUTINES_COUNT
     }
 
     /// Checks if a node should be poisoned upon creation based on size and current load.
@@ -70,7 +71,8 @@ impl ExecutionStatistics {
             cell.set(new_value);
 
             // If we wrapped around (new_value is 0), flush 256 to global
-            if new_value == 0 && LENGTH_GLOBAL_COUNT.fetch_add(256, Ordering::Relaxed) > self.length_limit
+            if new_value == 0
+                && LENGTH_GLOBAL_COUNT.fetch_add(256, Ordering::Relaxed) > self.length_limit
             {
                 result = true;
             }
@@ -95,21 +97,15 @@ pub(super) struct CoroutinesCountGuard(u8);
 
 impl CoroutinesCountGuard {
     pub(super) fn new(count: u8) -> Self {
-        crate::COUNTER_1.fetch_add(count as u64, Ordering::Relaxed);
-        ACTIVE_COROUTINES_LOCAL_COUNT.with(|cell| {
-            let new_value = cell.get().wrapping_add(count);
-            cell.set(new_value);
-        });
+        COROUTINES_SPAWN_COUNT.fetch_add(count as u64, Ordering::Relaxed);
+        ACTIVE_COROUTINES_COUNT.fetch_add(count as usize, Ordering::Relaxed);
         Self(count)
     }
 }
 
 impl Drop for CoroutinesCountGuard {
     fn drop(&mut self) {
-        ACTIVE_COROUTINES_LOCAL_COUNT.with(|cell| {
-            let new_value = cell.get().wrapping_sub(self.0);
-            cell.set(new_value);
-        });
+        ACTIVE_COROUTINES_COUNT.fetch_sub(self.0 as usize, Ordering::Relaxed);
     }
 }
 
