@@ -278,6 +278,12 @@ impl HashLifeEngineAsync {
             tokio::task::yield_now().await;
         }
         n.cache
+        // *self
+        //     .mem
+        //     .get(node)
+        //     .cache
+        //     .get_or_init(|| inner(self, node, size_log2))
+        //     .await
     }
 
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,

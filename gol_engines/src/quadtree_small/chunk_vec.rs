@@ -4,13 +4,13 @@ use super::{NodeIdx, QuadTreeNode};
 /// It is chosen instead of a vector to avoid reallocation freezes.
 ///
 /// First element should always be reserved for blank node.
-pub(super) struct ChunkVec<const CHUNK_SIZE: usize> {
-    chunks: Vec<*mut QuadTreeNode>,
+pub(super) struct ChunkVec<const CHUNK_SIZE: usize, Extra> {
+    chunks: Vec<*mut QuadTreeNode<Extra>>,
     next_free_node: NodeIdx,
     len: usize,
 }
 
-impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
+impl<const CHUNK_SIZE: usize, Extra> ChunkVec<CHUNK_SIZE, Extra> {
     pub(super) fn new() -> Self {
         let chunk = Self::new_chunk();
         unsafe {
@@ -64,14 +64,14 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
         self.len = self.capacity() - 1 - free_nodes_cnt;
     }
 
-    fn new_chunk() -> *mut QuadTreeNode {
+    fn new_chunk() -> *mut QuadTreeNode<Extra> {
         use std::alloc::*;
-        let layout = Layout::array::<QuadTreeNode>(CHUNK_SIZE).unwrap();
-        unsafe { alloc_zeroed(layout) as *mut QuadTreeNode }
+        let layout = Layout::array::<QuadTreeNode<Extra>>(CHUNK_SIZE).unwrap();
+        unsafe { alloc_zeroed(layout) as *mut QuadTreeNode<Extra> }
     }
 
     pub(super) fn bytes_total(&self) -> usize {
-        self.chunks.len() * (size_of::<usize>() + CHUNK_SIZE * size_of::<QuadTreeNode>())
+        self.chunks.len() * (size_of::<usize>() + CHUNK_SIZE * size_of::<QuadTreeNode<Extra>>())
     }
 
     pub(super) fn len(&self) -> usize {
@@ -83,8 +83,8 @@ impl<const CHUNK_SIZE: usize> ChunkVec<CHUNK_SIZE> {
     }
 }
 
-impl<const CHUNK_SIZE: usize> std::ops::Index<NodeIdx> for ChunkVec<CHUNK_SIZE> {
-    type Output = QuadTreeNode;
+impl<const CHUNK_SIZE: usize, Extra> std::ops::Index<NodeIdx> for ChunkVec<CHUNK_SIZE, Extra> {
+    type Output = QuadTreeNode<Extra>;
     fn index(&self, index: NodeIdx) -> &Self::Output {
         let i = index.0 as usize;
         unsafe {
@@ -96,7 +96,7 @@ impl<const CHUNK_SIZE: usize> std::ops::Index<NodeIdx> for ChunkVec<CHUNK_SIZE> 
     }
 }
 
-impl<const CHUNK_SIZE: usize> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZE> {
+impl<const CHUNK_SIZE: usize, Extra> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZE, Extra> {
     fn index_mut(&mut self, index: NodeIdx) -> &mut Self::Output {
         let i = index.0 as usize;
         unsafe {
@@ -108,10 +108,10 @@ impl<const CHUNK_SIZE: usize> std::ops::IndexMut<NodeIdx> for ChunkVec<CHUNK_SIZ
     }
 }
 
-impl<const CHUNK_SIZE: usize> Drop for ChunkVec<CHUNK_SIZE> {
+impl<const CHUNK_SIZE: usize, Extra> Drop for ChunkVec<CHUNK_SIZE, Extra> {
     fn drop(&mut self) {
         use std::alloc::*;
-        let layout = Layout::array::<QuadTreeNode>(CHUNK_SIZE).unwrap();
+        let layout = Layout::array::<QuadTreeNode<Extra>>(CHUNK_SIZE).unwrap();
         for ptr in self.chunks.iter().copied() {
             unsafe {
                 dealloc(ptr as *mut u8, layout);

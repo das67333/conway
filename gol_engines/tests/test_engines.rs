@@ -10,6 +10,7 @@ mod tests {
         let mut engines: Vec<Box<dyn GoLEngine>> = vec![
             Box::new(SIMDEngine::new(mem_limit_mib)),
             Box::new(HashLifeEngineSmall::new(mem_limit_mib)),
+            Box::new(StreamLifeEngineSmall::new(mem_limit_mib)),
             Box::new(HashLifeEngineSync::new(mem_limit_mib)),
             Box::new(HashLifeEngineAsync::new(mem_limit_mib)),
         ];

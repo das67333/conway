@@ -6,18 +6,22 @@ pub(super) struct NodeIdx(pub(super) u32);
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
 #[derive(Clone, Default)]
-pub(super) struct QuadTreeNode {
+pub(super) struct QuadTreeNode<Extra> {
     pub(super) nw: NodeIdx,
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
     pub(super) se: NodeIdx,
-    pub(super) next: NodeIdx,  // next item in hashtable bucket
-    pub(super) cache: NodeIdx, // cached result of update
+    /// next item in hashtable's bucket
+    pub(super) next: NodeIdx,
+    /// center after n/4 x n/4 generations, valid only if `has_cache` is true
+    pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
     pub(super) gc_marked: bool,
+    /// extra information for engine: () for hashlife and u64 for streamlife
+    pub(super) extra: Extra,
 }
 
-impl QuadTreeNode {
+impl<Extra> QuadTreeNode<Extra> {
     /// For blank nodes (without population) must return zero.
     /// They are guaranteed to have all parts equal to NodeIdx(0).
     pub(super) fn hash(nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> usize {

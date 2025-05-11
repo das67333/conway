@@ -4,8 +4,8 @@ use crate::NiceInt;
 const CHUNK_SIZE: usize = 1 << 13;
 
 /// Wrapper around MemoryManager::find_node that prefetches the node from the hashtable.
-pub(super) struct PrefetchedNode {
-    kiv: *mut KIVMap,
+pub(super) struct PrefetchedNode<Extra> {
+    kiv: *mut KIVMap<Extra>,
     nw: NodeIdx,
     ne: NodeIdx,
     sw: NodeIdx,
@@ -14,27 +14,27 @@ pub(super) struct PrefetchedNode {
 }
 
 /// Hashtable that stores nodes of the quadtree.
-struct KIVMap {
+struct KIVMap<Extra> {
     // all allocated nodes
-    storage: ChunkVec<CHUNK_SIZE>,
+    storage: ChunkVec<CHUNK_SIZE, Extra>,
     // buffer where heads of linked lists are stored
     hashtable: Vec<NodeIdx>,
 }
 
-pub(super) struct MemoryManager {
-    layers: Vec<KIVMap>,
+pub(super) struct MemoryManager<Extra> {
+    layers: Vec<KIVMap<Extra>>,
 }
 
-impl PrefetchedNode {
+impl<Extra: Clone + Default> PrefetchedNode<Extra> {
     pub(super) fn new(
-        mem: &MemoryManager,
+        mem: &MemoryManager<Extra>,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
         size_log2: u32,
     ) -> Self {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         let kiv = unsafe {
             mem.layers
                 .get_unchecked((size_log2 - LEAF_SIZE_LOG2) as usize)
@@ -50,7 +50,7 @@ impl PrefetchedNode {
         }
 
         Self {
-            kiv: kiv as *const KIVMap as *mut KIVMap,
+            kiv: kiv as *const KIVMap<Extra> as *mut KIVMap<Extra>,
             nw,
             ne,
             sw,
@@ -64,7 +64,7 @@ impl PrefetchedNode {
     }
 }
 
-impl KIVMap {
+impl<Extra: Clone + Default> KIVMap<Extra> {
     fn new() -> Self {
         assert!(CHUNK_SIZE.is_power_of_two());
         assert!(u32::try_from(CHUNK_SIZE).is_ok(), "u32 is insufficient");
@@ -82,7 +82,7 @@ impl KIVMap {
         for mut node in std::mem::take(&mut self.hashtable) {
             while node != NodeIdx(0) {
                 let n = &self.storage[node];
-                let hash = QuadTreeNode::hash(n.nw, n.ne, n.sw, n.se);
+                let hash = QuadTreeNode::<Extra>::hash(n.nw, n.ne, n.sw, n.se);
                 let next = n.next;
                 let index = hash & (new_size - 1);
                 self.storage[node].next = *new_buf.get_unchecked(index);
@@ -144,7 +144,6 @@ impl KIVMap {
         *self.hashtable.get_unchecked_mut(i) = idx;
         // double the number of buckets if the load factor is higher than 0.5
         if self.storage.len() * 2 > self.hashtable.len() {
-            // TODO: как удалять мусор
             self.rehash();
         }
         idx
@@ -184,7 +183,7 @@ impl KIVMap {
     }
 }
 
-impl MemoryManager {
+impl<Extra: Clone + Default> MemoryManager<Extra> {
     /// Create a new memory manager.
     pub(super) fn new() -> Self {
         Self {
@@ -194,7 +193,7 @@ impl MemoryManager {
 
     /// Get a const reference to the node at the given index.
     #[inline]
-    pub(super) fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode {
+    pub(super) fn get(&self, idx: NodeIdx, size_log2: u32) -> &QuadTreeNode<Extra> {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
         unsafe { &self.layers.get_unchecked(i).storage[idx] }
@@ -202,7 +201,7 @@ impl MemoryManager {
 
     /// Get a mutable reference to the node at the given index.
     #[inline]
-    pub(super) fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode {
+    pub(super) fn get_mut(&mut self, idx: NodeIdx, size_log2: u32) -> &mut QuadTreeNode<Extra> {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         debug_assert!(self.layers.len() > i && self.layers[i].capacity() > idx.0 as usize);
         unsafe { &mut self.layers.get_unchecked_mut(i).storage[idx] }
@@ -256,7 +255,7 @@ impl MemoryManager {
         let nw = NodeIdx(cells as u32);
         let ne = NodeIdx((cells >> 32) as u32);
         let [sw, se] = [NodeIdx(0); 2];
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe {
             self.layers
                 .get_unchecked_mut(0)
@@ -278,7 +277,7 @@ impl MemoryManager {
         size_log2: u32,
     ) -> NodeIdx {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         if self.layers.len() <= i {
             self.layers.resize_with(i + 1, KIVMap::new);
         }

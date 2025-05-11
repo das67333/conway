@@ -3,8 +3,8 @@ use num_bigint::BigInt;
 use std::sync::atomic::*;
 
 fn main() {
-    for x in 10..=15 {
-        MIN_COROUTINE_SPAWN_SIZE_LOG2.store(x, Ordering::Relaxed);
+    // for x in 10..=15 {
+    //     MIN_COROUTINE_SPAWN_SIZE_LOG2.store(x, Ordering::Relaxed);
         println!(
             "MIN_COROUTINE_SPAWN_SIZE_LOG2: {}",
             MIN_COROUTINE_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
@@ -42,5 +42,5 @@ fn main() {
         assert_eq!(updated.hash(), 206505887300519070);
         COROUTINES_SPAWN_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
         NODES_CREATED_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-    }
+    // }
 }

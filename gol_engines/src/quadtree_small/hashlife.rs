@@ -12,15 +12,15 @@ use num_bigint::BigInt;
 /// It gradually increases the size of the hashtable as it grows.
 ///
 /// Every blank node has an index of 0, and a node is identified by a pair of index and size.
-pub struct HashLifeEngineSmall {
-    size_log2: u32,
-    root: NodeIdx,
-    generations_per_update_log2: Option<u32>,
-    mem: MemoryManager,
-    topology: Topology,
+pub struct HashLifeEngineSmall<Extra> {
+    pub(super) size_log2: u32,
+    pub(super) root: NodeIdx,
+    pub(super) generations_per_update_log2: Option<u32>,
+    pub(super) mem: MemoryManager<Extra>,
+    pub(super) topology: Topology,
 }
 
-impl HashLifeEngineSmall {
+impl<Extra: Clone + Default> HashLifeEngineSmall<Extra> {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -62,7 +62,7 @@ impl HashLifeEngineSmall {
     }
 
     /// `nw`, `ne`, `sw`, `se` must be leaves
-    fn update_leaves(
+    pub(super) fn update_leaves(
         &mut self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -296,14 +296,14 @@ impl HashLifeEngineSmall {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+    pub(super) fn update_node(&mut self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node, size_log2);
         if n.has_cache {
             return n.cache;
         }
         debug_assert!(node != NodeIdx(0), "Empty nodes should've been cached");
 
-        let generations_log2 = unsafe { self.generations_per_update_log2.unwrap_unchecked() };
+        let generations_log2 = self.generations_per_update_log2.unwrap();
         let both_stages = generations_log2 + 2 >= size_log2;
         let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
             let steps = if both_stages {
@@ -326,7 +326,7 @@ impl HashLifeEngineSmall {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+    pub(super) fn with_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx, size_log2).clone();
         let [nw, ne, sw, se] = match self.topology {
             Topology::Torus => {
@@ -347,7 +347,7 @@ impl HashLifeEngineSmall {
     }
 
     /// Remove a frame around the field, making it two times smaller.
-    fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
+    pub(super) fn without_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx, size_log2);
         let [nw, ne, sw, se] = [
             self.mem.get(n.nw, size_log2 - 1).clone(),
@@ -359,7 +359,7 @@ impl HashLifeEngineSmall {
             .find_or_create_node(nw.se, ne.sw, sw.ne, se.nw, size_log2 - 1)
     }
 
-    fn has_blank_frame(&self) -> bool {
+    pub(super) fn has_blank_frame(&self) -> bool {
         if self.size_log2 <= LEAF_SIZE_LOG2 + 1 {
             return false;
         }
@@ -377,14 +377,14 @@ impl HashLifeEngineSmall {
         .all(|&x| x == NodeIdx(0))
     }
 
-    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+    pub(super) fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.root = self.with_frame(self.root, self.size_log2);
         *dx += BigInt::from(1) << (self.size_log2 - 1);
         *dy += BigInt::from(1) << (self.size_log2 - 1);
         self.size_log2 += 1;
     }
 
-    fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+    pub(super) fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.root = self.without_frame(self.root, self.size_log2);
         *dx -= BigInt::from(1) << (self.size_log2 - 2);
         *dy -= BigInt::from(1) << (self.size_log2 - 2);
@@ -392,7 +392,7 @@ impl HashLifeEngineSmall {
     }
 
     /// Recursively mark nodes to rescue them from garbage collection.
-    fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
+    pub(super) fn gc_mark(&mut self, idx: NodeIdx, size_log2: u32) {
         if idx == NodeIdx(0) {
             return;
         }
@@ -408,16 +408,9 @@ impl HashLifeEngineSmall {
         self.gc_mark(n.sw, size_log2 - 1);
         self.gc_mark(n.se, size_log2 - 1);
     }
-
-    pub(super) fn statistics(&mut self) -> String {
-        let mut s = "Engine: HashLifeSmall\n".to_string();
-        s += &format!("Side length: 2^{}\n", self.size_log2);
-        s += &self.mem.stats_fast();
-        s
-    }
 }
 
-impl GoLEngine for HashLifeEngineSmall {
+impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSmall<Extra> {
     /// Creates a new Game of Life engine instance with a blank pattern.
     /// Notice that this engine ignores the `mem_limit_mib` parameter!
     fn new(_mem_limit_mib: u32) -> Self {
@@ -432,11 +425,11 @@ impl GoLEngine for HashLifeEngineSmall {
     }
 
     fn load_pattern(&mut self, pattern: &Pattern, topology: Topology) -> Result<()> {
-        fn inner(
+        fn inner<Extra: Clone + Default>(
             idx: u32,
             size_log2: u32,
             pattern: &Pattern,
-            mem: &mut MemoryManager,
+            mem: &mut MemoryManager<Extra>,
             cache: &mut HashMap<u32, NodeIdx>,
         ) -> NodeIdx {
             if let Some(&cached) = cache.get(&idx) {
@@ -477,10 +470,10 @@ impl GoLEngine for HashLifeEngineSmall {
     }
 
     fn current_state(&self) -> Pattern {
-        fn inner(
+        fn inner<Extra: Clone + Default>(
             idx: NodeIdx,
             size_log2: u32,
-            mem: &MemoryManager,
+            mem: &MemoryManager<Extra>,
             pattern: &mut Pattern,
             cache: &mut HashMap<(NodeIdx, u32), u32>,
         ) -> u32 {
@@ -569,7 +562,7 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let mut engine = HashLifeEngineSmall::new(0);
+            let mut engine = HashLifeEngineSmall::<()>::new(0);
             engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 
