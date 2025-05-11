@@ -272,7 +272,7 @@ impl HashLifeEngineAsync {
 
         while n.status.load(Ordering::Acquire) != QuadTreeNode::STATUS_CACHED {
             if self.mem.poisoned() {
-                return NodeIdx(0);
+                return NodeIdx::default();
             }
             tokio::task::yield_now().await;
         }

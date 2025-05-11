@@ -16,7 +16,7 @@ pub use traits::GoLEngine;
 // pub use quadtree::{HashLifeEngine, StreamLifeEngine};
 pub use quadtree_async::HashLifeEngineAsync;
 pub use quadtree_small::{HashLifeEngineSmall, StreamLifeEngineSmall};
-pub use quadtree_sync::{HashLifeEngineSync, StreamLifeEngineSync};
+pub use quadtree_sync::HashLifeEngineSync;
 pub use simd::SIMDEngine;
 pub use utils::NiceInt;
 

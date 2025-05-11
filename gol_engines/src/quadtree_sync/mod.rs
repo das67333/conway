@@ -11,5 +11,5 @@ use blank::BlankNodes;
 use memory::{MemoryManager, PrefetchedNode};
 use node::{NodeIdx, QuadTreeNode};
 
-pub use streamlife::StreamLifeEngineSync;
+// pub use streamlife::StreamLifeEngineSync;
 pub type HashLifeEngineSync = hashlife::HashLifeEngineSync<()>;

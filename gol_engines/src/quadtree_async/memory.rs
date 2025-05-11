@@ -80,7 +80,7 @@ impl MemoryManager {
     pub(super) fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
-        let [sw, se] = [NodeIdx(0); 2];
+        let [sw, se] = [NodeIdx::default(); 2];
         let hash = QuadTreeNode::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, true) }
     }
@@ -178,7 +178,7 @@ impl MemoryManagerRaw {
         is_leaf: bool,
     ) -> NodeIdx {
         if self.poisoned.load(Ordering::Relaxed) {
-            return NodeIdx(0);
+            return NodeIdx::default();
         }
 
         let mask = self.hashtable.len() - 1;
@@ -237,7 +237,7 @@ impl MemoryManagerRaw {
 
                 if self.stats.should_poison_on_creation() {
                     self.poisoned.store(true, Ordering::Relaxed);
-                    return NodeIdx(0 as u32);
+                    return NodeIdx::default();
                 }
                 NODES_CREATED_COUNT.fetch_add(1, Ordering::Relaxed);
                 break;

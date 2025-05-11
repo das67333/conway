@@ -127,7 +127,7 @@ impl<Extra: Clone + Default> MemoryManager<Extra> {
     pub(super) fn find_or_create_leaf_from_array(&self, cells: [u8; 8]) -> NodeIdx {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
-        let [sw, se] = [NodeIdx(0); 2];
+        let [sw, se] = [NodeIdx::default(); 2];
         let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, true) }
     }
@@ -221,45 +221,32 @@ impl<Extra: Clone + Default> MemoryManagerRaw<Extra> {
         is_leaf: bool,
     ) -> NodeIdx {
         if self.poisoned {
-            return NodeIdx(0);
+            return NodeIdx::default();
         }
 
         let mask = self.hashtable.len() - 1;
         let mut index = hash & mask;
 
-        let ctrl = {
-            let hash_compressed = {
-                let mut h = hash;
-                h ^= h >> 16;
-                h ^= h >> 8;
-                h as u8
-            };
-            if is_leaf {
-                Self::CTRL_LEAF_BASE | ((Self::CTRL_LEAF_BASE - 1) & hash_compressed)
-            } else {
-                Self::CTRL_NODE_BASE | hash_compressed
-            }
-        };
-
         loop {
             let n = self.hashtable.get_unchecked(index);
-            if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se && n.is_leaf == is_leaf && n.is_used {
                 break;
             }
 
-            if n.ctrl == Self::CTRL_EMPTY {
+            if !n.is_used {
                 *self.hashtable.get_unchecked_mut(index) = QuadTreeNode {
                     nw,
                     ne,
                     sw,
                     se,
-                    ctrl,
+                    is_leaf,
+                    is_used: true,
                     ..Default::default()
                 };
                 self.len += 1;
                 if self.len > self.hashtable.len() * 3 / 4 {
                     self.poisoned = true;
-                    return NodeIdx(0);
+                    return NodeIdx::default();
                 }
                 break;
             }

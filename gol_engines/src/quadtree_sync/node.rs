@@ -14,7 +14,8 @@ pub(super) struct QuadTreeNode<Extra> {
     /// center after n/4 x n/4 generations, valid only if `has_cache` is true
     pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
-    pub(super) ctrl: u8,
+    pub(super) is_leaf: bool,
+    pub(super) is_used: bool,
     /// extra information for engine: () for hashlife and u64 for streamlife
     pub(super) extra: Extra,
 }
