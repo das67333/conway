@@ -2,8 +2,8 @@ use super::{NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
 use std::cell::UnsafeCell;
 
 /// Wrapper around MemoryManager::find_or_create_node that prefetches the node from the hashtable.
-pub(super) struct PrefetchedNode {
-    mem: *mut MemoryManager,
+pub(super) struct PrefetchedNode<Extra> {
+    mem: *mut MemoryManager<Extra>,
     nw: NodeIdx,
     ne: NodeIdx,
     sw: NodeIdx,
@@ -12,27 +12,26 @@ pub(super) struct PrefetchedNode {
     hash: usize,
 }
 
-impl PrefetchedNode {
+impl<Extra: Clone + Default> PrefetchedNode<Extra> {
     pub(super) fn new(
-        mem: &MemoryManager,
+        mem: &MemoryManager<Extra>,
         nw: NodeIdx,
         ne: NodeIdx,
         sw: NodeIdx,
         se: NodeIdx,
         size_log2: u32,
     ) -> Self {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
 
         #[cfg(target_arch = "x86_64")]
         unsafe {
             use std::arch::x86_64::*;
-            _mm_prefetch::<_MM_HINT_T0>(
-                (*mem.base.get()).hashtable.get_unchecked(idx) as *const QuadTreeNode as *const i8
-            );
+            _mm_prefetch::<_MM_HINT_T0>((*mem.base.get()).hashtable.get_unchecked(idx)
+                as *const QuadTreeNode<Extra> as *const i8);
         }
         Self {
-            mem: mem as *const MemoryManager as *mut MemoryManager,
+            mem: mem as *const MemoryManager<Extra> as *mut MemoryManager<Extra>,
             nw,
             ne,
             sw,
@@ -56,11 +55,11 @@ impl PrefetchedNode {
     }
 }
 
-pub(super) struct MemoryManager {
-    base: UnsafeCell<MemoryManagerRaw>,
+pub(super) struct MemoryManager<Extra> {
+    base: UnsafeCell<MemoryManagerRaw<Extra>>,
 }
 
-impl MemoryManager {
+impl<Extra: Clone + Default> MemoryManager<Extra> {
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
@@ -69,12 +68,12 @@ impl MemoryManager {
     }
 
     /// Get a const reference to the node at the given index.
-    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Extra> {
         unsafe { (*self.base.get()).get(idx) }
     }
 
     /// Get a mutable reference to the node at the given index.
-    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode<Extra> {
         unsafe { (*self.base.get()).get_mut(idx) }
     }
 
@@ -129,7 +128,7 @@ impl MemoryManager {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx(0); 2];
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, true) }
     }
 
@@ -142,7 +141,7 @@ impl MemoryManager {
         sw: NodeIdx,
         se: NodeIdx,
     ) -> NodeIdx {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
@@ -165,16 +164,16 @@ impl MemoryManager {
 }
 
 /// Hashtable that stores nodes of the quadtree
-struct MemoryManagerRaw {
+struct MemoryManagerRaw<Extra> {
     /// buffer where heads of linked lists are stored
-    hashtable: Vec<QuadTreeNode>,
+    hashtable: Vec<QuadTreeNode<Extra>>,
     /// number of nodes that were created
     len: usize,
     /// if true, the hashtable is poisoned and should be restored from the backup
     poisoned: bool,
 }
 
-impl MemoryManagerRaw {
+impl<Extra: Clone + Default> MemoryManagerRaw<Extra> {
     // control byte:
     // 00000000     -> empty
     // 00111111     -> deleted (not used)
@@ -192,7 +191,7 @@ impl MemoryManagerRaw {
         );
         Self {
             hashtable: (0..1u64 << cap_log2)
-                .map(|_| QuadTreeNode::default())
+                .map(|_| QuadTreeNode::<Extra>::default())
                 .collect(),
             len: 0,
             poisoned: false,
@@ -201,13 +200,13 @@ impl MemoryManagerRaw {
 
     /// Get a const reference to the node at the given index.
     #[inline]
-    fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Extra> {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
     /// Get a mutable reference to the node at the given index.
     #[inline]
-    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
+    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Extra> {
         unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 
@@ -272,6 +271,6 @@ impl MemoryManagerRaw {
     }
 
     fn bytes_total(&self) -> usize {
-        self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
+        self.hashtable.len() * std::mem::size_of::<QuadTreeNode<Extra>>()
     }
 }

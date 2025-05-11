@@ -215,7 +215,6 @@ impl HashLifeEngineAsync {
 
                     let mut arr4 = this.four_children_overlapping(&arr9);
                     if this.mem.should_spawn(size_log2) {
-                        // TODO: sharded ACTIVE_COROUTINES
                         let _guard = CoroutinesCountGuard::new(4);
                         let this_ptr = this as *const _ as usize;
                         let handles = arr4.map(|x| {
@@ -472,14 +471,9 @@ impl GoLEngine for HashLifeEngineAsync {
                 .block_on(async { self.update_node(self.root, self.size_log2).await });
         }
         if self.mem.poisoned() {
-            self.size_log2 = backup.get_size_log2();
-            self.mem.clear();
-            let mut cache = HashMap::new();
-            self.root =
-                Self::from_pattern_recursive(backup.get_root(), &backup, &self.mem, &mut cache);
-            self.generations_per_update_log2 = None;
+            self.load_pattern(&backup, self.topology)?;
             return Err(anyhow!(
-                "HashLifeSync: overfilled MemoryManager, try to reduce generations_log2"
+                "HashLifeAsync: overfilled MemoryManager, try smaller step"
             ));
         }
 

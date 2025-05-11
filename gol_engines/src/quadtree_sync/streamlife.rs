@@ -1,30 +1,30 @@
-use super::{hashlife::HashLifeEngineSmall, NodeIdx, LEAF_SIZE_LOG2};
+use super::{hashlife::HashLifeEngineSync, BlankNodes, NodeIdx, LEAF_SIZE_LOG2};
 use crate::{GoLEngine, Pattern, Topology};
 use ahash::AHashMap as HashMap;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 
 type MemoryManager = super::MemoryManager<u64>;
 
 /// Implementation of [StreamLife algorithm](https://conwaylife.com/wiki/StreamLife)
-pub struct StreamLifeEngineSmall {
-    base: HashLifeEngineSmall<u64>,
+pub struct StreamLifeEngineSync {
+    base: HashLifeEngineSync<u64>,
     // streamlife-specific
     biroot: Option<(NodeIdx, NodeIdx)>,
     bicache: HashMap<((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx)>,
 }
 
-impl StreamLifeEngineSmall {
+impl StreamLifeEngineSync {
     fn determine_direction(&mut self, idx: NodeIdx) -> u64 {
         let (nw, ne, sw, se) = {
-            let n = self.base.mem.get(idx, LEAF_SIZE_LOG2 + 1);
+            let n = self.base.mem.get(idx);
             (n.nw, n.ne, n.sw, n.se)
         };
         let m = self.base.update_leaves(nw, ne, sw, se, 4);
-        let centre = u64::from_le_bytes(self.base.mem.get(m, LEAF_SIZE_LOG2).leaf_cells());
+        let centre = u64::from_le_bytes(self.base.mem.get(m).leaf_cells());
 
-        let [nw, ne, sw, se] = [nw, ne, sw, se]
-            .map(|x| u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells()));
+        let [nw, ne, sw, se] =
+            [nw, ne, sw, se].map(|x| u64::from_le_bytes(self.base.mem.get(x).leaf_cells()));
 
         let z64_centre_to_u64 = |x, y| {
             let xs = (4 + x) as u64;
@@ -82,15 +82,14 @@ impl StreamLifeEngineSmall {
         }
 
         if size_log2 == LEAF_SIZE_LOG2 + 1 {
-            if self.base.mem.get(idx, size_log2).extra & 0xffff0000 != 1 << 16 {
-                self.base.mem.get_mut(idx, size_log2).extra =
-                    self.determine_direction(idx) | (1 << 16);
+            if self.base.mem.get(idx).extra & 0xffff0000 != 1 << 16 {
+                self.base.mem.get_mut(idx).extra = self.determine_direction(idx) | (1 << 16);
             }
-            return self.base.mem.get(idx, size_log2).extra & 0xffffffff0000ffff;
+            return self.base.mem.get(idx).extra & 0xffffffff0000ffff;
         }
 
         let (nw, ne, sw, se, meta) = {
-            let n = self.base.mem.get(idx, size_log2);
+            let n = self.base.mem.get(idx);
             (n.nw, n.ne, n.sw, n.se, n.extra)
         };
         if (meta & 0xffff0000) != (1 << 16) {
@@ -117,34 +116,30 @@ impl StreamLifeEngineSmall {
                 adml &= childlanes[8];
             }
             if adml == 0 {
-                self.base.mem.get_mut(idx, size_log2).extra = 1 << 16;
+                self.base.mem.get_mut(idx).extra = 1 << 16;
                 return 0;
             }
 
             if size_log2 == LEAF_SIZE_LOG2 + 2 {
                 let tlx = {
-                    let nw = self.base.mem.get(nw, LEAF_SIZE_LOG2 + 1);
-                    [nw.nw, nw.ne, nw.sw, nw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
-                    })
+                    let nw = self.base.mem.get(nw);
+                    [nw.nw, nw.ne, nw.sw, nw.se]
+                        .map(|x| u64::from_le_bytes(self.base.mem.get(x).leaf_cells()))
                 };
                 let trx = {
-                    let ne = self.base.mem.get(ne, LEAF_SIZE_LOG2 + 1);
-                    [ne.nw, ne.ne, ne.sw, ne.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
-                    })
+                    let ne = self.base.mem.get(ne);
+                    [ne.nw, ne.ne, ne.sw, ne.se]
+                        .map(|x| u64::from_le_bytes(self.base.mem.get(x).leaf_cells()))
                 };
                 let blx = {
-                    let sw = self.base.mem.get(sw, LEAF_SIZE_LOG2 + 1);
-                    [sw.nw, sw.ne, sw.sw, sw.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
-                    })
+                    let sw = self.base.mem.get(sw);
+                    [sw.nw, sw.ne, sw.sw, sw.se]
+                        .map(|x| u64::from_le_bytes(self.base.mem.get(x).leaf_cells()))
                 };
                 let brx = {
-                    let se = self.base.mem.get(se, LEAF_SIZE_LOG2 + 1);
-                    [se.nw, se.ne, se.sw, se.se].map(|x| {
-                        u64::from_le_bytes(self.base.mem.get(x, LEAF_SIZE_LOG2).leaf_cells())
-                    })
+                    let se = self.base.mem.get(se);
+                    [se.nw, se.ne, se.sw, se.se]
+                        .map(|x| u64::from_le_bytes(self.base.mem.get(x).leaf_cells()))
                 };
 
                 let cc = [tlx[3], trx[2], blx[1], brx[0]];
@@ -158,7 +153,7 @@ impl StreamLifeEngineSmall {
                     let ne = mem.find_or_create_leaf_from_u64(x[1]);
                     let sw = mem.find_or_create_leaf_from_u64(x[2]);
                     let se = mem.find_or_create_leaf_from_u64(x[3]);
-                    mem.find_or_create_node(nw, ne, sw, se, LEAF_SIZE_LOG2 + 1)
+                    mem.find_or_create_node(nw, ne, sw, se)
                 };
 
                 let x = prepared(&mut self.base.mem, &tc);
@@ -174,10 +169,10 @@ impl StreamLifeEngineSmall {
                 adml &=
                     childlanes[1] & childlanes[3] & childlanes[4] & childlanes[5] & childlanes[7];
             } else {
-                let pptr_tl = self.base.mem.get(nw, size_log2 - 1);
-                let pptr_tr = self.base.mem.get(ne, size_log2 - 1);
-                let pptr_bl = self.base.mem.get(sw, size_log2 - 1);
-                let pptr_br = self.base.mem.get(se, size_log2 - 1);
+                let pptr_tl = self.base.mem.get(nw);
+                let pptr_tr = self.base.mem.get(ne);
+                let pptr_bl = self.base.mem.get(sw);
+                let pptr_br = self.base.mem.get(se);
                 let cc = [pptr_tl.se, pptr_tr.sw, pptr_bl.ne, pptr_br.nw];
                 let tc = [pptr_tl.ne, pptr_tr.nw, pptr_tl.se, pptr_tr.sw];
                 let bc = [pptr_bl.ne, pptr_br.nw, pptr_bl.se, pptr_br.sw];
@@ -185,7 +180,7 @@ impl StreamLifeEngineSmall {
                 let cr = [pptr_tr.sw, pptr_tr.se, pptr_br.nw, pptr_br.ne];
 
                 let prepared = |mem: &mut MemoryManager, x: &[NodeIdx; 4]| {
-                    mem.find_or_create_node(x[0], x[1], x[2], x[3], size_log2 - 1)
+                    mem.find_or_create_node(x[0], x[1], x[2], x[3])
                 };
 
                 let x = prepared(&mut self.base.mem, &tc);
@@ -250,10 +245,10 @@ impl StreamLifeEngineSmall {
                 lanes |= rotr32(childlanes[6], a2);
             }
 
-            self.base.mem.get_mut(idx, size_log2).extra = adml | (1 << 16) | (lanes << 32);
+            self.base.mem.get_mut(idx).extra = adml | (1 << 16) | (lanes << 32);
         }
 
-        self.base.mem.get(idx, size_log2).extra & 0xffffffff0000ffff
+        self.base.mem.get(idx).extra & 0xffffffff0000ffff
     }
 
     fn is_solitonic(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> bool {
@@ -272,66 +267,49 @@ impl StreamLifeEngineSmall {
         (((lanes1 >> 4) & lanes2) | ((lanes2 >> 4) & lanes1)) & 15 != 0
     }
 
-    fn fourchildren(&mut self, frags: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
+    fn fourchildren(&mut self, frags: &[NodeIdx; 9]) -> [NodeIdx; 4] {
         [
-            self.base.mem.find_or_create_node(
-                frags[0],
-                frags[1],
-                frags[3],
-                frags[4],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[1],
-                frags[2],
-                frags[4],
-                frags[5],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[3],
-                frags[4],
-                frags[6],
-                frags[7],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[4],
-                frags[5],
-                frags[7],
-                frags[8],
-                size_log2 + 1,
-            ),
+            self.base
+                .mem
+                .find_or_create_node(frags[0], frags[1], frags[3], frags[4]),
+            self.base
+                .mem
+                .find_or_create_node(frags[1], frags[2], frags[4], frags[5]),
+            self.base
+                .mem
+                .find_or_create_node(frags[3], frags[4], frags[6], frags[7]),
+            self.base
+                .mem
+                .find_or_create_node(frags[4], frags[5], frags[7], frags[8]),
         ]
     }
 
-    fn ninechildren(&mut self, idx: NodeIdx, size_log2: u32) -> [NodeIdx; 9] {
+    fn ninechildren(&mut self, idx: NodeIdx) -> [NodeIdx; 9] {
         let [nw, ne, sw, se] = {
-            let n = self.base.mem.get(idx, size_log2);
+            let n = self.base.mem.get(idx);
             [n.nw, n.ne, n.sw, n.se]
         };
-        let [nw_, ne_, sw_, se_] =
-            [nw, ne, sw, se].map(|x| self.base.mem.get(x, size_log2 - 1).clone());
+        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.base.mem.get(x).clone());
 
         [
             nw,
             self.base
                 .mem
-                .find_or_create_node(nw_.ne, ne_.nw, nw_.se, ne_.sw, size_log2 - 1),
+                .find_or_create_node(nw_.ne, ne_.nw, nw_.se, ne_.sw),
             ne,
             self.base
                 .mem
-                .find_or_create_node(nw_.sw, nw_.se, sw_.nw, sw_.ne, size_log2 - 1),
+                .find_or_create_node(nw_.sw, nw_.se, sw_.nw, sw_.ne),
             self.base
                 .mem
-                .find_or_create_node(nw_.se, ne_.sw, sw_.ne, se_.nw, size_log2 - 1),
+                .find_or_create_node(nw_.se, ne_.sw, sw_.ne, se_.nw),
             self.base
                 .mem
-                .find_or_create_node(ne_.sw, ne_.se, se_.nw, se_.ne, size_log2 - 1),
+                .find_or_create_node(ne_.sw, ne_.se, se_.nw, se_.ne),
             sw,
             self.base
                 .mem
-                .find_or_create_node(sw_.ne, se_.nw, sw_.se, se_.sw, size_log2 - 1),
+                .find_or_create_node(sw_.ne, se_.nw, sw_.se, se_.sw),
             se,
         ]
     }
@@ -340,8 +318,8 @@ impl StreamLifeEngineSmall {
         if idx.1 == NodeIdx(0) {
             return idx.0;
         }
-        let m0 = self.base.mem.get(idx.0, size_log2).clone();
-        let m1 = self.base.mem.get(idx.1, size_log2).clone();
+        let m0 = self.base.mem.get(idx.0).clone();
+        let m1 = self.base.mem.get(idx.1).clone();
         if size_log2 == LEAF_SIZE_LOG2 {
             let l0 = u64::from_le_bytes(m0.leaf_cells());
             let l1 = u64::from_le_bytes(m1.leaf_cells());
@@ -352,7 +330,7 @@ impl StreamLifeEngineSmall {
             let ne = self.merge_universes((m0.ne, m1.ne), size_log2 - 1);
             let sw = self.merge_universes((m0.sw, m1.sw), size_log2 - 1);
             let se = self.merge_universes((m0.se, m1.se), size_log2 - 1);
-            self.base.mem.find_or_create_node(nw, ne, sw, se, size_log2)
+            self.base.mem.find_or_create_node(nw, ne, sw, se)
         }
     }
 
@@ -394,33 +372,31 @@ impl StreamLifeEngineSmall {
                 (NodeIdx(0), NodeIdx(0))
             }
         } else {
-            let mut ch91 = self.ninechildren(idx.0, size_log2);
-            let mut ch92 = self.ninechildren(idx.1, size_log2);
+            let mut ch91 = self.ninechildren(idx.0);
+            let mut ch92 = self.ninechildren(idx.1);
 
             let both_stages = self.base.generations_per_update_log2.unwrap() + 2 >= size_log2;
 
             for i in 0..9 {
                 if !both_stages {
-                    let mut update_node_null = |node: NodeIdx, size_log2: u32| -> NodeIdx {
-                        let n = self.base.mem.get(node, size_log2);
-                        let nwse = self.base.mem.get(n.nw, size_log2 - 1).se;
-                        let nesw = self.base.mem.get(n.ne, size_log2 - 1).sw;
-                        let swne = self.base.mem.get(n.sw, size_log2 - 1).ne;
-                        let senw = self.base.mem.get(n.se, size_log2 - 1).nw;
-                        self.base
-                            .mem
-                            .find_or_create_node(nwse, nesw, swne, senw, size_log2 - 1)
+                    let update_node_null = |node: NodeIdx| -> NodeIdx {
+                        let n = self.base.mem.get(node);
+                        let nwse = self.base.mem.get(n.nw).se;
+                        let nesw = self.base.mem.get(n.ne).sw;
+                        let swne = self.base.mem.get(n.sw).ne;
+                        let senw = self.base.mem.get(n.se).nw;
+                        self.base.mem.find_or_create_node(nwse, nesw, swne, senw)
                     };
 
-                    ch91[i] = update_node_null(ch91[i], size_log2 - 1);
-                    ch92[i] = update_node_null(ch92[i], size_log2 - 1);
+                    ch91[i] = update_node_null(ch91[i]);
+                    ch92[i] = update_node_null(ch92[i]);
                 } else {
                     (ch91[i], ch92[i]) = self.iterate_recurse((ch91[i], ch92[i]), size_log2 - 1);
                 }
             }
 
-            let mut ch41 = self.fourchildren(&ch91, size_log2 - 2);
-            let mut ch42 = self.fourchildren(&ch92, size_log2 - 2);
+            let mut ch41 = self.fourchildren(&ch91);
+            let mut ch42 = self.fourchildren(&ch92);
 
             for i in 0..4 {
                 let fh = self.iterate_recurse((ch41[i], ch42[i]), size_log2 - 1);
@@ -429,43 +405,37 @@ impl StreamLifeEngineSmall {
             }
 
             let res = (
-                self.base.mem.find_or_create_node(
-                    ch41[0],
-                    ch41[1],
-                    ch41[2],
-                    ch41[3],
-                    size_log2 - 1,
-                ),
-                self.base.mem.find_or_create_node(
-                    ch42[0],
-                    ch42[1],
-                    ch42[2],
-                    ch42[3],
-                    size_log2 - 1,
-                ),
+                self.base
+                    .mem
+                    .find_or_create_node(ch41[0], ch41[1], ch41[2], ch41[3]),
+                self.base
+                    .mem
+                    .find_or_create_node(ch42[0], ch42[1], ch42[2], ch42[3]),
             );
             self.bicache.insert((idx, size_log2), res);
             res
         }
     }
 
-    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt, blank_nodes: &mut BlankNodes) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                self.base.with_frame(biroot.0, self.base.size_log2),
-                self.base.with_frame(biroot.1, self.base.size_log2),
+                self.base
+                    .with_frame(biroot.0, self.base.size_log2, blank_nodes),
+                self.base
+                    .with_frame(biroot.1, self.base.size_log2, blank_nodes),
             ))
         } else {
             None
         };
-        self.base.add_frame(dx, dy);
+        self.base.add_frame(dx, dy, blank_nodes);
     }
 
     fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.biroot = if let Some(biroot) = self.biroot {
             Some((
-                self.base.without_frame(biroot.0, self.base.size_log2),
-                self.base.without_frame(biroot.1, self.base.size_log2),
+                self.base.without_frame(biroot.0),
+                self.base.without_frame(biroot.1),
             ))
         } else {
             None
@@ -474,11 +444,11 @@ impl StreamLifeEngineSmall {
     }
 }
 
-impl GoLEngine for StreamLifeEngineSmall {
+impl GoLEngine for StreamLifeEngineSync {
     fn new(mem_limit_mib: u32) -> Self {
-        // mem_limit_mib is actually ignored
+        // TODO: include bicache size in mem_limit_mib
         Self {
-            base: HashLifeEngineSmall::new(mem_limit_mib),
+            base: HashLifeEngineSync::new(mem_limit_mib),
             biroot: None,
             bicache: HashMap::new(),
         }
@@ -498,23 +468,28 @@ impl GoLEngine for StreamLifeEngineSmall {
     fn update(&mut self, generations_log2: u32) -> Result<[BigInt; 2]> {
         if let Some(cached_generations_log2) = self.base.generations_per_update_log2 {
             if cached_generations_log2 != generations_log2 {
-                let since_size_log2 = cached_generations_log2.min(generations_log2) + 3;
-                let since_size_log2 = since_size_log2.max(4); // leaves never have cache
-                self.base.mem.invalidate_cache(since_size_log2);
-                self.bicache.clear();
-                self.biroot = None;
+                self.run_gc();
             }
         }
+        let backup = self.current_state();
         self.base.generations_per_update_log2 = Some(generations_log2);
 
         let frames_cnt = (generations_log2 + 2).max(self.base.size_log2 + 1) - self.base.size_log2;
         let (mut dx, mut dy) = (BigInt::ZERO, BigInt::ZERO);
+        let mut blank_nodes = BlankNodes::new();
         for _ in 0..frames_cnt {
-            self.add_frame(&mut dx, &mut dy);
+            self.add_frame(&mut dx, &mut dy, &mut blank_nodes);
         }
 
         let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
         let biroot = self.iterate_recurse(biroot, self.base.size_log2);
+        if self.base.mem.poisoned() {
+            self.load_pattern(&backup, self.base.topology)?;
+            return Err(anyhow!(
+                "StreamLifeSync: overfilled MemoryManager, try smaller step"
+            ));
+        }
+
         self.base.size_log2 -= 1;
         self.biroot = Some(biroot);
         self.base.root = self.merge_universes(biroot, self.base.size_log2);
@@ -528,7 +503,7 @@ impl GoLEngine for StreamLifeEngineSmall {
                 }
             }
             Topology::Unbounded => {
-                while self.base.has_blank_frame() {
+                while self.base.has_blank_frame(&mut blank_nodes) {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -559,7 +534,7 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let mut engine = StreamLifeEngineSmall::new(0);
+            let mut engine = StreamLifeEngineSync::new(1);
             engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 

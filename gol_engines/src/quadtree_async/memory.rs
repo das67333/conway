@@ -235,8 +235,7 @@ impl MemoryManagerRaw {
                 n.ctrl = ctrl;
                 n.lock.store(false, Ordering::Release);
 
-                // TODO: provide size_log2
-                if self.stats.should_poison_on_creation(0) {
+                if self.stats.should_poison_on_creation() {
                     self.poisoned.store(true, Ordering::Relaxed);
                     return NodeIdx(0 as u32);
                 }

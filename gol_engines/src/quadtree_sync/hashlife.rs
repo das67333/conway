@@ -7,15 +7,15 @@ use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
-pub struct HashLifeEngineSync {
-    size_log2: u32,
-    root: NodeIdx,
-    mem: MemoryManager,
-    generations_per_update_log2: Option<u32>,
-    topology: Topology,
+pub struct HashLifeEngineSync<Extra> {
+    pub(super) size_log2: u32,
+    pub(super) root: NodeIdx,
+    pub(super) mem: MemoryManager<Extra>,
+    pub(super) generations_per_update_log2: Option<u32>,
+    pub(super) topology: Topology,
 }
 
-impl HashLifeEngineSync {
+impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -57,7 +57,7 @@ impl HashLifeEngineSync {
     }
 
     /// `nw`, `ne`, `sw`, `se` must be leaves
-    fn update_leaves(
+    pub(super) fn update_leaves(
         &self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -194,8 +194,12 @@ impl HashLifeEngineSync {
     ///
     /// `size_log2` is related to `node`
     #[inline]
-    fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        fn inner(this: &HashLifeEngineSync, n: &mut QuadTreeNode, size_log2: u32) -> NodeIdx {
+    pub(super) fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        fn inner<Extra: Clone + Default>(
+            this: &HashLifeEngineSync<Extra>,
+            n: &mut QuadTreeNode<Extra>,
+            size_log2: u32,
+        ) -> NodeIdx {
             let generations_log2 = this.generations_per_update_log2.unwrap();
             let both_stages = generations_log2 + 2 >= size_log2;
             let cache = if size_log2 == LEAF_SIZE_LOG2 + 1 {
@@ -225,7 +229,7 @@ impl HashLifeEngineSync {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(
+    pub(super) fn with_frame(
         &mut self,
         idx: NodeIdx,
         size_log2: u32,
@@ -246,12 +250,12 @@ impl HashLifeEngineSync {
     }
 
     /// Remove a frame around the field, making it two times smaller.
-    fn without_frame(&self, idx: NodeIdx) -> NodeIdx {
+    pub(super) fn without_frame(&self, idx: NodeIdx) -> NodeIdx {
         let [nw, ne, sw, se] = self.mem.get(idx).parts().map(|x| self.mem.get(x));
         self.mem.find_or_create_node(nw.se, ne.sw, sw.ne, se.nw)
     }
 
-    fn has_blank_frame(&mut self, blank_nodes: &mut BlankNodes) -> bool {
+    pub(super) fn has_blank_frame(&mut self, blank_nodes: &mut BlankNodes) -> bool {
         if self.size_log2 <= LEAF_SIZE_LOG2 + 1 {
             return false;
         }
@@ -271,24 +275,29 @@ impl HashLifeEngineSync {
         frame_parts.iter().all(|&x| x == b)
     }
 
-    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt, blank_nodes: &mut BlankNodes) {
+    pub(super) fn add_frame(
+        &mut self,
+        dx: &mut BigInt,
+        dy: &mut BigInt,
+        blank_nodes: &mut BlankNodes,
+    ) {
         self.root = self.with_frame(self.root, self.size_log2, blank_nodes);
         *dx += BigInt::from(1) << (self.size_log2 - 1);
         *dy += BigInt::from(1) << (self.size_log2 - 1);
         self.size_log2 += 1;
     }
 
-    fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+    pub(super) fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.root = self.without_frame(self.root);
         *dx -= BigInt::from(1) << (self.size_log2 - 2);
         *dy -= BigInt::from(1) << (self.size_log2 - 2);
         self.size_log2 -= 1;
     }
 
-    fn from_pattern_recursive(
+    pub(super) fn from_pattern_recursive(
         idx: u32,
         pattern: &Pattern,
-        mem: &MemoryManager,
+        mem: &MemoryManager<Extra>,
         cache: &mut HashMap<u32, NodeIdx>,
     ) -> NodeIdx {
         if let Some(&cached) = cache.get(&idx) {
@@ -308,9 +317,10 @@ impl HashLifeEngineSync {
     }
 }
 
-impl GoLEngine for HashLifeEngineSync {
+impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
     fn new(mem_limit_mib: u32) -> Self {
-        let nodes = ((mem_limit_mib as u64) << 20) / std::mem::size_of::<QuadTreeNode>() as u64;
+        let nodes =
+            ((mem_limit_mib as u64) << 20) / std::mem::size_of::<QuadTreeNode<Extra>>() as u64;
         // previous power of two
         let cap_log2 = (nodes / 2 + 1)
             .checked_next_power_of_two()
@@ -342,10 +352,10 @@ impl GoLEngine for HashLifeEngineSync {
     }
 
     fn current_state(&self) -> Pattern {
-        fn inner(
+        fn inner<Extra: Clone + Default>(
             idx: NodeIdx,
             size_log2: u32,
-            mem: &MemoryManager,
+            mem: &MemoryManager<Extra>,
             pattern: &mut Pattern,
             cache: &mut HashMap<NodeIdx, u32>,
         ) -> u32 {
@@ -397,14 +407,9 @@ impl GoLEngine for HashLifeEngineSync {
 
         self.root = self.update_node(self.root, self.size_log2);
         if self.mem.poisoned() {
-            self.size_log2 = backup.get_size_log2();
-            self.mem.clear();
-            let mut cache = HashMap::new();
-            self.root =
-                Self::from_pattern_recursive(backup.get_root(), &backup, &self.mem, &mut cache);
-            self.generations_per_update_log2 = None;
+            self.load_pattern(&backup, self.topology)?;
             return Err(anyhow!(
-                "HashLifeSync: overfilled MemoryManager, try to reduce generations_log2"
+                "HashLifeSync: overfilled MemoryManager, try smaller step"
             ));
         }
 
@@ -451,7 +456,7 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let mut engine = HashLifeEngineSync::new(1);
+            let mut engine = HashLifeEngineSync::<()>::new(1);
             engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 

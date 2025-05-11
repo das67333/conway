@@ -54,17 +54,14 @@ impl ExecutionStatistics {
             && ACTIVE_COROUTINES_COUNT.load(Ordering::Relaxed) < MAX_COROUTINES_COUNT
     }
 
-    /// Checks if a node should be poisoned upon creation based on size and current load.
+    /// Checks if a node should be poisoned upon creation.
     ///
-    /// Increments the local counter and potentially flushes to global counter.
-    ///
-    /// # Arguments
-    /// * `size_log2` - Log2 of the node size
+    /// Increments the local length counter and potentially flushes to global counter.
     ///
     /// # Returns
     /// `true` if the node should be poisoned, `false` otherwise
     #[inline]
-    pub(super) fn should_poison_on_creation(&self, size_log2: u32) -> bool {
+    pub(super) fn should_poison_on_creation(&self) -> bool {
         let mut result = false;
         LENGTH_LOCAL_COUNT.with(|cell| {
             let new_value = cell.get().wrapping_add(1);
@@ -124,7 +121,7 @@ mod tests {
         let stats = ExecutionStatistics::new(0);
         let initial = get_approx();
         for _ in 0..256 {
-            stats.should_poison_on_creation(0);
+            stats.should_poison_on_creation();
         }
         assert_eq!(get_approx(), initial + 256);
     }
@@ -140,7 +137,7 @@ mod tests {
                 let c = &stats;
                 s.spawn(move || {
                     for _ in 0..1024 {
-                        c.should_poison_on_creation(0);
+                        c.should_poison_on_creation();
                     }
                 });
             }

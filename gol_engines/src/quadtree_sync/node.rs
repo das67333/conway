@@ -5,8 +5,8 @@ pub(super) struct NodeIdx(pub(super) u32);
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
-#[derive(Default)]
-pub(super) struct QuadTreeNode {
+#[derive(Clone, Default)]
+pub(super) struct QuadTreeNode<Extra> {
     pub(super) nw: NodeIdx,
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
@@ -15,10 +15,11 @@ pub(super) struct QuadTreeNode {
     pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
     pub(super) ctrl: u8,
-    // pub(super) extra: Extra, // extra information for engine: () for hashlife and u64 for streamlife // TODO
+    /// extra information for engine: () for hashlife and u64 for streamlife
+    pub(super) extra: Extra,
 }
 
-impl QuadTreeNode {
+impl<Extra> QuadTreeNode<Extra> {
     // pub(super) fn is_leaf(&self) -> bool {
     //     self.ctrl >> 6 == 1
     // }

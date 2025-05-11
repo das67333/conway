@@ -9,7 +9,11 @@ impl BlankNodes {
         Self { data: vec![] }
     }
 
-    pub(super) fn get(&mut self, size_log2: u32, mem: &MemoryManager) -> NodeIdx {
+    pub(super) fn get<Extra: Clone + Default>(
+        &mut self,
+        size_log2: u32,
+        mem: &MemoryManager<Extra>,
+    ) -> NodeIdx {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
         while self.data.len() <= i {
             if let Some(&b) = self.data.last() {
