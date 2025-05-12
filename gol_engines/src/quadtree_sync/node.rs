@@ -11,7 +11,7 @@ pub(super) struct QuadTreeNode<Extra> {
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
     pub(super) se: NodeIdx,
-    /// center after n/4 x n/4 generations, valid only if `has_cache` is true
+    /// valid only if `has_cache` is true
     pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
     pub(super) is_leaf: bool,

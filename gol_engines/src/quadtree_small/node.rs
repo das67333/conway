@@ -13,7 +13,7 @@ pub(super) struct QuadTreeNode<Extra> {
     pub(super) se: NodeIdx,
     /// next item in hashtable's bucket
     pub(super) next: NodeIdx,
-    /// center after n/4 x n/4 generations, valid only if `has_cache` is true
+    /// valid only if `has_cache` is true
     pub(super) cache: NodeIdx,
     pub(super) has_cache: bool,
     pub(super) gc_marked: bool,

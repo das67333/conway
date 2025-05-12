@@ -1,5 +1,5 @@
 use super::{ExecutionStatistics, NodeIdx, QuadTreeNode};
-use crate::{NODES_CREATED_COUNT, WORKER_THREADS};
+use crate::NODES_CREATED_COUNT;
 use std::{
     cell::UnsafeCell,
     hint::spin_loop,
@@ -194,20 +194,6 @@ impl MemoryManagerRaw {
         //     );
         // }
 
-        let ctrl = {
-            let hash_compressed = {
-                let mut h = hash;
-                h ^= h >> 16;
-                h ^= h >> 8;
-                h as u8
-            };
-            if is_leaf {
-                Self::CTRL_LEAF_BASE | ((Self::CTRL_LEAF_BASE - 1) & hash_compressed)
-            } else {
-                Self::CTRL_NODE_BASE | hash_compressed
-            }
-        };
-
         loop {
             // First check if we can acquire the lock for this index
             let lock = &(*self.hashtable.as_mut_ptr().add(index)).lock;
@@ -222,17 +208,24 @@ impl MemoryManagerRaw {
             // Now safely get the mutable reference after acquiring the lock
             let n = self.hashtable.get_unchecked_mut(index);
 
-            if n.ctrl == ctrl && n.nw == nw && n.ne == ne && n.sw == sw && n.se == se {
+            if n.nw == nw
+                && n.ne == ne
+                && n.sw == sw
+                && n.se == se
+                && n.is_leaf == is_leaf
+                && n.is_used
+            {
                 n.lock.store(false, Ordering::Release);
                 break;
             }
 
-            if n.ctrl == Self::CTRL_EMPTY {
+            if !n.is_used {
                 n.nw = nw;
                 n.ne = ne;
                 n.sw = sw;
                 n.se = se;
-                n.ctrl = ctrl;
+                n.is_leaf = is_leaf;
+                n.is_used = true;
                 n.lock.store(false, Ordering::Release);
 
                 if self.stats.should_poison_on_creation() {
