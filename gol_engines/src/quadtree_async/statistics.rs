@@ -1,12 +1,12 @@
 //! A thread-local statistics collector for quadtree operations.
-use crate::{COROUTINES_SPAWN_COUNT, MAX_COROUTINES_COUNT, MIN_COROUTINE_SPAWN_SIZE_LOG2};
+use crate::{MAX_TASKS_COUNT, MIN_TASK_SPAWN_SIZE_LOG2, TASKS_SPAWN_COUNT};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
 // Enforce singleton: only one ExecutionStatistics may be instantiated.
 static INSTANCE_COUNT: AtomicU8 = AtomicU8::new(0);
 
-static ACTIVE_COROUTINES_COUNT: AtomicU64 = AtomicU64::new(0);
+static ACTIVE_TASKS_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Global accumulated count flushed from all threads.
 static LENGTH_GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -50,8 +50,8 @@ impl ExecutionStatistics {
     /// # Returns
     /// `true` if the system should spawn a new task, `false` otherwise.
     pub(super) fn should_spawn(&self, size_log2: u32) -> bool {
-        size_log2 >= MIN_COROUTINE_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
-            && ACTIVE_COROUTINES_COUNT.load(Ordering::Relaxed) < MAX_COROUTINES_COUNT
+        size_log2 >= MIN_TASK_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
+            && ACTIVE_TASKS_COUNT.load(Ordering::Relaxed) < MAX_TASKS_COUNT
     }
 
     /// Checks if a node should be poisoned upon creation.
@@ -90,19 +90,19 @@ impl Drop for ExecutionStatistics {
     }
 }
 
-pub(super) struct CoroutinesCountGuard(u8);
+pub(super) struct TasksCountGuard(u8);
 
-impl CoroutinesCountGuard {
+impl TasksCountGuard {
     pub(super) fn new(count: u8) -> Self {
-        COROUTINES_SPAWN_COUNT.fetch_add(count as u64, Ordering::Relaxed);
-        ACTIVE_COROUTINES_COUNT.fetch_add(count as u64, Ordering::Relaxed);
+        TASKS_SPAWN_COUNT.fetch_add(count as u64, Ordering::Relaxed);
+        ACTIVE_TASKS_COUNT.fetch_add(count as u64, Ordering::Relaxed);
         Self(count)
     }
 }
 
-impl Drop for CoroutinesCountGuard {
+impl Drop for TasksCountGuard {
     fn drop(&mut self) {
-        ACTIVE_COROUTINES_COUNT.fetch_sub(self.0 as u64, Ordering::Relaxed);
+        ACTIVE_TASKS_COUNT.fetch_sub(self.0 as u64, Ordering::Relaxed);
     }
 }
 

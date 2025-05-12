@@ -124,7 +124,7 @@ impl MemoryManager {
 struct MemoryManagerRaw {
     /// buffer where heads of linked lists are stored
     hashtable: Vec<QuadTreeNode>,
-    /// statistics managing poisoning and spawning coroutines
+    /// statistics managing poisoning and spawning async tasks
     stats: ExecutionStatistics,
     /// if true, the hashtable is poisoned and should be restored from the backup
     poisoned: AtomicBool,

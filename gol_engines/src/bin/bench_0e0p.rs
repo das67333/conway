@@ -4,10 +4,10 @@ use std::sync::atomic::*;
 
 fn main() {
     // for x in 10..=15 {
-    //     MIN_COROUTINE_SPAWN_SIZE_LOG2.store(x, Ordering::Relaxed);
+    //     MIN_TASK_SPAWN_SIZE_LOG2.store(x, Ordering::Relaxed);
         println!(
-            "MIN_COROUTINE_SPAWN_SIZE_LOG2: {}",
-            MIN_COROUTINE_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
+            "MIN_TASK_SPAWN_SIZE_LOG2: {}",
+            MIN_TASK_SPAWN_SIZE_LOG2.load(Ordering::Relaxed)
         );
         let timer = std::time::Instant::now();
         let data = std::fs::read("../res/very_large_patterns/0e0p-metaglider.mc.gz").unwrap();
@@ -29,8 +29,8 @@ fn main() {
 
         let updated = engine.current_state();
         println!(
-            "COROUTINES_SPAWN_COUNT: {}",
-            COROUTINES_SPAWN_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+            "TASKS_SPAWN_COUNT: {}",
+            TASKS_SPAWN_COUNT.load(std::sync::atomic::Ordering::Relaxed)
         );
         println!(
             "NODES_CREATED_COUNT: {}",
@@ -40,7 +40,7 @@ fn main() {
         // assert_eq!(updated.hash(), 0x5e1805e773c45a65);
         assert_eq!(updated.population(), BigInt::from(93_237_300));
         assert_eq!(updated.hash(), 206505887300519070);
-        COROUTINES_SPAWN_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+        TASKS_SPAWN_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
         NODES_CREATED_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
     // }
 }

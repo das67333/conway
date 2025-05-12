@@ -1,6 +1,6 @@
 use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
 use crate::{
-    quadtree_async::CoroutinesCountGuard, GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS,
+    quadtree_async::TasksCountGuard, GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS,
 };
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
@@ -192,7 +192,7 @@ impl HashLifeEngineAsync {
                     if both_stages {
                         arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
                         if this.mem.should_spawn(size_log2) {
-                            let _guard = CoroutinesCountGuard::new(9);
+                            let _guard = TasksCountGuard::new(9);
                             let this_ptr = this as *const _ as usize;
                             let handles = arr9.map(|x| {
                                 tokio::spawn(async move {
@@ -215,7 +215,7 @@ impl HashLifeEngineAsync {
 
                     let mut arr4 = this.four_children_overlapping(&arr9);
                     if this.mem.should_spawn(size_log2) {
-                        let _guard = CoroutinesCountGuard::new(4);
+                        let _guard = TasksCountGuard::new(4);
                         let this_ptr = this as *const _ as usize;
                         let handles = arr4.map(|x| {
                             tokio::spawn(async move {
