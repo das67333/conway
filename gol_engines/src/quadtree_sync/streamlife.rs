@@ -338,7 +338,7 @@ impl StreamLifeEngineSync {
         if self.is_solitonic(idx, size_log2) {
             let i1 = self.base.update_node(idx.0, size_log2);
             let i2 = self.base.update_node(idx.1, size_log2);
-            
+
             let b = self.base.blank_nodes.get(size_log2, &self.base.mem);
             return if idx.0 == b || idx.1 == b {
                 let i3 = NodeIdx(i1.0 | i2.0);

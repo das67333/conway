@@ -229,7 +229,13 @@ impl<Extra: Clone + Default> MemoryManagerRaw<Extra> {
 
         loop {
             let n = self.hashtable.get_unchecked(index);
-            if n.nw == nw && n.ne == ne && n.sw == sw && n.se == se && n.is_leaf == is_leaf && n.is_used {
+            if n.nw == nw
+                && n.ne == ne
+                && n.sw == sw
+                && n.se == se
+                && n.is_leaf == is_leaf
+                && n.is_used
+            {
                 break;
             }
 

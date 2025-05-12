@@ -99,36 +99,10 @@ impl MemoryManager {
     }
 
     pub(super) fn clear(&mut self) {
-        // Parallel fill_with implementation
-        {
-            let num_threads = WORKER_THREADS.load(Ordering::Relaxed) as usize;
-            let mut handles = Vec::with_capacity(num_threads);
-            let v = &mut self.base.get_mut().hashtable;
-
-            for i in 0..num_threads {
-                let ptr = v.as_mut_ptr() as usize;
-                let start = i * v.len() / num_threads;
-                let end = (i + 1) * v.len() / num_threads;
-
-                let handle = std::thread::spawn(move || {
-                    for idx in start..end {
-                        unsafe {
-                            let value =
-                                &mut *(ptr as *const QuadTreeNode as *mut QuadTreeNode).add(idx);
-                            std::ptr::drop_in_place(value);
-                            std::ptr::write(value, QuadTreeNode::default());
-                        }
-                    }
-                });
-
-                handles.push(handle);
-            }
-
-            for handle in handles {
-                handle.join().expect("Thread panicked during parallel fill");
-            }
-        }
-
+        self.base
+            .get_mut()
+            .hashtable
+            .fill_with(QuadTreeNode::default);
         self.base.get_mut().stats.reset();
         self.base.get_mut().poisoned.store(false, Ordering::Relaxed);
     }
