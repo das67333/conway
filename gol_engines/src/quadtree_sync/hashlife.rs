@@ -13,6 +13,7 @@ pub struct HashLifeEngineSync<Extra> {
     pub(super) mem: MemoryManager<Extra>,
     pub(super) generations_per_update_log2: Option<u32>,
     pub(super) topology: Topology,
+    pub(super) blank_nodes: BlankNodes,
 }
 
 impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
@@ -229,14 +230,9 @@ impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    pub(super) fn with_frame(
-        &mut self,
-        idx: NodeIdx,
-        size_log2: u32,
-        blank_nodes: &mut BlankNodes,
-    ) -> NodeIdx {
+    pub(super) fn with_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx);
-        let b = blank_nodes.get(size_log2 - 1, &self.mem);
+        let b = self.blank_nodes.get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match self.topology {
             Topology::Torus => [self.mem.find_or_create_node(n.se, n.sw, n.ne, n.nw); 4],
             Topology::Unbounded => [
@@ -255,12 +251,12 @@ impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
         self.mem.find_or_create_node(nw.se, ne.sw, sw.ne, se.nw)
     }
 
-    pub(super) fn has_blank_frame(&mut self, blank_nodes: &mut BlankNodes) -> bool {
+    pub(super) fn has_blank_frame(&mut self) -> bool {
         if self.size_log2 <= LEAF_SIZE_LOG2 + 1 {
             return false;
         }
 
-        let b = blank_nodes.get(self.size_log2 - 2, &self.mem);
+        let b = self.blank_nodes.get(self.size_log2 - 2, &self.mem);
 
         let root = self.mem.get(self.root);
         let [nw, ne, sw, se] = [
@@ -275,13 +271,8 @@ impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
         frame_parts.iter().all(|&x| x == b)
     }
 
-    pub(super) fn add_frame(
-        &mut self,
-        dx: &mut BigInt,
-        dy: &mut BigInt,
-        blank_nodes: &mut BlankNodes,
-    ) {
-        self.root = self.with_frame(self.root, self.size_log2, blank_nodes);
+    pub(super) fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+        self.root = self.with_frame(self.root, self.size_log2);
         *dx += BigInt::from(1) << (self.size_log2 - 1);
         *dy += BigInt::from(1) << (self.size_log2 - 1);
         self.size_log2 += 1;
@@ -333,6 +324,7 @@ impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
             mem,
             generations_per_update_log2: None,
             topology: Topology::Unbounded,
+            blank_nodes: BlankNodes::new(),
         }
     }
 
@@ -343,6 +335,7 @@ impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
         }
         self.size_log2 = size_log2;
         self.mem.clear();
+        self.blank_nodes.clear();
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), pattern, &self.mem, &mut cache);
@@ -400,9 +393,8 @@ impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
 
         let frames_cnt = (generations_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
         let (mut dx, mut dy) = (BigInt::ZERO, BigInt::ZERO);
-        let mut blank_nodes = BlankNodes::new();
         for _ in 0..frames_cnt {
-            self.add_frame(&mut dx, &mut dy, &mut blank_nodes);
+            self.add_frame(&mut dx, &mut dy);
         }
 
         self.root = self.update_node(self.root, self.size_log2);
@@ -424,7 +416,7 @@ impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
                 }
             }
             Topology::Unbounded => {
-                while self.has_blank_frame(&mut blank_nodes) {
+                while self.has_blank_frame() {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -436,6 +428,7 @@ impl<Extra: Clone + Default> GoLEngine for HashLifeEngineSync<Extra> {
     fn run_gc(&mut self) {
         let pattern = self.current_state();
         self.mem.clear();
+        self.blank_nodes.clear();
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), &pattern, &self.mem, &mut cache);
