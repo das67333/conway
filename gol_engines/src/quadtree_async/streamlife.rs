@@ -340,8 +340,8 @@ impl StreamLifeEngineAsync {
         size_log2: u32,
     ) -> (NodeIdx, NodeIdx) {
         if self.is_solitonic(idx, size_log2) {
-            let i1 = self.base.update_node(idx.0, size_log2).await;
-            let i2 = self.base.update_node(idx.1, size_log2).await;
+            let i1 = self.base.update_node_async(idx.0, size_log2).await;
+            let i2 = self.base.update_node_async(idx.1, size_log2).await;
 
             let b = self.base.blank_nodes.get(size_log2, &self.base.mem);
             return if idx.0 == b || idx.1 == b {
@@ -368,7 +368,7 @@ impl StreamLifeEngineAsync {
 
         if size_log2 == LEAF_SIZE_LOG2 + 2 {
             let hnode2 = self.merge_universes(idx, size_log2);
-            let i3 = self.base.update_node(hnode2, size_log2).await;
+            let i3 = self.base.update_node_async(hnode2, size_log2).await;
             let b = self.base.blank_nodes.get(size_log2 - 1, &self.base.mem);
 
             if i3 != b {

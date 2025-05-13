@@ -1,11 +1,12 @@
 use super::{BlankNodes, MemoryManager, NodeIdx, QuadTreeNode, LEAF_SIZE, LEAF_SIZE_LOG2};
 use crate::{
-    quadtree_async::TasksCountGuard, GoLEngine, Pattern, PatternNode, Topology, WORKER_THREADS,
+    quadtree_async::TasksCountGuard, GoLEngine, Pattern, PatternNode, Topology,
+    MIN_TASK_SPAWN_SIZE_LOG2, WORKER_THREADS,
 };
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
-use std::{future::Future, pin::Pin, sync::atomic::Ordering};
+use std::{future::Future, hint::spin_loop, pin::Pin, sync::atomic::Ordering};
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
 pub struct HashLifeEngineAsync<Extra> {
@@ -154,99 +155,39 @@ impl<Extra: Default + Sync> HashLifeEngineAsync<Extra> {
         ]
     }
 
-    /// Recursively updates nodes in graph.
-    ///
-    /// `size_log2` is related to `node`
-    pub(super) async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        fn inner<Extra: Default + Sync>(
-            this: &HashLifeEngineAsync<Extra>,
-            node: NodeIdx,
-            size_log2: u32,
-        ) -> Pin<Box<dyn Future<Output = NodeIdx> + Send>> {
-            let t = this as *const _ as usize;
-            Box::pin(async move {
-                let this = unsafe { &*(t as *const HashLifeEngineAsync<Extra>) };
-                let n = this.mem.get(node);
-                let generations_log2 = this.generations_per_update_log2.unwrap();
-                let both_stages = generations_log2 + 2 >= size_log2;
-                if size_log2 == LEAF_SIZE_LOG2 + 1 {
-                    let steps = if both_stages {
-                        LEAF_SIZE / 2
-                    } else {
-                        1 << generations_log2
-                    };
-                    this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
-                } else {
-                    // let mut arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
-                    // for x in arr9.iter_mut() {
-                    //     *x = this.update_node(*x, size_log2 - 1).await;
-                    // }
-
-                    // let mut arr4 = this.four_children_overlapping(&arr9);
-                    // for x in arr4.iter_mut() {
-                    //     *x = this.update_node(*x, size_log2 - 1).await;
-                    // }
-                    // this.mem
-                    //     .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
-                    let mut arr9;
-                    if both_stages {
-                        arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
-                        if this.mem.should_spawn(size_log2) {
-                            let _guard = TasksCountGuard::new(9);
-                            let this_ptr = this as *const _ as usize;
-                            let handles = arr9.map(|x| {
-                                tokio::spawn(async move {
-                                    unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
-                                        .update_node(x, size_log2 - 1)
-                                        .await
-                                })
-                            });
-                            for (i, handle) in handles.into_iter().enumerate() {
-                                arr9[i] = handle.await.unwrap();
-                            }
-                        } else {
-                            for x in arr9.iter_mut() {
-                                *x = this.update_node(*x, size_log2 - 1).await;
-                            }
-                        }
-                    } else {
-                        arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
-                    }
-
-                    let mut arr4 = this.four_children_overlapping(&arr9);
-                    if this.mem.should_spawn(size_log2) {
-                        let _guard = TasksCountGuard::new(4);
-                        let this_ptr = this as *const _ as usize;
-                        let handles = arr4.map(|x| {
-                            tokio::spawn(async move {
-                                unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
-                                    .update_node(x, size_log2 - 1)
-                                    .await
-                            })
-                        });
-                        for (i, handle) in handles.into_iter().enumerate() {
-                            arr4[i] = handle.await.unwrap();
-                        }
-                    } else {
-                        for x in arr4.iter_mut() {
-                            *x = this.update_node(*x, size_log2 - 1).await;
-                        }
-                    }
-                    this.mem
-                        .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
+    fn update_inner_sync(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        let n = self.mem.get(node);
+        let generations_log2 = self.generations_per_update_log2.unwrap();
+        let both_stages = generations_log2 + 2 >= size_log2;
+        if size_log2 == LEAF_SIZE_LOG2 + 1 {
+            let steps = if both_stages {
+                LEAF_SIZE / 2
+            } else {
+                1 << generations_log2
+            };
+            self.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+        } else {
+            let mut arr9;
+            if both_stages {
+                arr9 = self.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
+                for x in arr9.iter_mut() {
+                    *x = self.update_node_sync(*x, size_log2 - 1);
                 }
-            })
+            } else {
+                arr9 = self.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+            }
+
+            let mut arr4 = self.four_children_overlapping(&arr9);
+            for x in arr4.iter_mut() {
+                *x = self.update_node_sync(*x, size_log2 - 1);
+            }
+
+            self.mem
+                .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
         }
+    }
 
-        // let n = self.mem.get_mut(node);
-        // if n.has_cache.load(Ordering::Acquire) {
-        //     return n.cache;
-        // }
-        // let cache = inner(self, node, size_log2).await;
-        // n.cache = cache;
-        // n.has_cache.store(true, Ordering::Release);
-        // cache
-
+    fn update_node_sync(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(node);
         let status = n.status.load(Ordering::Acquire);
         if status == QuadTreeNode::<Extra>::STATUS_CACHED {
@@ -263,7 +204,116 @@ impl<Extra: Default + Sync> HashLifeEngineAsync<Extra> {
                 )
                 .is_ok()
         {
-            let cache = inner(self, node, size_log2).await;
+            let cache = self.update_inner_sync(node, size_log2);
+            self.mem.get_mut(node).cache = cache;
+            n.status
+                .store(QuadTreeNode::<Extra>::STATUS_CACHED, Ordering::Release);
+            return cache;
+        }
+
+        while n.status.load(Ordering::Acquire) != QuadTreeNode::<Extra>::STATUS_CACHED {
+            if self.mem.poisoned() {
+                return NodeIdx::default();
+            }
+            spin_loop();
+        }
+        n.cache
+    }
+
+    fn update_inner_async(
+        &self,
+        node: NodeIdx,
+        size_log2: u32,
+    ) -> Pin<Box<dyn Future<Output = NodeIdx> + Send>> {
+        let this = self as *const _ as usize;
+        Box::pin(async move {
+            let this = unsafe { &*(this as *const HashLifeEngineAsync<Extra>) };
+            let n = this.mem.get(node);
+            let generations_log2 = this.generations_per_update_log2.unwrap();
+            let both_stages = generations_log2 + 2 >= size_log2;
+            if size_log2 == LEAF_SIZE_LOG2 + 1 {
+                let steps = if both_stages {
+                    LEAF_SIZE / 2
+                } else {
+                    1 << generations_log2
+                };
+                this.update_leaves(n.nw, n.ne, n.sw, n.se, steps)
+            } else {
+                let mut arr9;
+                if both_stages {
+                    arr9 = this.nine_children_overlapping(n.nw, n.ne, n.sw, n.se);
+                    if this.mem.should_spawn(size_log2) {
+                        let _guard = TasksCountGuard::new(9);
+                        let this_ptr = this as *const _ as usize;
+                        let handles = arr9.map(|x| {
+                            tokio::spawn(async move {
+                                unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
+                                    .update_node_async(x, size_log2 - 1)
+                                    .await
+                            })
+                        });
+                        for (i, handle) in handles.into_iter().enumerate() {
+                            arr9[i] = handle.await.unwrap();
+                        }
+                    } else {
+                        for x in arr9.iter_mut() {
+                            *x = this.update_node_async(*x, size_log2 - 1).await;
+                        }
+                    }
+                } else {
+                    arr9 = this.nine_children_disjoint(n.nw, n.ne, n.sw, n.se, size_log2 - 1);
+                }
+
+                let mut arr4 = this.four_children_overlapping(&arr9);
+                if this.mem.should_spawn(size_log2) {
+                    let _guard = TasksCountGuard::new(4);
+                    let this_ptr = this as *const _ as usize;
+                    let handles = arr4.map(|x| {
+                        tokio::spawn(async move {
+                            unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
+                                .update_node_async(x, size_log2 - 1)
+                                .await
+                        })
+                    });
+                    for (i, handle) in handles.into_iter().enumerate() {
+                        arr4[i] = handle.await.unwrap();
+                    }
+                } else {
+                    for x in arr4.iter_mut() {
+                        *x = this.update_node_async(*x, size_log2 - 1).await;
+                    }
+                }
+                this.mem
+                    .find_or_create_node(arr4[0], arr4[1], arr4[2], arr4[3])
+            }
+        })
+    }
+
+    /// Recursively updates nodes in graph.
+    ///
+    /// `size_log2` is related to `node`
+    pub(super) async fn update_node_async(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        let n = self.mem.get(node);
+        let status = n.status.load(Ordering::Acquire);
+        if status == QuadTreeNode::<Extra>::STATUS_CACHED {
+            return n.cache;
+        }
+
+        if status == QuadTreeNode::<Extra>::STATUS_NOT_CACHED
+            && n.status
+                .compare_exchange(
+                    QuadTreeNode::<Extra>::STATUS_NOT_CACHED,
+                    QuadTreeNode::<Extra>::STATUS_PROCESSING,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+        {
+            let cache = if size_log2 >= MIN_TASK_SPAWN_SIZE_LOG2.load(Ordering::Relaxed) {
+                self.update_inner_async(node, size_log2).await
+            } else {
+                self.update_inner_sync(node, size_log2)
+            };
             self.mem.get_mut(node).cache = cache;
             n.status
                 .store(QuadTreeNode::<Extra>::STATUS_CACHED, Ordering::Release);
@@ -277,12 +327,6 @@ impl<Extra: Default + Sync> HashLifeEngineAsync<Extra> {
             tokio::task::yield_now().await;
         }
         n.cache
-        // *self
-        //     .mem
-        //     .get(node)
-        //     .cache
-        //     .get_or_init(|| inner(self, node, size_log2))
-        //     .await
     }
 
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
@@ -465,7 +509,7 @@ impl<Extra: Default + Sync> GoLEngine for HashLifeEngineAsync<Extra> {
             builder
                 .build()
                 .unwrap()
-                .block_on(async { self.update_node(self.root, self.size_log2).await })
+                .block_on(async { self.update_node_async(self.root, self.size_log2).await })
         };
         if self.mem.poisoned() {
             self.load_pattern(&backup, self.topology)?;
