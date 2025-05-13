@@ -131,15 +131,6 @@ struct MemoryManagerRaw {
 }
 
 impl MemoryManagerRaw {
-    // control byte:
-    // 00000000     -> empty
-    // 00111111     -> deleted
-    // 01<hash>     -> full (leaf)
-    // 1<hash>      -> full (node)
-    const CTRL_EMPTY: u8 = 0;
-    const CTRL_LEAF_BASE: u8 = 1 << 6;
-    const CTRL_NODE_BASE: u8 = 1 << 7;
-
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     fn with_capacity(cap_log2: u32) -> Self {
         assert!(

@@ -22,11 +22,11 @@ impl<Extra: Clone + Default> PrefetchedNode<Extra> {
         size_log2: u32,
     ) -> Self {
         let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
-        let idx = hash & (unsafe { (*mem.base.get()).hashtable.len() } - 1);
 
         #[cfg(target_arch = "x86_64")]
         unsafe {
             use std::arch::x86_64::*;
+            let idx = hash & ((*mem.base.get()).hashtable.len() - 1);
             _mm_prefetch::<_MM_HINT_T0>((*mem.base.get()).hashtable.get_unchecked(idx)
                 as *const QuadTreeNode<Extra> as *const i8);
         }
@@ -174,15 +174,6 @@ struct MemoryManagerRaw<Extra> {
 }
 
 impl<Extra: Clone + Default> MemoryManagerRaw<Extra> {
-    // control byte:
-    // 00000000     -> empty
-    // 00111111     -> deleted (not used)
-    // 01<hash>     -> full (leaf)
-    // 1<hash>      -> full (node)
-    const CTRL_EMPTY: u8 = 0;
-    const CTRL_LEAF_BASE: u8 = 1 << 6;
-    const CTRL_NODE_BASE: u8 = 1 << 7;
-
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     fn with_capacity(cap_log2: u32) -> Self {
         assert!(

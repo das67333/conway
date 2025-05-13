@@ -12,7 +12,7 @@ static ACTIVE_TASKS_COUNT: AtomicU64 = AtomicU64::new(0);
 static LENGTH_GLOBAL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 thread_local! {
-    static LENGTH_LOCAL_COUNT: Cell<u8> = Cell::new(0);
+    static LENGTH_LOCAL_COUNT: Cell<u8> = const { Cell::new(0) };
 }
 
 /// Thread-safe execution statistics collector with efficient batched counters.

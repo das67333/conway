@@ -14,7 +14,7 @@ fn main() {
         WORKER_THREADS.store(16, std::sync::atomic::Ordering::Relaxed);
 
         let pattern = Pattern::from_format(PatternFormat::CompressedMacrocell, &data).unwrap();
-        let mut engine = HashLifeEngineAsync::new(16 << 10);
+        let mut engine = StreamLifeEngineSync::new(16 << 10);
         engine.load_pattern(&pattern, Topology::Unbounded).unwrap();
         assert_eq!(pattern.population(), BigInt::from(93_235_805));
         println!("Time spent on building field: {:?}", timer.elapsed());

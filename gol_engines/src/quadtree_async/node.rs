@@ -1,13 +1,13 @@
 use std::sync::atomic::{AtomicBool, AtomicU8};
 
 /// Location of a node is determined by its `idx`.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) struct NodeIdx(pub(super) u32);
 
 /// A node of the quadtree.
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct QuadTreeNode {
     pub(super) nw: NodeIdx,
     pub(super) ne: NodeIdx,

@@ -1,4 +1,4 @@
-use super::{hashlife::HashLifeEngineSync, BlankNodes, NodeIdx, LEAF_SIZE_LOG2};
+use super::{hashlife::HashLifeEngineSync, NodeIdx, LEAF_SIZE_LOG2};
 use crate::{GoLEngine, Pattern, Topology};
 use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
@@ -11,15 +11,11 @@ pub struct StreamLifeEngineSync {
     base: HashLifeEngineSync<u64>,
     // streamlife-specific
     biroot: Option<(NodeIdx, NodeIdx)>,
-    bicache: HashMap<((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx)>,
+    bicache: HashMap<(NodeIdx, NodeIdx), (NodeIdx, NodeIdx)>,
 }
 
 impl StreamLifeEngineSync {
-    fn determine_direction(&mut self, idx: NodeIdx) -> u64 {
-        let (nw, ne, sw, se) = {
-            let n = self.base.mem.get(idx);
-            (n.nw, n.ne, n.sw, n.se)
-        };
+    fn determine_direction(&self, nw: NodeIdx, ne: NodeIdx, sw: NodeIdx, se: NodeIdx) -> u64 {
         let m = self.base.update_leaves(nw, ne, sw, se, 4);
         let centre = u64::from_le_bytes(self.base.mem.get(m).leaf_cells());
 
@@ -82,10 +78,11 @@ impl StreamLifeEngineSync {
         }
 
         if size_log2 == LEAF_SIZE_LOG2 + 1 {
-            if self.base.mem.get(idx).extra & 0xffff0000 != 1 << 16 {
-                self.base.mem.get_mut(idx).extra = self.determine_direction(idx) | (1 << 16);
+            let n = self.base.mem.get_mut(idx);
+            if n.extra & 0xffff0000 != 1 << 16 {
+                n.extra = self.determine_direction(n.nw, n.ne, n.sw, n.se) | (1 << 16);
             }
-            return self.base.mem.get(idx).extra & 0xffffffff0000ffff;
+            return n.extra & 0xffffffff0000ffff;
         }
 
         let (nw, ne, sw, se, meta) = {
@@ -315,7 +312,7 @@ impl StreamLifeEngineSync {
     }
 
     fn merge_universes(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> NodeIdx {
-        if idx.1 == NodeIdx(0) {
+        if idx.1 == self.base.blank_nodes.get(size_log2, &self.base.mem) {
             return idx.0;
         }
         let m0 = self.base.mem.get(idx.0).clone();
@@ -341,8 +338,11 @@ impl StreamLifeEngineSync {
 
             let b = self.base.blank_nodes.get(size_log2, &self.base.mem);
             return if idx.0 == b || idx.1 == b {
-                let i3 = NodeIdx(i1.0 | i2.0);
-                let ind3 = NodeIdx(idx.0 .0 | idx.1 .0);
+                let (i3, ind3) = if idx.0 == b {
+                    (NodeIdx(i2.0), NodeIdx(idx.1 .0))
+                } else {
+                    (NodeIdx(i1.0), NodeIdx(idx.0 .0))
+                };
                 let lanes = self.node2lanes(ind3, size_log2);
                 let b = self.base.blank_nodes.get(size_log2 - 1, &self.base.mem);
                 if lanes & 0xf0 != 0 {
@@ -355,7 +355,7 @@ impl StreamLifeEngineSync {
             };
         }
 
-        if let Some(cache) = self.bicache.get(&(idx, size_log2)) {
+        if let Some(cache) = self.bicache.get(&idx) {
             return *cache;
         }
 
@@ -415,7 +415,7 @@ impl StreamLifeEngineSync {
                     .mem
                     .find_or_create_node(ch42[0], ch42[1], ch42[2], ch42[3]),
             );
-            self.bicache.insert((idx, size_log2), res);
+            self.bicache.insert(idx, res);
             res
         }
     }
@@ -481,7 +481,12 @@ impl GoLEngine for StreamLifeEngineSync {
             self.add_frame(&mut dx, &mut dy);
         }
 
-        let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
+        let biroot = self.biroot.unwrap_or((
+            self.base.root,
+            self.base
+                .blank_nodes
+                .get(self.base.size_log2, &self.base.mem),
+        ));
         let biroot = self.iterate_recurse(biroot, self.base.size_log2);
         if self.base.mem.poisoned() {
             self.load_pattern(&backup, self.base.topology)?;
@@ -520,7 +525,7 @@ impl GoLEngine for StreamLifeEngineSync {
 
     fn bytes_total(&self) -> usize {
         let bicache_bytes =
-            self.bicache.capacity() * size_of::<(((NodeIdx, NodeIdx), u32), (NodeIdx, NodeIdx))>();
+            self.bicache.capacity() * size_of::<((NodeIdx, NodeIdx), (NodeIdx, NodeIdx))>();
         self.base.bytes_total() + bicache_bytes
     }
 }

@@ -12,7 +12,7 @@ mod tests {
             Box::new(HashLifeEngineSmall::new(mem_limit_mib)),
             Box::new(StreamLifeEngineSmall::new(mem_limit_mib)),
             Box::new(HashLifeEngineSync::new(mem_limit_mib)),
-            // Box::new(StreamLifeEngineSync::new(mem_limit_mib)),
+            Box::new(StreamLifeEngineSync::new(mem_limit_mib)),
             Box::new(HashLifeEngineAsync::new(mem_limit_mib)),
         ];
         for engine in engines.iter_mut() {
