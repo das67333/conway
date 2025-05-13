@@ -8,16 +8,16 @@ use num_bigint::BigInt;
 use std::{future::Future, pin::Pin, sync::atomic::Ordering};
 
 /// Implementation of [HashLife algorithm](https://conwaylife.com/wiki/HashLife)
-pub struct HashLifeEngineAsync {
-    size_log2: u32,
-    root: NodeIdx,
-    mem: MemoryManager,
-    generations_per_update_log2: Option<u32>,
-    topology: Topology,
-    // metrics: Metrics,
+pub struct HashLifeEngineAsync<Extra> {
+    pub(super) size_log2: u32,
+    pub(super) root: NodeIdx,
+    pub(super) mem: MemoryManager<Extra>,
+    pub(super) generations_per_update_log2: Option<u32>,
+    pub(super) topology: Topology,
+    pub(super) blank_nodes: BlankNodes,
 }
 
-impl HashLifeEngineAsync {
+impl<Extra: Default + Sync> HashLifeEngineAsync<Extra> {
     fn update_row(row_prev: u16, row_curr: u16, row_next: u16) -> u16 {
         let b = row_prev;
         let a = b << 1;
@@ -59,7 +59,7 @@ impl HashLifeEngineAsync {
     }
 
     /// `nw`, `ne`, `sw`, `se` must be leaves
-    fn update_leaves(
+    pub(super) fn update_leaves(
         &self,
         nw: NodeIdx,
         ne: NodeIdx,
@@ -157,15 +157,15 @@ impl HashLifeEngineAsync {
     /// Recursively updates nodes in graph.
     ///
     /// `size_log2` is related to `node`
-    async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
-        fn inner(
-            this: &HashLifeEngineAsync,
+    pub(super) async fn update_node(&self, node: NodeIdx, size_log2: u32) -> NodeIdx {
+        fn inner<Extra: Default + Sync>(
+            this: &HashLifeEngineAsync<Extra>,
             node: NodeIdx,
             size_log2: u32,
         ) -> Pin<Box<dyn Future<Output = NodeIdx> + Send>> {
             let t = this as *const _ as usize;
             Box::pin(async move {
-                let this = unsafe { &*(t as *const HashLifeEngineAsync) };
+                let this = unsafe { &*(t as *const HashLifeEngineAsync<Extra>) };
                 let n = this.mem.get(node);
                 let generations_log2 = this.generations_per_update_log2.unwrap();
                 let both_stages = generations_log2 + 2 >= size_log2;
@@ -196,7 +196,7 @@ impl HashLifeEngineAsync {
                             let this_ptr = this as *const _ as usize;
                             let handles = arr9.map(|x| {
                                 tokio::spawn(async move {
-                                    unsafe { &*(this_ptr as *const HashLifeEngineAsync) }
+                                    unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
                                         .update_node(x, size_log2 - 1)
                                         .await
                                 })
@@ -219,7 +219,7 @@ impl HashLifeEngineAsync {
                         let this_ptr = this as *const _ as usize;
                         let handles = arr4.map(|x| {
                             tokio::spawn(async move {
-                                unsafe { &*(this_ptr as *const HashLifeEngineAsync) }
+                                unsafe { &*(this_ptr as *const HashLifeEngineAsync<Extra>) }
                                     .update_node(x, size_log2 - 1)
                                     .await
                             })
@@ -249,15 +249,15 @@ impl HashLifeEngineAsync {
 
         let n = self.mem.get(node);
         let status = n.status.load(Ordering::Acquire);
-        if status == QuadTreeNode::STATUS_CACHED {
+        if status == QuadTreeNode::<Extra>::STATUS_CACHED {
             return n.cache;
         }
 
-        if status == QuadTreeNode::STATUS_NOT_CACHED
+        if status == QuadTreeNode::<Extra>::STATUS_NOT_CACHED
             && n.status
                 .compare_exchange(
-                    QuadTreeNode::STATUS_NOT_CACHED,
-                    QuadTreeNode::STATUS_PROCESSING,
+                    QuadTreeNode::<Extra>::STATUS_NOT_CACHED,
+                    QuadTreeNode::<Extra>::STATUS_PROCESSING,
                     Ordering::Relaxed,
                     Ordering::Relaxed,
                 )
@@ -266,11 +266,11 @@ impl HashLifeEngineAsync {
             let cache = inner(self, node, size_log2).await;
             self.mem.get_mut(node).cache = cache;
             n.status
-                .store(QuadTreeNode::STATUS_CACHED, Ordering::Release);
+                .store(QuadTreeNode::<Extra>::STATUS_CACHED, Ordering::Release);
             return cache;
         }
 
-        while n.status.load(Ordering::Acquire) != QuadTreeNode::STATUS_CACHED {
+        while n.status.load(Ordering::Acquire) != QuadTreeNode::<Extra>::STATUS_CACHED {
             if self.mem.poisoned() {
                 return NodeIdx::default();
             }
@@ -288,14 +288,9 @@ impl HashLifeEngineAsync {
     /// Add a frame around the field: if `self.topology` is Unbounded, frame is blank,
     /// and if `self.topology` is Torus, frame mirrors the field.
     /// The field becomes two times bigger.
-    fn with_frame(
-        &mut self,
-        idx: NodeIdx,
-        size_log2: u32,
-        blank_nodes: &mut BlankNodes,
-    ) -> NodeIdx {
+    pub(super) fn with_frame(&mut self, idx: NodeIdx, size_log2: u32) -> NodeIdx {
         let n = self.mem.get(idx);
-        let b = blank_nodes.get(size_log2 - 1, &self.mem);
+        let b = self.blank_nodes.get(size_log2 - 1, &self.mem);
         let [nw, ne, sw, se] = match self.topology {
             Topology::Torus => [self.mem.find_or_create_node(n.se, n.sw, n.ne, n.nw); 4],
             Topology::Unbounded => [
@@ -309,17 +304,17 @@ impl HashLifeEngineAsync {
     }
 
     /// Remove a frame around the field, making it two times smaller.
-    fn without_frame(&self, idx: NodeIdx) -> NodeIdx {
+    pub(super) fn without_frame(&self, idx: NodeIdx) -> NodeIdx {
         let [nw, ne, sw, se] = self.mem.get(idx).parts().map(|x| self.mem.get(x));
         self.mem.find_or_create_node(nw.se, ne.sw, sw.ne, se.nw)
     }
 
-    fn has_blank_frame(&mut self, blank_nodes: &mut BlankNodes) -> bool {
+    pub(super) fn has_blank_frame(&mut self) -> bool {
         if self.size_log2 <= LEAF_SIZE_LOG2 + 1 {
             return false;
         }
 
-        let b = blank_nodes.get(self.size_log2 - 2, &self.mem);
+        let b = self.blank_nodes.get(self.size_log2 - 2, &self.mem);
 
         let root = self.mem.get(self.root);
         let [nw, ne, sw, se] = [
@@ -334,14 +329,14 @@ impl HashLifeEngineAsync {
         frame_parts.iter().all(|&x| x == b)
     }
 
-    fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt, blank_nodes: &mut BlankNodes) {
-        self.root = self.with_frame(self.root, self.size_log2, blank_nodes);
+    pub(super) fn add_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+        self.root = self.with_frame(self.root, self.size_log2);
         *dx += BigInt::from(1) << (self.size_log2 - 1);
         *dy += BigInt::from(1) << (self.size_log2 - 1);
         self.size_log2 += 1;
     }
 
-    fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
+    pub(super) fn pop_frame(&mut self, dx: &mut BigInt, dy: &mut BigInt) {
         self.root = self.without_frame(self.root);
         *dx -= BigInt::from(1) << (self.size_log2 - 2);
         *dy -= BigInt::from(1) << (self.size_log2 - 2);
@@ -351,7 +346,7 @@ impl HashLifeEngineAsync {
     fn from_pattern_recursive(
         idx: u32,
         pattern: &Pattern,
-        mem: &MemoryManager,
+        mem: &MemoryManager<Extra>,
         cache: &mut HashMap<u32, NodeIdx>,
     ) -> NodeIdx {
         if let Some(&cached) = cache.get(&idx) {
@@ -371,9 +366,10 @@ impl HashLifeEngineAsync {
     }
 }
 
-impl GoLEngine for HashLifeEngineAsync {
+impl<Extra: Default + Sync> GoLEngine for HashLifeEngineAsync<Extra> {
     fn new(mem_limit_mib: u32) -> Self {
-        let nodes = ((mem_limit_mib as u64) << 20) / std::mem::size_of::<QuadTreeNode>() as u64;
+        let nodes =
+            ((mem_limit_mib as u64) << 20) / std::mem::size_of::<QuadTreeNode<Extra>>() as u64;
         // previous power of two
         let cap_log2 = (nodes / 2 + 1)
             .checked_next_power_of_two()
@@ -386,6 +382,7 @@ impl GoLEngine for HashLifeEngineAsync {
             mem,
             generations_per_update_log2: None,
             topology: Topology::Unbounded,
+            blank_nodes: BlankNodes::new(),
         }
     }
 
@@ -396,6 +393,7 @@ impl GoLEngine for HashLifeEngineAsync {
         }
         self.size_log2 = size_log2;
         self.mem.clear();
+        self.blank_nodes.clear();
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), pattern, &self.mem, &mut cache);
@@ -405,10 +403,10 @@ impl GoLEngine for HashLifeEngineAsync {
     }
 
     fn current_state(&self) -> Pattern {
-        fn inner(
+        fn inner<Extra: Default>(
             idx: NodeIdx,
             size_log2: u32,
-            mem: &MemoryManager,
+            mem: &MemoryManager<Extra>,
             pattern: &mut Pattern,
             cache: &mut HashMap<NodeIdx, u32>,
         ) -> u32 {
@@ -453,23 +451,22 @@ impl GoLEngine for HashLifeEngineAsync {
 
         let frames_cnt = (generations_log2 + 2).max(self.size_log2 + 1) - self.size_log2;
         let (mut dx, mut dy) = (BigInt::ZERO, BigInt::ZERO);
-        let mut blank_nodes = BlankNodes::new();
         for _ in 0..frames_cnt {
-            self.add_frame(&mut dx, &mut dy, &mut blank_nodes);
+            self.add_frame(&mut dx, &mut dy);
         }
 
-        {
+        self.root = {
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             let threads = WORKER_THREADS.load(Ordering::Relaxed);
             if threads > 0 {
                 builder.worker_threads(WORKER_THREADS.load(Ordering::Relaxed) as usize);
             }
 
-            self.root = builder
+            builder
                 .build()
                 .unwrap()
-                .block_on(async { self.update_node(self.root, self.size_log2).await });
-        }
+                .block_on(async { self.update_node(self.root, self.size_log2).await })
+        };
         if self.mem.poisoned() {
             self.load_pattern(&backup, self.topology)?;
             return Err(anyhow!(
@@ -488,7 +485,7 @@ impl GoLEngine for HashLifeEngineAsync {
                 }
             }
             Topology::Unbounded => {
-                while self.has_blank_frame(&mut blank_nodes) {
+                while self.has_blank_frame() {
                     self.pop_frame(&mut dx, &mut dy);
                 }
             }
@@ -500,6 +497,7 @@ impl GoLEngine for HashLifeEngineAsync {
     fn run_gc(&mut self) {
         let pattern = self.current_state();
         self.mem.clear();
+        self.blank_nodes.clear();
         let mut cache = HashMap::new();
         self.root =
             Self::from_pattern_recursive(pattern.get_root(), &pattern, &self.mem, &mut cache);
@@ -522,7 +520,7 @@ mod tests {
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();
-            let mut engine = HashLifeEngineAsync::new(1);
+            let mut engine = HashLifeEngineAsync::<()>::new(1);
             engine.load_pattern(&original, Topology::Unbounded).unwrap();
             let converted = engine.current_state();
 

@@ -8,7 +8,7 @@ pub(super) struct NodeIdx(pub(super) u32);
 ///
 /// If the node is a leaf, `nw` and `ne` are the data.
 #[derive(Debug, Default)]
-pub(super) struct QuadTreeNode {
+pub(super) struct QuadTreeNode<Extra> {
     pub(super) nw: NodeIdx,
     pub(super) ne: NodeIdx,
     pub(super) sw: NodeIdx,
@@ -19,10 +19,10 @@ pub(super) struct QuadTreeNode {
     pub(super) is_leaf: bool,
     pub(super) is_used: bool,
     pub(super) lock: AtomicBool,
-    // pub(super) extra: Extra, // extra information for engine: () for hashlife and u64 for streamlife // TODO
+    pub(super) extra: Extra, // extra information for engine: () for hashlife and u64 for streamlife
 }
 
-impl QuadTreeNode {
+impl<Extra> QuadTreeNode<Extra> {
     pub(super) const STATUS_NOT_CACHED: u8 = 0;
     pub(super) const STATUS_PROCESSING: u8 = 1;
     pub(super) const STATUS_CACHED: u8 = 2;

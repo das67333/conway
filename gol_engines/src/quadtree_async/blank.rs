@@ -9,15 +9,24 @@ impl BlankNodes {
         Self { data: vec![] }
     }
 
-    pub(super) fn get(&mut self, size_log2: u32, mem: &MemoryManager) -> NodeIdx {
+    pub(super) fn get<Extra: Default>(
+        &mut self,
+        size_log2: u32,
+        mem: &MemoryManager<Extra>,
+    ) -> NodeIdx {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
-        while self.data.len() <= i {
-            if let Some(&b) = self.data.last() {
-                self.data.push(mem.find_or_create_node(b, b, b, b));
+        let v = &mut self.data;
+        while v.len() <= i {
+            if let Some(&b) = v.last() {
+                v.push(mem.find_or_create_node(b, b, b, b));
             } else {
-                self.data.push(mem.find_or_create_leaf_from_u64(0));
+                v.push(mem.find_or_create_leaf_from_u64(0));
             };
         }
-        self.data[i]
+        v[i]
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.data.clear();
     }
 }

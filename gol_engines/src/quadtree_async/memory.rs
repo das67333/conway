@@ -6,13 +6,13 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub(super) struct MemoryManager {
-    base: UnsafeCell<MemoryManagerRaw>,
+pub(super) struct MemoryManager<Extra> {
+    base: UnsafeCell<MemoryManagerRaw<Extra>>,
 }
 
-unsafe impl Sync for MemoryManager {}
+unsafe impl<Extra> Sync for MemoryManager<Extra> {}
 
-impl MemoryManager {
+impl<Extra: Default> MemoryManager<Extra> {
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     pub(super) fn with_capacity(cap_log2: u32) -> Self {
         Self {
@@ -21,12 +21,12 @@ impl MemoryManager {
     }
 
     /// Get a const reference to the node at the given index.
-    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    pub(super) fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Extra> {
         unsafe { (*self.base.get()).get(idx) }
     }
 
     /// Get a mutable reference to the node at the given index.
-    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode {
+    pub(super) fn get_mut(&self, idx: NodeIdx) -> &mut QuadTreeNode<Extra> {
         unsafe { (*self.base.get()).get_mut(idx) }
     }
 
@@ -81,7 +81,7 @@ impl MemoryManager {
         let nw = NodeIdx(u32::from_le_bytes(cells[0..4].try_into().unwrap()));
         let ne = NodeIdx(u32::from_le_bytes(cells[4..8].try_into().unwrap()));
         let [sw, se] = [NodeIdx::default(); 2];
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, true) }
     }
 
@@ -94,7 +94,7 @@ impl MemoryManager {
         sw: NodeIdx,
         se: NodeIdx,
     ) -> NodeIdx {
-        let hash = QuadTreeNode::hash(nw, ne, sw, se);
+        let hash = QuadTreeNode::<Extra>::hash(nw, ne, sw, se);
         unsafe { (*self.base.get()).find_or_create_inner(nw, ne, sw, se, hash, false) }
     }
 
@@ -121,16 +121,16 @@ impl MemoryManager {
 }
 
 /// Hashtable that stores nodes of the quadtree
-struct MemoryManagerRaw {
+struct MemoryManagerRaw<Extra> {
     /// buffer where heads of linked lists are stored
-    hashtable: Vec<QuadTreeNode>,
+    hashtable: Vec<QuadTreeNode<Extra>>,
     /// statistics managing poisoning and spawning async tasks
     stats: ExecutionStatistics,
     /// if true, the hashtable is poisoned and should be restored from the backup
     poisoned: AtomicBool,
 }
 
-impl MemoryManagerRaw {
+impl<Extra: Default> MemoryManagerRaw<Extra> {
     /// Create a new memory manager with a capacity of `1 << cap_log2`.
     fn with_capacity(cap_log2: u32) -> Self {
         assert!(
@@ -148,13 +148,13 @@ impl MemoryManagerRaw {
 
     /// Get a const reference to the node at the given index.
     #[inline]
-    fn get(&self, idx: NodeIdx) -> &QuadTreeNode {
+    fn get(&self, idx: NodeIdx) -> &QuadTreeNode<Extra> {
         unsafe { self.hashtable.get_unchecked(idx.0 as usize) }
     }
 
     /// Get a mutable reference to the node at the given index.
     #[inline]
-    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode {
+    fn get_mut(&mut self, idx: NodeIdx) -> &mut QuadTreeNode<Extra> {
         unsafe { self.hashtable.get_unchecked_mut(idx.0 as usize) }
     }
 
@@ -236,6 +236,6 @@ impl MemoryManagerRaw {
     }
 
     fn bytes_total(&self) -> usize {
-        self.hashtable.len() * std::mem::size_of::<QuadTreeNode>()
+        self.hashtable.len() * std::mem::size_of::<QuadTreeNode<Extra>>()
     }
 }

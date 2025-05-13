@@ -1,15 +1,12 @@
 use super::{MemoryManager, NodeIdx, LEAF_SIZE_LOG2};
-use std::cell::UnsafeCell;
 
 pub(super) struct BlankNodes {
-    data: UnsafeCell<Vec<NodeIdx>>,
+    data: Vec<NodeIdx>,
 }
 
 impl BlankNodes {
     pub(super) fn new() -> Self {
-        Self {
-            data: UnsafeCell::new(vec![]),
-        }
+        Self { data: vec![] }
     }
 
     pub(super) fn get<Extra: Clone + Default>(
@@ -18,7 +15,7 @@ impl BlankNodes {
         mem: &MemoryManager<Extra>,
     ) -> NodeIdx {
         let i = (size_log2 - LEAF_SIZE_LOG2) as usize;
-        let v = unsafe { &mut *self.data.get() };
+        let v = &mut self.data;
         while v.len() <= i {
             if let Some(&b) = v.last() {
                 v.push(mem.find_or_create_node(b, b, b, b));
@@ -30,6 +27,6 @@ impl BlankNodes {
     }
 
     pub(super) fn clear(&mut self) {
-        unsafe { (*self.data.get()).clear() }
+        self.data.clear();
     }
 }
