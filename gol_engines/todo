@@ -1,6 +1,0 @@
-low priority:
-- multiversion dependencies
-- remove NiceInt
-- docs
-- exhaustive tests
-
