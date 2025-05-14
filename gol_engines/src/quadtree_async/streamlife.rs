@@ -1,10 +1,9 @@
-use std::sync::atomic::Ordering;
-
 use super::{hashlife::HashLifeEngineAsync, NodeIdx, LEAF_SIZE_LOG2};
 use crate::{GoLEngine, Pattern, Topology, WORKER_THREADS};
-use ahash::AHashMap as HashMap;
 use anyhow::{anyhow, Result};
+use dashmap::DashMap;
 use num_bigint::BigInt;
+use std::sync::atomic::Ordering;
 
 type MemoryManager = super::MemoryManager<u64>;
 
@@ -13,7 +12,7 @@ pub struct StreamLifeEngineAsync {
     base: HashLifeEngineAsync<u64>,
     // streamlife-specific
     biroot: Option<(NodeIdx, NodeIdx)>,
-    bicache: HashMap<(NodeIdx, NodeIdx), (NodeIdx, NodeIdx)>,
+    bicache: DashMap<(NodeIdx, NodeIdx), (NodeIdx, NodeIdx)>,
 }
 
 impl StreamLifeEngineAsync {
@@ -266,53 +265,6 @@ impl StreamLifeEngineAsync {
         (((lanes1 >> 4) & lanes2) | ((lanes2 >> 4) & lanes1)) & 15 != 0
     }
 
-    fn fourchildren(&mut self, frags: &[NodeIdx; 9]) -> [NodeIdx; 4] {
-        [
-            self.base
-                .mem
-                .find_or_create_node(frags[0], frags[1], frags[3], frags[4]),
-            self.base
-                .mem
-                .find_or_create_node(frags[1], frags[2], frags[4], frags[5]),
-            self.base
-                .mem
-                .find_or_create_node(frags[3], frags[4], frags[6], frags[7]),
-            self.base
-                .mem
-                .find_or_create_node(frags[4], frags[5], frags[7], frags[8]),
-        ]
-    }
-
-    fn ninechildren(&mut self, idx: NodeIdx) -> [NodeIdx; 9] {
-        let [nw, ne, sw, se] = {
-            let n = self.base.mem.get(idx);
-            [n.nw, n.ne, n.sw, n.se]
-        };
-        let [nw_, ne_, sw_, se_] = [nw, ne, sw, se].map(|x| self.base.mem.get(x));
-
-        [
-            nw,
-            self.base
-                .mem
-                .find_or_create_node(nw_.ne, ne_.nw, nw_.se, ne_.sw),
-            ne,
-            self.base
-                .mem
-                .find_or_create_node(nw_.sw, nw_.se, sw_.nw, sw_.ne),
-            self.base
-                .mem
-                .find_or_create_node(nw_.se, ne_.sw, sw_.ne, se_.nw),
-            self.base
-                .mem
-                .find_or_create_node(ne_.sw, ne_.se, se_.nw, se_.ne),
-            sw,
-            self.base
-                .mem
-                .find_or_create_node(sw_.ne, se_.nw, sw_.se, se_.sw),
-            se,
-        ]
-    }
-
     fn merge_universes(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> NodeIdx {
         if idx.1 == self.base.blank_nodes.get(size_log2, &self.base.mem) {
             return idx.0;
@@ -334,11 +286,14 @@ impl StreamLifeEngineAsync {
         }
     }
 
-    async fn iterate_recurse(
+    async fn update_binode(
         &mut self,
         idx: (NodeIdx, NodeIdx),
         size_log2: u32,
     ) -> (NodeIdx, NodeIdx) {
+        // let p = self.bicache.entry(idx).or_insert_with(|| {
+        //     tokio::sync::OnceCell::new()
+        // });
         if self.is_solitonic(idx, size_log2) {
             let i1 = self.base.update_node_async(idx.0, size_log2).await;
             let i2 = self.base.update_node_async(idx.1, size_log2).await;
@@ -383,49 +338,46 @@ impl StreamLifeEngineAsync {
             }
         } else {
             Box::pin(async {
-                let mut ch91 = self.ninechildren(idx.0);
-                let mut ch92 = self.ninechildren(idx.1);
-
                 let both_stages = self.base.generations_per_update_log2.unwrap() + 2 >= size_log2;
 
-                for i in 0..9 {
-                    if !both_stages {
-                        let update_node_null = |node: NodeIdx| -> NodeIdx {
-                            let n = self.base.mem.get(node);
-                            let nwse = self.base.mem.get(n.nw).se;
-                            let nesw = self.base.mem.get(n.ne).sw;
-                            let swne = self.base.mem.get(n.sw).ne;
-                            let senw = self.base.mem.get(n.se).nw;
-                            self.base.mem.find_or_create_node(nwse, nesw, swne, senw)
-                        };
-
-                        ch91[i] = update_node_null(ch91[i]);
-                        ch92[i] = update_node_null(ch92[i]);
-                    } else {
-                        (ch91[i], ch92[i]) = self
-                            .iterate_recurse((ch91[i], ch92[i]), size_log2 - 1)
-                            .await;
+                let (mut arr90, mut arr91);
+                if both_stages {
+                    let n0 = self.base.mem.get(idx.0);
+                    arr90 = self
+                        .base
+                        .nine_children_overlapping(n0.nw, n0.ne, n0.sw, n0.se);
+                    let n1 = self.base.mem.get(idx.1);
+                    arr91 = self
+                        .base
+                        .nine_children_overlapping(n1.nw, n1.ne, n1.sw, n1.se);
+                    for (l, r) in arr90.iter_mut().zip(arr91.iter_mut()) {
+                        (*l, *r) = self.update_binode((*l, *r), size_log2 - 1).await;
                     }
+                } else {
+                    let n0 = self.base.mem.get(idx.0);
+                    arr90 =
+                        self.base
+                            .nine_children_disjoint(n0.nw, n0.ne, n0.sw, n0.se, size_log2 - 1);
+                    let n1 = self.base.mem.get(idx.1);
+                    arr91 =
+                        self.base
+                            .nine_children_disjoint(n1.nw, n1.ne, n1.sw, n1.se, size_log2 - 1);
                 }
 
-                let mut ch41 = self.fourchildren(&ch91);
-                let mut ch42 = self.fourchildren(&ch92);
+                let mut arr40 = self.base.four_children_overlapping(&arr90);
+                let mut arr41 = self.base.four_children_overlapping(&arr91);
 
-                for i in 0..4 {
-                    let fh = self
-                        .iterate_recurse((ch41[i], ch42[i]), size_log2 - 1)
-                        .await;
-                    ch41[i] = fh.0;
-                    ch42[i] = fh.1;
+                for (l, r) in arr40.iter_mut().zip(arr41.iter_mut()) {
+                    (*l, *r) = self.update_binode((*l, *r), size_log2 - 1).await;
                 }
 
                 let res = (
                     self.base
                         .mem
-                        .find_or_create_node(ch41[0], ch41[1], ch41[2], ch41[3]),
+                        .find_or_create_node(arr40[0], arr40[1], arr40[2], arr40[3]),
                     self.base
                         .mem
-                        .find_or_create_node(ch42[0], ch42[1], ch42[2], ch42[3]),
+                        .find_or_create_node(arr41[0], arr41[1], arr41[2], arr41[3]),
                 );
                 self.bicache.insert(idx, res);
                 res
@@ -465,7 +417,7 @@ impl GoLEngine for StreamLifeEngineAsync {
         Self {
             base: HashLifeEngineAsync::new(mem_limit_mib),
             biroot: None,
-            bicache: HashMap::new(),
+            bicache: DashMap::new(),
         }
     }
 
@@ -497,6 +449,7 @@ impl GoLEngine for StreamLifeEngineAsync {
 
         let biroot = self.biroot.unwrap_or((
             self.base.root,
+            // it guarantees that self.base.blank_nodes doesn't mutate during the update
             self.base
                 .blank_nodes
                 .get(self.base.size_log2, &self.base.mem),
@@ -511,7 +464,7 @@ impl GoLEngine for StreamLifeEngineAsync {
             builder
                 .build()
                 .unwrap()
-                .block_on(async { self.iterate_recurse(biroot, self.base.size_log2).await })
+                .block_on(async { self.update_binode(biroot, self.base.size_log2).await })
         };
         if self.base.mem.poisoned() {
             self.load_pattern(&backup, self.base.topology)?;
@@ -558,9 +511,11 @@ impl GoLEngine for StreamLifeEngineAsync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     const SEED: u64 = 42;
 
     #[test]
+    #[serial]
     fn test_pattern_roundtrip() {
         for size_log2 in 3..10 {
             let original = Pattern::random(size_log2, Some(SEED)).unwrap();

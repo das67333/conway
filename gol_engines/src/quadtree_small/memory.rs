@@ -1,5 +1,4 @@
 use super::{ChunkVec, NodeIdx, QuadTreeNode, LEAF_SIZE_LOG2};
-use crate::NiceInt;
 
 const CHUNK_SIZE: usize = 1 << 13;
 
@@ -298,18 +297,18 @@ impl<Extra: Clone + Default> MemoryManager<Extra> {
         self.layers.iter().map(|m| m.bytes_total()).sum::<usize>()
     }
 
-    /// Get statistics of the memory manager.
+    #[allow(dead_code)]
     pub(super) fn stats_fast(&self) -> String {
         let mut s = String::new();
 
         s += &format!(
             "Memory spent on kivtables: {} MB\n",
-            NiceInt::from_usize(self.bytes_total() >> 20),
+            self.bytes_total() >> 20,
         );
 
         let nodes_total = self.layers.iter().map(|m| m.len()).sum::<usize>();
         s += "Nodes' sizes (side lengths) distribution:\n";
-        s += &format!("total - {}\n", NiceInt::from_usize(nodes_total));
+        s += &format!("total - {}\n", nodes_total);
         for (i, m) in self.layers.iter().enumerate() {
             let percent = m.len() * 100 / nodes_total;
             if percent == 0 {

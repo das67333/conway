@@ -264,23 +264,6 @@ impl StreamLifeEngineSync {
         (((lanes1 >> 4) & lanes2) | ((lanes2 >> 4) & lanes1)) & 15 != 0
     }
 
-    fn fourchildren(&mut self, frags: &[NodeIdx; 9]) -> [NodeIdx; 4] {
-        [
-            self.base
-                .mem
-                .find_or_create_node(frags[0], frags[1], frags[3], frags[4]),
-            self.base
-                .mem
-                .find_or_create_node(frags[1], frags[2], frags[4], frags[5]),
-            self.base
-                .mem
-                .find_or_create_node(frags[3], frags[4], frags[6], frags[7]),
-            self.base
-                .mem
-                .find_or_create_node(frags[4], frags[5], frags[7], frags[8]),
-        ]
-    }
-
     fn ninechildren(&mut self, idx: NodeIdx) -> [NodeIdx; 9] {
         let [nw, ne, sw, se] = {
             let n = self.base.mem.get(idx);
@@ -331,7 +314,7 @@ impl StreamLifeEngineSync {
         }
     }
 
-    fn iterate_recurse(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> (NodeIdx, NodeIdx) {
+    fn update_binode(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> (NodeIdx, NodeIdx) {
         if self.is_solitonic(idx, size_log2) {
             let i1 = self.base.update_node(idx.0, size_log2);
             let i2 = self.base.update_node(idx.1, size_log2);
@@ -394,15 +377,15 @@ impl StreamLifeEngineSync {
                     ch91[i] = update_node_null(ch91[i]);
                     ch92[i] = update_node_null(ch92[i]);
                 } else {
-                    (ch91[i], ch92[i]) = self.iterate_recurse((ch91[i], ch92[i]), size_log2 - 1);
+                    (ch91[i], ch92[i]) = self.update_binode((ch91[i], ch92[i]), size_log2 - 1);
                 }
             }
 
-            let mut ch41 = self.fourchildren(&ch91);
-            let mut ch42 = self.fourchildren(&ch92);
+            let mut ch41 = self.base.four_children_overlapping(&ch91);
+            let mut ch42 = self.base.four_children_overlapping(&ch92);
 
             for i in 0..4 {
-                let fh = self.iterate_recurse((ch41[i], ch42[i]), size_log2 - 1);
+                let fh = self.update_binode((ch41[i], ch42[i]), size_log2 - 1);
                 ch41[i] = fh.0;
                 ch42[i] = fh.1;
             }
@@ -487,7 +470,7 @@ impl GoLEngine for StreamLifeEngineSync {
                 .blank_nodes
                 .get(self.base.size_log2, &self.base.mem),
         ));
-        let biroot = self.iterate_recurse(biroot, self.base.size_log2);
+        let biroot = self.update_binode(biroot, self.base.size_log2);
         if self.base.mem.poisoned() {
             self.load_pattern(&backup, self.base.topology)?;
             return Err(anyhow!(

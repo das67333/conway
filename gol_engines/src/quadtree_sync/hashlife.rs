@@ -123,7 +123,8 @@ impl<Extra: Clone + Default> HashLifeEngineSync<Extra> {
         })
     }
 
-    fn four_children_overlapping(&self, arr: &[NodeIdx; 9]) -> [NodeIdx; 4] {
+    #[inline]
+    pub(super) fn four_children_overlapping(&self, arr: &[NodeIdx; 9]) -> [NodeIdx; 4] {
         [
             self.mem.find_or_create_node(arr[0], arr[1], arr[3], arr[4]),
             self.mem.find_or_create_node(arr[1], arr[2], arr[4], arr[5]),

@@ -272,36 +272,20 @@ impl StreamLifeEngineSmall {
         (((lanes1 >> 4) & lanes2) | ((lanes2 >> 4) & lanes1)) & 15 != 0
     }
 
-    fn fourchildren(&mut self, frags: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
+    fn four_children_overlapping(&mut self, arr: &[NodeIdx; 9], size_log2: u32) -> [NodeIdx; 4] {
         [
-            self.base.mem.find_or_create_node(
-                frags[0],
-                frags[1],
-                frags[3],
-                frags[4],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[1],
-                frags[2],
-                frags[4],
-                frags[5],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[3],
-                frags[4],
-                frags[6],
-                frags[7],
-                size_log2 + 1,
-            ),
-            self.base.mem.find_or_create_node(
-                frags[4],
-                frags[5],
-                frags[7],
-                frags[8],
-                size_log2 + 1,
-            ),
+            self.base
+                .mem
+                .find_or_create_node(arr[0], arr[1], arr[3], arr[4], size_log2 + 1),
+            self.base
+                .mem
+                .find_or_create_node(arr[1], arr[2], arr[4], arr[5], size_log2 + 1),
+            self.base
+                .mem
+                .find_or_create_node(arr[3], arr[4], arr[6], arr[7], size_log2 + 1),
+            self.base
+                .mem
+                .find_or_create_node(arr[4], arr[5], arr[7], arr[8], size_log2 + 1),
         ]
     }
 
@@ -356,7 +340,7 @@ impl StreamLifeEngineSmall {
         }
     }
 
-    fn iterate_recurse(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> (NodeIdx, NodeIdx) {
+    fn update_binode(&mut self, idx: (NodeIdx, NodeIdx), size_log2: u32) -> (NodeIdx, NodeIdx) {
         if self.is_solitonic(idx, size_log2) {
             let i1 = self.base.update_node(idx.0, size_log2);
             let i2 = self.base.update_node(idx.1, size_log2);
@@ -415,15 +399,15 @@ impl StreamLifeEngineSmall {
                     ch91[i] = update_node_null(ch91[i], size_log2 - 1);
                     ch92[i] = update_node_null(ch92[i], size_log2 - 1);
                 } else {
-                    (ch91[i], ch92[i]) = self.iterate_recurse((ch91[i], ch92[i]), size_log2 - 1);
+                    (ch91[i], ch92[i]) = self.update_binode((ch91[i], ch92[i]), size_log2 - 1);
                 }
             }
 
-            let mut ch41 = self.fourchildren(&ch91, size_log2 - 2);
-            let mut ch42 = self.fourchildren(&ch92, size_log2 - 2);
+            let mut ch41 = self.four_children_overlapping(&ch91, size_log2 - 2);
+            let mut ch42 = self.four_children_overlapping(&ch92, size_log2 - 2);
 
             for i in 0..4 {
-                let fh = self.iterate_recurse((ch41[i], ch42[i]), size_log2 - 1);
+                let fh = self.update_binode((ch41[i], ch42[i]), size_log2 - 1);
                 ch41[i] = fh.0;
                 ch42[i] = fh.1;
             }
@@ -514,7 +498,7 @@ impl GoLEngine for StreamLifeEngineSmall {
         }
 
         let biroot = self.biroot.unwrap_or((self.base.root, NodeIdx(0)));
-        let biroot = self.iterate_recurse(biroot, self.base.size_log2);
+        let biroot = self.update_binode(biroot, self.base.size_log2);
         self.base.size_log2 -= 1;
         self.biroot = Some(biroot);
         self.base.root = self.merge_universes(biroot, self.base.size_log2);

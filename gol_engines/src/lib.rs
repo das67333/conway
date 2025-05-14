@@ -7,7 +7,6 @@ mod quadtree_sync;
 mod simd;
 mod topology;
 mod traits;
-mod utils;
 
 pub use pattern::{Pattern, PatternFormat, PatternNode};
 pub use topology::Topology;
@@ -17,7 +16,6 @@ pub use quadtree_async::{HashLifeEngineAsync, StreamLifeEngineAsync};
 pub use quadtree_small::{HashLifeEngineSmall, StreamLifeEngineSmall};
 pub use quadtree_sync::{HashLifeEngineSync, StreamLifeEngineSync};
 pub use simd::SIMDEngine;
-pub use utils::NiceInt;
 
 pub type DefaultEngine = SIMDEngine;
 
